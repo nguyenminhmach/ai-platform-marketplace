@@ -230,8 +230,8 @@ const ICON_CONFIG: Record<
     ),
   },
   "file-text": {
-    bg: "bg-sky-50 dark:bg-sky-950/40",
-    iconColor: "text-sky-600 dark:text-sky-400",
+    bg: "bg-emerald-50 dark:bg-emerald-950/40",
+    iconColor: "text-emerald-600 dark:text-emerald-400",
     path: (
       <>
         <path d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z" />
@@ -240,8 +240,8 @@ const ICON_CONFIG: Record<
     ),
   },
   caption: {
-    bg: "bg-violet-50 dark:bg-violet-950/40",
-    iconColor: "text-violet-600 dark:text-violet-400",
+    bg: "bg-cyan-50 dark:bg-cyan-950/40",
+    iconColor: "text-cyan-600 dark:text-cyan-400",
     path: <path d="M21 11.5a8.5 8.5 0 01-11.8 7.8L3 21l1.8-6A8.5 8.5 0 1121 11.5z" />,
   },
   translate: {
