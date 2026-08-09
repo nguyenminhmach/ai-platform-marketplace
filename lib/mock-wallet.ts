@@ -10,6 +10,7 @@ export const CREDIT_PACKAGES: CreditPackage[] = [
   { id: "goi-vua", credits: 300, priceVnd: 129000, isBestValue: true },
   { id: "goi-lon", credits: 1000, priceVnd: 399000 },
   { id: "goi-doanh-nghiep", credits: 5000, priceVnd: 1799000 },
+  { id: "goi-video", credits: 15000, priceVnd: 4999000 },
 ];
 
 export type WalletTransaction = {

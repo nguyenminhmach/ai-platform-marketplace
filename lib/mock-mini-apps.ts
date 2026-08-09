@@ -3,12 +3,12 @@ export type MiniApp = {
   name: string;
   description: string;
   category: "anh" | "van-ban" | "video" | "am-thanh";
-  icon: "photo" | "file-text" | "caption" | "translate" | "sentiment" | "sparkles";
+  icon: "photo" | "file-text" | "caption" | "translate" | "sentiment" | "sparkles" | "film";
   creditCost: number;
   popular?: boolean;
   isNew?: boolean;
-  inputType: "text" | "image" | "image-gen";
-  outputType?: "text" | "image";
+  inputType: "text" | "image" | "image-gen" | "video-gen";
+  outputType?: "text" | "image" | "video";
   inputLabel: string;
   inputPlaceholder: string;
   demoInput: string;
@@ -107,6 +107,23 @@ export const MINI_APPS: MiniApp[] = [
     inputPlaceholder: "Ví dụ: đặt sản phẩm lên nền gỗ sang trọng, ánh sáng studio ấm, phong cách cao cấp",
     demoInput: "Đặt thỏi son lên nền đá cẩm thạch trắng, ánh sáng studio, phong cách cao cấp",
     demoOutput: "Ảnh sản phẩm mới giữ đúng hình dáng và màu sắc thỏi son, đặt trên nền đá cẩm thạch sang trọng.",
+    usageCount: 0,
+    rating: 5.0,
+  },
+  {
+    id: "tao-video-quang-cao",
+    name: "Tạo video quảng cáo ngắn",
+    description: "Mô tả cảnh muốn tạo, có thể thêm ảnh khung hình đầu/cuối, AI tạo video ngắn 4-5 giây.",
+    category: "video",
+    icon: "film",
+    creditCost: 400,
+    isNew: true,
+    inputType: "video-gen",
+    outputType: "video",
+    inputLabel: "Mô tả video muốn tạo",
+    inputPlaceholder: "Ví dụ: sản phẩm xoay tròn trên bàn, ánh sáng studio, chuyển động mượt",
+    demoInput: "Chai nước hoa xoay tròn chậm trên nền đen, ánh sáng lung linh",
+    demoOutput: "Video 4 giây, chai nước hoa xoay 360 độ mượt mà, ánh sáng phản chiếu đẹp.",
     usageCount: 0,
     rating: 5.0,
   },

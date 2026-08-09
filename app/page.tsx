@@ -220,6 +220,16 @@ const ICON_CONFIG: Record<
       </>
     ),
   },
+  film: {
+    bg: "bg-indigo-50 dark:bg-indigo-950/40",
+    iconColor: "text-indigo-600 dark:text-indigo-400",
+    path: (
+      <>
+        <rect x="2" y="5" width="14" height="14" rx="2" />
+        <path d="M16 10l6-3v10l-6-3" />
+      </>
+    ),
+  },
 };
 
 function MiniAppCard({ app }: { app: MiniApp }) {

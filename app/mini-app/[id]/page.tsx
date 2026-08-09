@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CATEGORIES, MINI_APPS } from "@/lib/mock-mini-apps";
 import { BalanceBadge } from "@/components/BalanceBadge";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -16,10 +16,20 @@ export default function MiniAppDetailPage() {
   const [input, setInput] = useState("");
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [endFrameDataUrl, setEndFrameDataUrl] = useState<string | null>(null);
+  const [endFrameError, setEndFrameError] = useState<string | null>(null);
   const [textFileError, setTextFileError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [videoStatusText, setVideoStatusText] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
+  }, []);
 
   if (!app) {
     return (
@@ -53,6 +63,26 @@ export default function MiniAppDetailPage() {
 
     const reader = new FileReader();
     reader.onload = () => setImageDataUrl(reader.result as string);
+    reader.readAsDataURL(file);
+  }
+
+  function handleEndFrameFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    setEndFrameError(null);
+    if (!file.type.startsWith("image/")) {
+      setEndFrameError("Chỉ nhận file ảnh (JPG, PNG, WEBP...)");
+      return;
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      setEndFrameError("Ảnh tối đa 4MB, anh chọn ảnh nhỏ hơn giúp em nhé");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => setEndFrameDataUrl(reader.result as string);
     reader.readAsDataURL(file);
   }
 
@@ -100,6 +130,67 @@ export default function MiniAppDetailPage() {
       setRunError("Không kết nối được tới server");
     } finally {
       setIsRunning(false);
+    }
+  }
+
+  function pollVideoStatus(jobId: number) {
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/video/status?jobId=${jobId}`);
+        const data = await res.json();
+
+        if (data.status === "done" && data.outputUrl) {
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          setResult(data.outputUrl);
+          setIsRunning(false);
+          setVideoStatusText(null);
+        } else if (data.status === "failed") {
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          setRunError(data.errorMessage ?? "Tạo video thất bại, credit đã được hoàn");
+          setIsRunning(false);
+          setVideoStatusText(null);
+        }
+      } catch {
+        // bỏ qua lỗi mạng tạm thời, vòng poll tiếp theo sẽ thử lại
+      }
+    }, 4000);
+  }
+
+  async function handleRunVideo() {
+    if (!user || !app) return;
+    setIsRunning(true);
+    setResult(null);
+    setRunError(null);
+    setVideoStatusText("Đang gửi yêu cầu tạo video...");
+
+    try {
+      const res = await fetch("/api/video/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          miniAppId: app.id,
+          userId: user.id,
+          prompt: input,
+          startFrameDataUrl: imageDataUrl,
+          endFrameDataUrl,
+        }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setRunError(data.error ?? "Có lỗi xảy ra");
+        setIsRunning(false);
+        setVideoStatusText(null);
+        return;
+      }
+
+      window.dispatchEvent(new Event("balance-updated"));
+      setVideoStatusText("Đang xử lý video, có thể mất vài phút — anh có thể rời trang, quay lại vẫn thấy kết quả...");
+      pollVideoStatus(data.jobId);
+    } catch {
+      setRunError("Không kết nối được tới server");
+      setIsRunning(false);
+      setVideoStatusText(null);
     }
   }
 
@@ -235,6 +326,66 @@ export default function MiniAppDetailPage() {
               )}
               {imageError && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{imageError}</p>}
             </div>
+          ) : app.inputType === "video-gen" ? (
+            <div className="mb-4">
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder={app.inputPlaceholder}
+                rows={3}
+                className="mb-3 w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+              />
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                    Ảnh khung hình đầu (không bắt buộc)
+                  </p>
+                  {imageDataUrl ? (
+                    <div className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={imageDataUrl} alt="Ảnh khung hình đầu" className="h-16 w-16 rounded-md object-cover" />
+                      <button
+                        onClick={() => setImageDataUrl(null)}
+                        className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                      >
+                        Xóa
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 py-5 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                      <span className="mb-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">Bấm để tải ảnh</span>
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400">tối đa 4MB</span>
+                      <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+                    </label>
+                  )}
+                  {imageError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{imageError}</p>}
+                </div>
+                <div>
+                  <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                    Ảnh khung hình cuối (không bắt buộc)
+                  </p>
+                  {endFrameDataUrl ? (
+                    <div className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={endFrameDataUrl} alt="Ảnh khung hình cuối" className="h-16 w-16 rounded-md object-cover" />
+                      <button
+                        onClick={() => setEndFrameDataUrl(null)}
+                        className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                      >
+                        Xóa
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 py-5 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                      <span className="mb-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">Bấm để tải ảnh</span>
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400">tối đa 4MB</span>
+                      <input type="file" accept="image/*" onChange={handleEndFrameFileChange} className="hidden" />
+                    </label>
+                  )}
+                  {endFrameError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{endFrameError}</p>}
+                </div>
+              </div>
+            </div>
           ) : (
             <div className="mb-4">
               <textarea
@@ -267,13 +418,17 @@ export default function MiniAppDetailPage() {
                 Thao tác này sẽ trừ <strong className="text-zinc-900 dark:text-zinc-50">{app.creditCost} credit</strong>
               </span>
               <button
-                onClick={handleRun}
+                onClick={app.inputType === "video-gen" ? handleRunVideo : handleRun}
                 disabled={isRunning || (app.inputType === "image" ? !imageDataUrl : input.trim() === "")}
                 className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
                 {isRunning ? "Đang xử lý..." : "Chạy ngay"}
               </button>
             </div>
+          )}
+
+          {videoStatusText && (
+            <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{videoStatusText}</p>
           )}
 
           {runError && (
@@ -286,11 +441,13 @@ export default function MiniAppDetailPage() {
               {app.outputType === "image" ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={result} alt="Ảnh do AI tạo" className="w-full max-w-md rounded-lg" />
+              ) : app.outputType === "video" ? (
+                <video src={result} controls className="w-full max-w-md rounded-lg" />
               ) : (
                 <p className="text-sm text-zinc-800 dark:text-zinc-200">{result}</p>
               )}
               <div className="mt-3 flex gap-2">
-                {app.outputType === "image" ? (
+                {app.outputType === "image" || app.outputType === "video" ? (
                   <a
                     href={result}
                     download
@@ -310,6 +467,8 @@ export default function MiniAppDetailPage() {
                     setResult(null);
                     setInput("");
                     setImageDataUrl(null);
+                    setEndFrameDataUrl(null);
+                    setVideoStatusText(null);
                   }}
                   className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
                 >
