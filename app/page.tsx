@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CATEGORIES, MINI_APPS, type MiniApp } from "@/lib/mock-mini-apps";
 import { BalanceBadge } from "@/components/BalanceBadge";
 import { Footer } from "@/components/Footer";
+import { Sidebar } from "@/components/Sidebar";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAuth } from "@/lib/auth-context";
 
@@ -16,12 +17,27 @@ const CATEGORY_FILTERS: Array<{ key: MiniApp["category"] | "tat-ca"; label: stri
   { key: "am-thanh", label: "Âm thanh" },
 ];
 
+const QUICK_CHIPS: Array<{ label: string; query: string }> = [
+  { label: "Mô tả", query: "mô tả sản phẩm" },
+  { label: "Tóm tắt", query: "tóm tắt văn bản" },
+  { label: "Caption", query: "caption" },
+  { label: "Dịch", query: "dịch" },
+  { label: "Cảm xúc", query: "cảm xúc" },
+];
+
 export default function Home() {
   const { user } = useAuth();
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<MiniApp["category"] | "tat-ca">("tat-ca");
   const [signupBonusCredits, setSignupBonusCredits] = useState(20);
   const [promoBannerEnabled, setPromoBannerEnabled] = useState(true);
+  const resultsRef = useRef<HTMLDivElement>(null);
+
+  function runSearch(value: string) {
+    setQuery(value);
+    setCategory("tat-ca");
+    resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   useEffect(() => {
     fetch("/api/settings")
@@ -47,33 +63,29 @@ export default function Home() {
   const popularApps = MINI_APPS.filter((app) => app.popular);
 
   return (
-    <div className="min-h-full bg-zinc-50 dark:bg-black">
-      {/* Header + Ví credit */}
-      <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-black/80">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-6 py-4">
-          <span className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-            AI Marketplace
-          </span>
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Tìm Mini App..."
-            className="hidden w-full max-w-xs rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 sm:block"
-          />
-          <div className="flex items-center gap-3">
-            <ThemeToggle />
-            <BalanceBadge />
-            {user && (
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-100 text-sm font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-                {user.email?.[0]?.toUpperCase() ?? "A"}
-              </div>
-            )}
-          </div>
-        </div>
-      </header>
+    <div className="flex min-h-full bg-zinc-50 dark:bg-black">
+      <Sidebar />
 
-      <main className="mx-auto max-w-5xl px-6 py-10">
+      <div className="min-w-0 flex-1">
+        {/* Header + Ví credit */}
+        <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-black/80">
+          <div className="flex items-center justify-between gap-4 px-6 py-4">
+            <span className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 md:hidden">
+              AI Marketplace
+            </span>
+            <div className="ml-auto flex items-center gap-3">
+              <ThemeToggle />
+              <BalanceBadge />
+              {user && (
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-100 text-sm font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                  {user.email?.[0]?.toUpperCase() ?? "A"}
+                </div>
+              )}
+            </div>
+          </div>
+        </header>
+
+        <main className="mx-auto max-w-5xl px-6 py-10">
         {/* Banner khuyến mãi */}
         {promoBannerEnabled && (
           <section className="mb-8 flex flex-col items-start justify-between gap-4 rounded-xl bg-emerald-50 px-6 py-5 dark:bg-emerald-950/30 sm:flex-row sm:items-center">
@@ -106,7 +118,48 @@ export default function Home() {
           </p>
         </section>
 
-        {/* Bộ lọc danh mục (ô tìm kiếm đã chuyển lên header) */}
+        {/* Ô tìm Mini App dạng chat */}
+        <section className="mb-6">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              runSearch(query);
+            }}
+            className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+          >
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Ví dụ: tóm tắt đoạn văn bản này giúp tôi..."
+              className="w-full bg-transparent px-2 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-zinc-50 dark:placeholder:text-zinc-500"
+            />
+            <div className="mt-2 flex items-center justify-end border-t border-zinc-100 pt-2 dark:border-zinc-800">
+              <button
+                type="submit"
+                aria-label="Tìm Mini App"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-900 text-white transition-colors hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 19V5M5 12l7-7 7 7" />
+                </svg>
+              </button>
+            </div>
+          </form>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {QUICK_CHIPS.map((chip) => (
+              <button
+                key={chip.label}
+                onClick={() => runSearch(chip.query)}
+                className="rounded-full border border-zinc-200 px-3 py-1 text-xs font-medium text-zinc-600 transition-colors hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-50"
+              >
+                {chip.label}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {/* Bộ lọc danh mục */}
         <section className="mb-8 flex flex-wrap gap-2">
           {CATEGORY_FILTERS.map((filter) => (
             <button
@@ -138,7 +191,7 @@ export default function Home() {
         )}
 
         {/* Toàn bộ danh mục (đã lọc) */}
-        <section>
+        <section ref={resultsRef}>
           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             Tất cả Mini App
           </h2>
@@ -154,8 +207,9 @@ export default function Home() {
             </div>
           )}
         </section>
-      </main>
-      <Footer />
+        </main>
+        <Footer />
+      </div>
     </div>
   );
 }
