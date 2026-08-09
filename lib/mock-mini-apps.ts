@@ -1,0 +1,130 @@
+export type MiniApp = {
+  id: string;
+  name: string;
+  description: string;
+  category: "anh" | "van-ban" | "video" | "am-thanh";
+  icon: "photo" | "file-text" | "caption" | "translate" | "sentiment" | "sparkles";
+  creditCost: number;
+  popular?: boolean;
+  isNew?: boolean;
+  inputType: "text" | "image" | "image-gen";
+  outputType?: "text" | "image";
+  inputLabel: string;
+  inputPlaceholder: string;
+  demoInput: string;
+  demoOutput: string;
+  usageCount: number;
+  rating: number;
+};
+
+export const CATEGORIES: Record<MiniApp["category"], string> = {
+  "anh": "Ảnh",
+  "van-ban": "Văn bản",
+  "video": "Video",
+  "am-thanh": "Âm thanh",
+};
+
+export const MINI_APPS: MiniApp[] = [
+  {
+    id: "viet-mo-ta-san-pham",
+    name: "Viết mô tả sản phẩm từ ảnh",
+    description: "Tải ảnh sản phẩm lên, AI viết mô tả bán hàng hấp dẫn trong vài giây.",
+    category: "anh",
+    icon: "photo",
+    creditCost: 15,
+    popular: true,
+    inputType: "image",
+    inputLabel: "Tải ảnh sản phẩm lên",
+    inputPlaceholder: "",
+    demoInput: "Ảnh: son môi lì màu đỏ cam, vỏ hộp nhũ vàng",
+    demoOutput:
+      "Thỏi son lì màu đỏ cam trẻ trung, vỏ hộp nhũ vàng sang trọng. Chất son mịn, lên màu chuẩn, giữ màu suốt 8 tiếng. Phù hợp mọi tone da, tôn dáng môi tự nhiên.",
+    usageCount: 1240,
+    rating: 4.8,
+  },
+  {
+    id: "tom-tat-van-ban",
+    name: "Tóm tắt văn bản",
+    description: "Dán văn bản dài, nhận bản tóm tắt ngắn gọn giữ đúng ý chính.",
+    category: "van-ban",
+    icon: "file-text",
+    creditCost: 5,
+    popular: true,
+    inputType: "text",
+    inputLabel: "Dán văn bản cần tóm tắt",
+    inputPlaceholder: "Dán đoạn văn bản dài vào đây...",
+    demoInput:
+      "Bài viết dài 1200 từ về xu hướng thương mại điện tử Việt Nam 2026, bao gồm số liệu tăng trưởng, hành vi người tiêu dùng, và dự báo các ngành hàng tiềm năng...",
+    demoOutput:
+      "Thương mại điện tử Việt Nam 2026 tăng trưởng 22% so với năm trước, dẫn đầu bởi ngành hàng làm đẹp và thực phẩm chức năng. Người tiêu dùng ưu tiên mua sắm qua livestream, thanh toán không tiền mặt chiếm 68% giao dịch.",
+    usageCount: 3450,
+    rating: 4.6,
+  },
+  {
+    id: "viet-caption",
+    name: "Viết caption Facebook/TikTok",
+    description: "Nhập chủ đề, AI viết caption thu hút kèm hashtag phù hợp.",
+    category: "van-ban",
+    icon: "caption",
+    creditCost: 8,
+    popular: true,
+    inputType: "text",
+    inputLabel: "Chủ đề bài đăng",
+    inputPlaceholder: "Ví dụ: khai trương cửa hàng mỹ phẩm, giảm giá 20%",
+    demoInput: "Khai trương cửa hàng mỹ phẩm, giảm giá 20% trong 3 ngày đầu",
+    demoOutput:
+      "🎉 KHAI TRƯƠNG RỘN RÀNG — GIẢM NGAY 20%!\nGhé shop trong 3 ngày đầu để nhận ưu đãi cực hời, số lượng có hạn nha cả nhà 💄✨\n#khaitruong #mypham #giamgia #uudai",
+    usageCount: 2890,
+    rating: 4.7,
+  },
+  {
+    id: "dich-da-ngon-ngu",
+    name: "Dịch đa ngôn ngữ",
+    description: "Dịch tự nhiên giữa tiếng Việt và nhiều ngôn ngữ khác, không dịch máy cứng nhắc.",
+    category: "van-ban",
+    icon: "translate",
+    creditCost: 6,
+    isNew: true,
+    inputType: "text",
+    inputLabel: "Văn bản cần dịch",
+    inputPlaceholder: "Nhập văn bản và ngôn ngữ đích...",
+    demoInput: "Việt → Anh: Sản phẩm này rất được lòng khách hàng trẻ.",
+    demoOutput: "This product has really won over young customers.",
+    usageCount: 610,
+    rating: 4.5,
+  },
+  {
+    id: "tao-anh-quang-cao",
+    name: "Tạo ảnh quảng cáo sản phẩm",
+    description: "Tải ảnh sản phẩm thật lên (không bắt buộc), mô tả bối cảnh mong muốn, AI tạo ảnh quảng cáo mới giữ đúng sản phẩm.",
+    category: "anh",
+    icon: "sparkles",
+    creditCost: 20,
+    isNew: true,
+    inputType: "image-gen",
+    outputType: "image",
+    inputLabel: "Mô tả bối cảnh ảnh quảng cáo muốn tạo",
+    inputPlaceholder: "Ví dụ: đặt sản phẩm lên nền gỗ sang trọng, ánh sáng studio ấm, phong cách cao cấp",
+    demoInput: "Đặt thỏi son lên nền đá cẩm thạch trắng, ánh sáng studio, phong cách cao cấp",
+    demoOutput: "Ảnh sản phẩm mới giữ đúng hình dáng và màu sắc thỏi son, đặt trên nền đá cẩm thạch sang trọng.",
+    usageCount: 0,
+    rating: 5.0,
+  },
+  {
+    id: "phan-tich-cam-xuc",
+    name: "Phân tích cảm xúc bình luận khách hàng",
+    description: "Dán danh sách bình luận, AI phân loại tích cực/tiêu cực và tóm tắt insight.",
+    category: "van-ban",
+    icon: "sentiment",
+    creditCost: 10,
+    isNew: true,
+    inputType: "text",
+    inputLabel: "Dán danh sách bình luận (mỗi dòng 1 bình luận)",
+    inputPlaceholder: "Sản phẩm dùng tốt lắm...\nGiao hàng hơi chậm...",
+    demoInput: "Sản phẩm dùng tốt lắm, sẽ ủng hộ tiếp!\nGiao hàng hơi chậm, mong cải thiện.",
+    demoOutput:
+      "Tích cực: 65% — khách hài lòng chất lượng sản phẩm.\nTiêu cực: 35% — chủ yếu phàn nàn về tốc độ giao hàng.\nGợi ý: cân nhắc tối ưu thời gian vận chuyển.",
+    usageCount: 480,
+    rating: 4.4,
+  },
+];
