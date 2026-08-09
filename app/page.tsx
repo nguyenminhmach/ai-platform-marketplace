@@ -85,7 +85,7 @@ export default function Home() {
           </div>
         </header>
 
-        <main className="px-6 py-10 xl:px-10">
+        <main className="px-6 py-10 md:px-10 xl:px-16 2xl:px-24">
         {/* Banner khuyến mãi */}
         {promoBannerEnabled && (
           <section className="mb-8 flex flex-col items-start justify-between gap-4 rounded-xl bg-emerald-50 px-6 py-5 dark:bg-emerald-950/30 sm:flex-row sm:items-center">
