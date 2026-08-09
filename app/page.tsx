@@ -85,7 +85,7 @@ export default function Home() {
           </div>
         </header>
 
-        <main className="mx-auto max-w-5xl px-6 py-10">
+        <main className="px-6 py-10 xl:px-10">
         {/* Banner khuyến mãi */}
         {promoBannerEnabled && (
           <section className="mb-8 flex flex-col items-start justify-between gap-4 rounded-xl bg-emerald-50 px-6 py-5 dark:bg-emerald-950/30 sm:flex-row sm:items-center">
@@ -119,7 +119,7 @@ export default function Home() {
         </section>
 
         {/* Ô tìm Mini App dạng chat */}
-        <section className="mb-6">
+        <section className="mb-6 max-w-2xl">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -182,7 +182,7 @@ export default function Home() {
             <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
               Phổ biến nhất
             </h2>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {popularApps.map((app) => (
                 <MiniAppCard key={app.id} app={app} />
               ))}
@@ -200,7 +200,7 @@ export default function Home() {
               Không tìm thấy Mini App phù hợp.
             </p>
           ) : (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {filteredApps.map((app) => (
                 <MiniAppCard key={app.id} app={app} />
               ))}
