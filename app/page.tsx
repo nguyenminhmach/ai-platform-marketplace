@@ -109,7 +109,7 @@ export default function Home() {
         )}
 
         {/* Hero ngắn */}
-        <section className="mb-10">
+        <section className="mx-auto mb-10 max-w-2xl text-center">
           <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
             Hàng chục công cụ AI, trả tiền theo lượt dùng
           </h1>
