@@ -119,7 +119,7 @@ export default function Home() {
         </section>
 
         {/* Ô tìm Mini App dạng chat */}
-        <section className="mb-6 max-w-2xl">
+        <section className="mx-auto mb-6 max-w-2xl">
           <form
             onSubmit={(e) => {
               e.preventDefault();
