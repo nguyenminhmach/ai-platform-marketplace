@@ -57,6 +57,17 @@ type Settings = {
 
 type MiniAppPrice = { id: string; name: string; creditCost: number; dynamic: boolean };
 
+type PendingDeveloper = { id: string; display_name: string; status: string; created_at: string };
+type PendingApp = {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  credit_cost: number;
+  developer_id: string;
+  created_at: string;
+};
+
 export default function AdminPage() {
   const [authState, setAuthState] = useState<"checking" | "loggedOut" | "loggedIn">("checking");
   const [password, setPassword] = useState("");
@@ -72,6 +83,10 @@ export default function AdminPage() {
   const [savingAppId, setSavingAppId] = useState<string | null>(null);
   const [savedAppId, setSavedAppId] = useState<string | null>(null);
   const [appPriceError, setAppPriceError] = useState<string | null>(null);
+
+  const [pendingDevs, setPendingDevs] = useState<PendingDeveloper[]>([]);
+  const [pendingApps, setPendingApps] = useState<PendingApp[]>([]);
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
 
   async function loadStats() {
     const res = await fetch("/api/admin/stats");
@@ -98,11 +113,32 @@ export default function AdminPage() {
     setMiniApps(data.apps);
   }
 
+  async function loadDeveloperReview() {
+    const res = await fetch("/api/admin/developer-review");
+    if (!res.ok) return;
+    const data = await res.json();
+    setPendingDevs(data.pendingDevs ?? []);
+    setPendingApps(data.pendingApps ?? []);
+  }
+
   useEffect(() => {
     loadStats();
     loadSettings();
     loadMiniApps();
+    loadDeveloperReview();
   }, []);
+
+  async function handleReview(type: "developer" | "mini_app", id: string, action: "approve" | "reject") {
+    setReviewingId(id);
+    await fetch("/api/admin/developer-review", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, id, action }),
+    });
+    setReviewingId(null);
+    loadDeveloperReview();
+    loadMiniApps();
+  }
 
   async function handleSaveMiniAppPrice(id: string, creditCost: number) {
     setSavingAppId(id);
@@ -389,6 +425,85 @@ export default function AdminPage() {
                     </div>
                   ))}
                   {appPriceError && <p className="text-sm text-red-600 dark:text-red-400">{appPriceError}</p>}
+                </div>
+              )}
+            </section>
+
+            <section className="mb-10 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+              <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Duyệt nhà phát triển & Mini App (Giai đoạn 4)
+              </h2>
+
+              <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                Nhà phát triển đang chờ duyệt ({pendingDevs.length})
+              </p>
+              {pendingDevs.length === 0 ? (
+                <p className="mb-4 text-sm text-zinc-400 dark:text-zinc-500">Không có ai đang chờ.</p>
+              ) : (
+                <div className="mb-4 space-y-2">
+                  {pendingDevs.map((dev) => (
+                    <div
+                      key={dev.id}
+                      className="flex items-center justify-between rounded-lg border border-zinc-100 px-3 py-2 dark:border-zinc-800"
+                    >
+                      <span className="text-sm text-zinc-700 dark:text-zinc-300">{dev.display_name}</span>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleReview("developer", dev.id, "approve")}
+                          disabled={reviewingId === dev.id}
+                          className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+                        >
+                          Duyệt
+                        </button>
+                        <button
+                          onClick={() => handleReview("developer", dev.id, "reject")}
+                          disabled={reviewingId === dev.id}
+                          className="rounded-full bg-red-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+                        >
+                          Từ chối
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                Mini App đang chờ duyệt ({pendingApps.length})
+              </p>
+              {pendingApps.length === 0 ? (
+                <p className="text-sm text-zinc-400 dark:text-zinc-500">Không có app nào đang chờ.</p>
+              ) : (
+                <div className="space-y-2">
+                  {pendingApps.map((app) => (
+                    <div
+                      key={app.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-100 px-3 py-2 dark:border-zinc-800"
+                    >
+                      <div>
+                        <span className="text-sm text-zinc-700 dark:text-zinc-300">{app.name}</span>
+                        <span className="ml-2 text-xs text-zinc-400 dark:text-zinc-500">
+                          {app.category} · {app.credit_cost} credit
+                        </span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleReview("mini_app", app.id, "approve")}
+                          disabled={reviewingId === app.id}
+                          className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+                        >
+                          Duyệt
+                        </button>
+                        <button
+                          onClick={() => handleReview("mini_app", app.id, "reject")}
+                          disabled={reviewingId === app.id}
+                          className="rounded-full bg-red-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+                        >
+                          Từ chối
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </section>
