@@ -1,16 +1,20 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { deductCredit, refundCredit, InsufficientCreditError } from "@/lib/credit-system";
-import { computeDynamicCreditCost, getMediaPricingSettings } from "@/lib/pricing";
+import { computeDynamicCreditCost, getMediaPricingSettings, getUsdToVndRate } from "@/lib/pricing";
 
 type MiniAppRow = {
   id: string;
   name: string;
   credit_cost: number;
+  developer_id: string | null;
   model_config: {
     model: string;
     max_tokens?: number;
     output_type?: "text" | "image";
     provider_cost_vnd?: number;
+    integration_mode?: "dify";
+    endpoint_url?: string;
+    api_key?: string;
   };
 };
 
@@ -37,7 +41,7 @@ async function getMiniAppConfig(miniAppId: string): Promise<MiniAppRow> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("mini_apps")
-    .select("id, name, credit_cost, model_config")
+    .select("id, name, credit_cost, developer_id, model_config")
     .eq("id", miniAppId)
     .eq("is_active", true)
     .single();
@@ -126,6 +130,94 @@ async function generateImageFal(prompt: string, referenceImageDataUrl?: string):
   const imageUrl = data?.images?.[0]?.url;
   if (!imageUrl) throw new Error("Fal.ai không trả về ảnh");
   return imageUrl as string;
+}
+
+// Integration Contract (Tập 8 mục 2.2) — chuẩn request/response bắt buộc mọi Mini App bên thứ 3 phải theo
+type DeveloperMiniAppResponse = {
+  success: boolean;
+  output?: { text?: string };
+  error?: { code: string; message: string };
+  actual_cost_usd?: number;
+};
+
+// Gọi endpoint Workflow Dify của nhà phát triển bên thứ 3 (Hình thức A, Tập 8 mục 2.3).
+// Timeout cứng 30 giây (Tập 8 mục 3.2) — endpoint dev treo không được làm treo cả hệ thống.
+async function callDeveloperEndpoint(
+  endpointUrl: string,
+  apiKey: string,
+  requestId: string,
+  userInput: string,
+  imageDataUrl?: string
+): Promise<{ output: string; actualCostUsd: number }> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const response = await fetch(endpointUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        request_id: requestId,
+        inputs: { text: userInput, image_data_url: imageDataUrl },
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Mini App bên thứ 3 lỗi: ${response.status}`);
+    }
+
+    const data = (await response.json()) as DeveloperMiniAppResponse;
+    if (!data.success) {
+      throw new Error(data.error?.message ?? "Mini App bên thứ 3 trả về lỗi");
+    }
+
+    // Validate output đúng schema trước khi hiển thị cho user (Tập 8 mục 3.2) — chặn output sai định dạng
+    if (typeof data.output?.text !== "string") {
+      throw new Error("Mini App bên thứ 3 trả output sai định dạng (thiếu output.text)");
+    }
+
+    return { output: data.output.text, actualCostUsd: data.actual_cost_usd ?? 0 };
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("Mini App bên thứ 3 không phản hồi trong 30 giây");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// Ghi nhận hoa hồng cho dev sau 1 lượt chạy thành công (Tập 8 mục 6.1) — sổ cái riêng, không sửa/xoá dòng
+async function recordDeveloperEarning(miniApp: MiniAppRow, actualCostUsd: number): Promise<void> {
+  if (!miniApp.developer_id) return;
+
+  const supabase = getSupabaseAdmin();
+  const { data: dev } = await supabase
+    .from("developers")
+    .select("id, revenue_share_pct")
+    .eq("id", miniApp.developer_id)
+    .single();
+  if (!dev) return;
+
+  const [{ vndPerCredit }, usdToVndRate] = await Promise.all([getMediaPricingSettings(), getUsdToVndRate()]);
+
+  const revenueVnd = miniApp.credit_cost * vndPerCredit;
+  const aiCostVnd = actualCostUsd * usdToVndRate;
+  const profitAfterAiCost = Math.max(0, revenueVnd - aiCostVnd);
+  const amountVnd = Math.round(profitAfterAiCost * (dev.revenue_share_pct / 100));
+
+  if (amountVnd <= 0) return;
+
+  await supabase.from("developer_earnings").insert({
+    developer_id: dev.id,
+    mini_app_id: miniApp.id,
+    amount_vnd: amountVnd,
+    status: "pending",
+  });
 }
 
 // Nộp job tạo video (bất đồng bộ) — khác hẳn runMiniApp: không chờ kết quả, chỉ gửi yêu cầu lên Fal.ai
@@ -222,7 +314,21 @@ export async function runMiniApp(
   try {
     let output: string;
 
-    if (miniApp.model_config.output_type === "image") {
+    if (miniApp.model_config.integration_mode === "dify") {
+      // Mini App do nhà phát triển bên thứ 3 tạo — gọi sang endpoint Dify của họ (Tập 8 mục 2)
+      if (!miniApp.model_config.endpoint_url || !miniApp.model_config.api_key) {
+        throw new Error("Mini App bên thứ 3 thiếu cấu hình endpoint");
+      }
+      const result = await callDeveloperEndpoint(
+        miniApp.model_config.endpoint_url,
+        miniApp.model_config.api_key,
+        idempotencyKey,
+        userInput,
+        imageDataUrl
+      );
+      output = result.output;
+      await recordDeveloperEarning(miniApp, result.actualCostUsd);
+    } else if (miniApp.model_config.output_type === "image") {
       output = await generateImageFal(userInput, imageDataUrl);
     } else {
       const systemPrompt = SYSTEM_PROMPTS[miniAppId] ?? "Bạn là trợ lý AI hữu ích.";

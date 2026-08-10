@@ -53,6 +53,7 @@ type Settings = {
   subscriptionDurationDays: number;
   mediaMarginPercent: number;
   vndPerCredit: number;
+  usdToVndRate: number;
 };
 
 type MiniAppPrice = { id: string; name: string; creditCost: number; dynamic: boolean };
@@ -378,6 +379,21 @@ export default function AdminPage() {
                       onChange={(e) => setSettings({ ...settings, vndPerCredit: Number(e.target.value) })}
                       className="w-32 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                     />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                      Tỷ giá USD → VND
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={settings.usdToVndRate}
+                      onChange={(e) => setSettings({ ...settings, usdToVndRate: Number(e.target.value) })}
+                      className="w-32 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                    />
+                    <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+                      Dùng để quy đổi chi phí AI (actual_cost_usd) dev báo cáo, khi tính hoa hồng.
+                    </p>
                   </div>
 
                   <button
