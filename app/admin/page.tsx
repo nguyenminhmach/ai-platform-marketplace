@@ -51,6 +51,8 @@ type Settings = {
   subscriptionEnabled: boolean;
   subscriptionPriceVnd: number;
   subscriptionDurationDays: number;
+  mediaMarginPercent: number;
+  vndPerCredit: number;
 };
 
 export default function AdminPage() {
@@ -277,6 +279,36 @@ export default function AdminPage() {
                       className="w-32 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                     />
                   </div>
+                  <div className="w-full border-t border-zinc-100 pt-4 dark:border-zinc-800" />
+
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                      Biên lợi nhuận ảnh/video (%)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={settings.mediaMarginPercent}
+                      onChange={(e) => setSettings({ ...settings, mediaMarginPercent: Number(e.target.value) })}
+                      className="w-32 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                    />
+                    <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+                      Giá bán = chi phí thật trả Fal.ai × (1 + %). Chỉnh sửa chi phí gốc của từng app trong Supabase (mini_apps.model_config.provider_cost_vnd).
+                    </p>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                      Quy đổi 1 credit (đ)
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={settings.vndPerCredit}
+                      onChange={(e) => setSettings({ ...settings, vndPerCredit: Number(e.target.value) })}
+                      className="w-32 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                    />
+                  </div>
+
                   <button
                     type="submit"
                     disabled={savingSettings}

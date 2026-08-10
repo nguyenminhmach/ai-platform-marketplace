@@ -23,6 +23,7 @@ export default function MiniAppDetailPage() {
   const [isRunning, setIsRunning] = useState(false);
   const [videoStatusText, setVideoStatusText] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
+  const [liveCreditCost, setLiveCreditCost] = useState<number | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -30,6 +31,18 @@ export default function MiniAppDetailPage() {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
   }, []);
+
+  // Ảnh/video có giá tính động theo chi phí thật + biên lợi nhuận, khác app text (giá cố định)
+  useEffect(() => {
+    if (params.id) {
+      fetch(`/api/mini-app/${params.id}/price`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.dynamic) setLiveCreditCost(data.creditCost);
+        })
+        .catch(() => {});
+    }
+  }, [params.id]);
 
   if (!app) {
     return (
@@ -415,7 +428,10 @@ export default function MiniAppDetailPage() {
           ) : (
             <div className="flex items-center justify-between">
               <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                Thao tác này sẽ trừ <strong className="text-zinc-900 dark:text-zinc-50">{app.creditCost} credit</strong>
+                Thao tác này sẽ trừ{" "}
+                <strong className="text-zinc-900 dark:text-zinc-50">
+                  {liveCreditCost ?? app.creditCost} credit
+                </strong>
               </span>
               <button
                 onClick={app.inputType === "video-gen" ? handleRunVideo : handleRun}

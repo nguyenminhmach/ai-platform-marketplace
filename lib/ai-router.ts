@@ -1,11 +1,17 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { deductCredit, refundCredit, InsufficientCreditError } from "@/lib/credit-system";
+import { computeDynamicCreditCost, getMediaPricingSettings } from "@/lib/pricing";
 
 type MiniAppRow = {
   id: string;
   name: string;
   credit_cost: number;
-  model_config: { model: string; max_tokens?: number; output_type?: "text" | "image" };
+  model_config: {
+    model: string;
+    max_tokens?: number;
+    output_type?: "text" | "image";
+    provider_cost_vnd?: number;
+  };
 };
 
 type RunResult = {
@@ -37,7 +43,16 @@ async function getMiniAppConfig(miniAppId: string): Promise<MiniAppRow> {
     .single();
 
   if (error || !data) throw new Error("Không tìm thấy Mini App");
-  return data as MiniAppRow;
+  const row = data as MiniAppRow;
+
+  // Ảnh/video có provider_cost_vnd trong model_config -> tính giá động theo
+  // chi phí thật x (1 + biên lợi nhuận%), thay cho credit_cost cố định trong bảng.
+  if (row.model_config.provider_cost_vnd) {
+    const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
+    row.credit_cost = computeDynamicCreditCost(row.model_config.provider_cost_vnd, marginPercent, vndPerCredit);
+  }
+
+  return row;
 }
 
 async function callOpenRouter(

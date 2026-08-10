@@ -16,7 +16,7 @@ export async function GET(req: Request) {
   const { data, error } = await supabase
     .from("site_settings")
     .select(
-      "signup_bonus_credits, promo_banner_enabled, subscription_enabled, subscription_price_vnd, subscription_duration_days"
+      "signup_bonus_credits, promo_banner_enabled, subscription_enabled, subscription_price_vnd, subscription_duration_days, media_margin_percent, vnd_per_credit"
     )
     .eq("id", 1)
     .single();
@@ -28,6 +28,8 @@ export async function GET(req: Request) {
       subscriptionEnabled: false,
       subscriptionPriceVnd: 499000,
       subscriptionDurationDays: 30,
+      mediaMarginPercent: 50,
+      vndPerCredit: 490,
     });
   }
 
@@ -37,6 +39,8 @@ export async function GET(req: Request) {
     subscriptionEnabled: data.subscription_enabled,
     subscriptionPriceVnd: data.subscription_price_vnd,
     subscriptionDurationDays: data.subscription_duration_days,
+    mediaMarginPercent: data.media_margin_percent,
+    vndPerCredit: data.vnd_per_credit,
   });
 }
 
@@ -50,6 +54,8 @@ export async function PATCH(req: Request) {
     subscriptionEnabled,
     subscriptionPriceVnd,
     subscriptionDurationDays,
+    mediaMarginPercent,
+    vndPerCredit,
   } = await req.json();
 
   if (typeof signupBonusCredits !== "number" || signupBonusCredits < 0) {
@@ -67,6 +73,12 @@ export async function PATCH(req: Request) {
   if (typeof subscriptionDurationDays !== "number" || subscriptionDurationDays <= 0) {
     return Response.json({ error: "subscriptionDurationDays phải là số dương" }, { status: 400 });
   }
+  if (typeof mediaMarginPercent !== "number" || mediaMarginPercent < 0) {
+    return Response.json({ error: "mediaMarginPercent phải là số không âm" }, { status: 400 });
+  }
+  if (typeof vndPerCredit !== "number" || vndPerCredit <= 0) {
+    return Response.json({ error: "vndPerCredit phải là số dương" }, { status: 400 });
+  }
 
   const supabase = getSupabaseAdmin();
   const { error } = await supabase
@@ -77,6 +89,8 @@ export async function PATCH(req: Request) {
       subscription_enabled: subscriptionEnabled,
       subscription_price_vnd: subscriptionPriceVnd,
       subscription_duration_days: subscriptionDurationDays,
+      media_margin_percent: mediaMarginPercent,
+      vnd_per_credit: vndPerCredit,
       updated_at: new Date().toISOString(),
     })
     .eq("id", 1);
