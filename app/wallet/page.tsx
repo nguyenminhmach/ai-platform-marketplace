@@ -52,6 +52,22 @@ type OrderInfo = {
   credits: number;
 };
 
+type SubOrderInfo = {
+  orderCode: string;
+  qrUrl: string;
+  amountVnd: number;
+  durationDays: number;
+};
+
+function formatDateShort(iso: string) {
+  return new Date(iso).toLocaleDateString("vi-VN", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
 export default function WalletPage() {
   const { user, loading: authLoading, signOut } = useAuth();
   const [balance, setBalance] = useState<number | null>(null);
@@ -62,6 +78,74 @@ export default function WalletPage() {
   const [order, setOrder] = useState<OrderInfo | null>(null);
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [orderPaid, setOrderPaid] = useState(false);
+
+  const [subscriptionEnabled, setSubscriptionEnabled] = useState(false);
+  const [subscriptionPriceVnd, setSubscriptionPriceVnd] = useState(0);
+  const [subscriptionDurationDays, setSubscriptionDurationDays] = useState(30);
+  const [subActive, setSubActive] = useState(false);
+  const [subExpiresAt, setSubExpiresAt] = useState<string | null>(null);
+  const [subOrder, setSubOrder] = useState<SubOrderInfo | null>(null);
+  const [creatingSubOrder, setCreatingSubOrder] = useState(false);
+  const [subOrderPaid, setSubOrderPaid] = useState(false);
+
+  function loadSubscriptionStatus() {
+    if (!user) return;
+    fetch(`/api/subscription/status?userId=${user.id}`)
+      .then((res) => res.json())
+      .then((data) => {
+        setSubActive(data.active);
+        setSubExpiresAt(data.expiresAt);
+      });
+  }
+
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((res) => res.json())
+      .then((data) => {
+        setSubscriptionEnabled(data.subscriptionEnabled);
+        setSubscriptionPriceVnd(data.subscriptionPriceVnd);
+        setSubscriptionDurationDays(data.subscriptionDurationDays);
+      })
+      .catch(() => {});
+    loadSubscriptionStatus();
+  }, [user]);
+
+  // Polling đơn gia hạn thuê bao — cùng pattern với đơn nạp credit
+  useEffect(() => {
+    if (!subOrder || subOrderPaid) return;
+    const interval = setInterval(async () => {
+      const res = await fetch(`/api/subscription/status?orderCode=${subOrder.orderCode}`);
+      const data = await res.json();
+      if (data.status === "paid") {
+        setSubOrderPaid(true);
+        clearInterval(interval);
+        loadSubscriptionStatus();
+        window.dispatchEvent(new Event("balance-updated"));
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [subOrder, subOrderPaid]);
+
+  async function handleSubscribe() {
+    if (!user) return;
+    setCreatingSubOrder(true);
+    try {
+      const res = await fetch("/api/subscription/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error ?? "Không tạo được đơn gia hạn");
+        return;
+      }
+      setSubOrder(data);
+      setSubOrderPaid(false);
+    } finally {
+      setCreatingSubOrder(false);
+    }
+  }
 
   function loadWallet() {
     if (!user) return;
@@ -163,6 +247,87 @@ export default function WalletPage() {
             <span className="text-xl font-medium text-zinc-500 dark:text-zinc-400">credit</span>
           </p>
         </section>
+
+        {subscriptionEnabled && (
+          <section className="mb-12">
+            <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              Gói không giới hạn
+            </h2>
+            <div className="rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+              {subActive ? (
+                <div className="mb-4 flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold text-emerald-600 dark:text-emerald-400">Đang có gói không giới hạn</p>
+                    <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                      Hết hạn: {subExpiresAt ? formatDateShort(subExpiresAt) : "—"}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
+                  Chạy không giới hạn mọi Mini App trong {subscriptionDurationDays} ngày, không cần lo hết credit.
+                </p>
+              )}
+
+              <div className="mb-4 flex items-baseline gap-2">
+                <span className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">
+                  {formatVnd(subscriptionPriceVnd)}
+                </span>
+                <span className="text-sm text-zinc-500 dark:text-zinc-400">/ {subscriptionDurationDays} ngày</span>
+              </div>
+
+              {!subOrder && (
+                <button
+                  onClick={handleSubscribe}
+                  disabled={creatingSubOrder}
+                  className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                >
+                  {creatingSubOrder ? "Đang tạo đơn..." : subActive ? "Gia hạn thêm" : "Đăng ký gói không giới hạn"}
+                </button>
+              )}
+
+              {subOrder && (
+                <div className="mt-2 rounded-xl border border-zinc-200 bg-zinc-50 p-6 text-center dark:border-zinc-800 dark:bg-zinc-950">
+                  {subOrderPaid ? (
+                    <div>
+                      <p className="mb-1 text-lg font-semibold text-emerald-600 dark:text-emerald-400">
+                        Kích hoạt thành công!
+                      </p>
+                      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                        Đã gia hạn thêm {subOrder.durationDays} ngày.
+                      </p>
+                      <button
+                        onClick={() => setSubOrder(null)}
+                        className="mt-4 rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white dark:bg-zinc-50 dark:text-zinc-900"
+                      >
+                        Đóng
+                      </button>
+                    </div>
+                  ) : (
+                    <div>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={subOrder.qrUrl}
+                        alt={`Mã QR gia hạn đơn ${subOrder.orderCode}`}
+                        className="mx-auto mb-4 w-56 rounded-lg border border-zinc-200 dark:border-zinc-700"
+                      />
+                      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                        Quét mã bằng app ngân hàng — nội dung chuyển khoản đã tự điền sẵn mã đơn
+                      </p>
+                      <p className="mt-1 font-mono text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+                        {subOrder.orderCode}
+                      </p>
+                      <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{formatVnd(subOrder.amountVnd)}</p>
+                      <p className="mt-3 text-xs text-zinc-400 dark:text-zinc-500">
+                        Đang tự động kiểm tra thanh toán mỗi 3 giây...
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
         <section className="mb-12">
           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">

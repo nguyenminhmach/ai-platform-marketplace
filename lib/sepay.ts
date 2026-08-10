@@ -18,12 +18,16 @@ export function generateVietQRUrl(opts: {
   return `https://qr.sepay.vn/img?${params.toString()}`;
 }
 
-/** Parse "DH<digits>" từ nội dung chuyển khoản — chịu được nhiều biến thể ngân hàng biến đổi */
-export function parseOrderCodeFromContent(content: string): string | null {
+/** Parse "DH<digits>" (nạp credit) hoặc "GS<digits>" (gia hạn thuê bao) từ nội dung chuyển khoản */
+export function parseOrderCodeFromContent(
+  content: string
+): { type: "topup" | "subscription"; code: string } | null {
   if (!content) return null;
-  const match = content.match(/DH\s*(\d{1,10})/i);
-  if (!match) return null;
-  return `DH${match[1].padStart(6, "0")}`;
+  const topupMatch = content.match(/DH\s*(\d{1,10})/i);
+  if (topupMatch) return { type: "topup", code: `DH${topupMatch[1].padStart(6, "0")}` };
+  const subMatch = content.match(/GS\s*(\d{1,10})/i);
+  if (subMatch) return { type: "subscription", code: `GS${subMatch[1].padStart(6, "0")}` };
+  return null;
 }
 
 /** So sánh timing-safe cho auth header, chống timing attack */

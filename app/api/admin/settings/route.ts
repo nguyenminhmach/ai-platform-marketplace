@@ -15,17 +15,28 @@ export async function GET(req: Request) {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("site_settings")
-    .select("signup_bonus_credits, promo_banner_enabled")
+    .select(
+      "signup_bonus_credits, promo_banner_enabled, subscription_enabled, subscription_price_vnd, subscription_duration_days"
+    )
     .eq("id", 1)
     .single();
 
   if (error || !data) {
-    return Response.json({ signupBonusCredits: 20, promoBannerEnabled: true });
+    return Response.json({
+      signupBonusCredits: 20,
+      promoBannerEnabled: true,
+      subscriptionEnabled: false,
+      subscriptionPriceVnd: 499000,
+      subscriptionDurationDays: 30,
+    });
   }
 
   return Response.json({
     signupBonusCredits: data.signup_bonus_credits,
     promoBannerEnabled: data.promo_banner_enabled,
+    subscriptionEnabled: data.subscription_enabled,
+    subscriptionPriceVnd: data.subscription_price_vnd,
+    subscriptionDurationDays: data.subscription_duration_days,
   });
 }
 
@@ -33,13 +44,28 @@ export async function PATCH(req: Request) {
   const token = getCookie(req, ADMIN_COOKIE_NAME);
   if (!verifyAdminToken(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
 
-  const { signupBonusCredits, promoBannerEnabled } = await req.json();
+  const {
+    signupBonusCredits,
+    promoBannerEnabled,
+    subscriptionEnabled,
+    subscriptionPriceVnd,
+    subscriptionDurationDays,
+  } = await req.json();
 
   if (typeof signupBonusCredits !== "number" || signupBonusCredits < 0) {
     return Response.json({ error: "signupBonusCredits phải là số không âm" }, { status: 400 });
   }
   if (typeof promoBannerEnabled !== "boolean") {
     return Response.json({ error: "promoBannerEnabled phải là true/false" }, { status: 400 });
+  }
+  if (typeof subscriptionEnabled !== "boolean") {
+    return Response.json({ error: "subscriptionEnabled phải là true/false" }, { status: 400 });
+  }
+  if (typeof subscriptionPriceVnd !== "number" || subscriptionPriceVnd < 0) {
+    return Response.json({ error: "subscriptionPriceVnd phải là số không âm" }, { status: 400 });
+  }
+  if (typeof subscriptionDurationDays !== "number" || subscriptionDurationDays <= 0) {
+    return Response.json({ error: "subscriptionDurationDays phải là số dương" }, { status: 400 });
   }
 
   const supabase = getSupabaseAdmin();
@@ -48,6 +74,9 @@ export async function PATCH(req: Request) {
     .update({
       signup_bonus_credits: signupBonusCredits,
       promo_banner_enabled: promoBannerEnabled,
+      subscription_enabled: subscriptionEnabled,
+      subscription_price_vnd: subscriptionPriceVnd,
+      subscription_duration_days: subscriptionDurationDays,
       updated_at: new Date().toISOString(),
     })
     .eq("id", 1);

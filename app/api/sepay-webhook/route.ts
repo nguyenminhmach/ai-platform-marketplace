@@ -30,13 +30,48 @@ export async function POST(req: Request) {
       return Response.json({ success: true, status: "outgoing_skipped" });
     }
 
-    // Khớp đơn hàng qua mã DH trong nội dung chuyển khoản
-    const orderCode = parseOrderCodeFromContent(payload.content);
-    if (!orderCode) {
+    // Khớp đơn hàng qua mã DH (nạp credit) hoặc GS (gia hạn thuê bao) trong nội dung chuyển khoản
+    const parsed = parseOrderCodeFromContent(payload.content);
+    if (!parsed) {
       console.warn(`[sepay-webhook] Không parse được order code từ content="${payload.content}"`);
       return Response.json({ success: true, status: "no_match" });
     }
 
+    if (parsed.type === "subscription") {
+      const { data: subOrder, error: subOrderError } = await supabase
+        .from("subscription_orders")
+        .select("*")
+        .eq("order_code", parsed.code)
+        .eq("status", "pending")
+        .single();
+
+      if (subOrderError || !subOrder) {
+        console.warn(`[sepay-webhook] Không tìm thấy đơn gia hạn pending: ${parsed.code}`);
+        return Response.json({ success: true, status: "no_match" });
+      }
+
+      if (payload.transferAmount < subOrder.amount_vnd) {
+        console.error(
+          `[sepay-webhook] Thiếu tiền (gia hạn): order=${parsed.code} expected=${subOrder.amount_vnd} got=${payload.transferAmount}`
+        );
+        return Response.json({ success: true, status: "underpayment" });
+      }
+
+      await supabase
+        .from("subscription_orders")
+        .update({ status: "paid", paid_at: new Date().toISOString(), sepay_transaction_id: payload.id })
+        .eq("id", subOrder.id);
+
+      await supabase.rpc("extend_subscription", {
+        p_user_id: subOrder.user_id,
+        p_duration_days: subOrder.duration_days,
+        p_renewal_type: "manual",
+      });
+
+      return Response.json({ success: true, orderCode: parsed.code, type: "subscription" });
+    }
+
+    const orderCode = parsed.code;
     const { data: order, error: orderError } = await supabase
       .from("topup_orders")
       .select("*")

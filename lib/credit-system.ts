@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { hasActiveSubscription } from "@/lib/subscription";
 
 export class InsufficientCreditError extends Error {
   constructor() {
@@ -17,6 +18,13 @@ export async function deductCredit(
   idempotencyKey: string
 ): Promise<DeductResult> {
   const supabase = getSupabaseAdmin();
+
+  // Đang có gói không giới hạn còn hạn — bỏ qua trừ credit hoàn toàn, không tạo giao dịch,
+  // txId null nên các chỗ gọi refundCredit(deduction.txId) khi lỗi cũng tự động bỏ qua.
+  if (await hasActiveSubscription(userId)) {
+    const balance = await getCreditBalance(userId);
+    return { success: true, newBalance: balance, txId: null };
+  }
 
   const { data, error } = await supabase.rpc("deduct_credit", {
     p_user_id: userId,

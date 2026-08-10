@@ -45,7 +45,13 @@ function shortId(id: string) {
   return id.slice(0, 8) + "...";
 }
 
-type Settings = { signupBonusCredits: number; promoBannerEnabled: boolean };
+type Settings = {
+  signupBonusCredits: number;
+  promoBannerEnabled: boolean;
+  subscriptionEnabled: boolean;
+  subscriptionPriceVnd: number;
+  subscriptionDurationDays: number;
+};
 
 export default function AdminPage() {
   const [authState, setAuthState] = useState<"checking" | "loggedOut" | "loggedIn">("checking");
@@ -233,6 +239,44 @@ export default function AdminPage() {
                     />
                     Hiện banner khuyến mãi trên trang chủ
                   </label>
+
+                  <div className="w-full border-t border-zinc-100 pt-4 dark:border-zinc-800" />
+
+                  <label className="flex items-center gap-2 pb-2 text-sm text-zinc-700 dark:text-zinc-300">
+                    <input
+                      type="checkbox"
+                      checked={settings.subscriptionEnabled}
+                      onChange={(e) => setSettings({ ...settings, subscriptionEnabled: e.target.checked })}
+                      className="h-4 w-4 rounded border-zinc-300 dark:border-zinc-700"
+                    />
+                    Mở bán gói không giới hạn (thuê bao)
+                  </label>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                      Giá gói (đ/tháng)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={settings.subscriptionPriceVnd}
+                      onChange={(e) => setSettings({ ...settings, subscriptionPriceVnd: Number(e.target.value) })}
+                      className="w-40 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                      Thời hạn (ngày)
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={settings.subscriptionDurationDays}
+                      onChange={(e) =>
+                        setSettings({ ...settings, subscriptionDurationDays: Number(e.target.value) })
+                      }
+                      className="w-32 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                    />
+                  </div>
                   <button
                     type="submit"
                     disabled={savingSettings}
