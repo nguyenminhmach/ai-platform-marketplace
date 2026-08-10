@@ -225,34 +225,23 @@ export default function Home() {
           )}
         </section>
 
-        {/* Mini App do nhà phát triển bên thứ 3 tạo — đọc thẳng từ database, khác 7 app tự làm (Giai đoạn 4) */}
+        {/* Mini App do nhà phát triển bên thứ 3 tạo — chỉ hiện 1 dòng tiêu đề, bấm vào mới sang trang riêng (Giai đoạn 4) */}
         {communityApps.length > 0 && (
           <section className="mt-10">
-            <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-              Mini App từ Nhà phát triển
-            </h2>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {communityApps.map((app) => (
-                <Link
-                  key={app.id}
-                  href={`/mini-app/${app.id}`}
-                  className="flex flex-col rounded-xl border border-zinc-200 bg-white p-5 transition-shadow hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900"
-                >
-                  <span className="mb-2 w-fit rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
-                    {CATEGORIES[app.category]}
-                  </span>
-                  <h3 className="mb-1 font-semibold text-zinc-900 dark:text-zinc-50">{app.name}</h3>
-                  <p className="mb-2 flex-1 text-sm text-zinc-600 dark:text-zinc-400">{app.description}</p>
-                  <p className="mb-4 text-xs text-zinc-400 dark:text-zinc-500">Tạo bởi {app.developerName}</p>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">{app.creditCost} credit</span>
-                    <span className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white dark:bg-zinc-50 dark:text-zinc-900">
-                      Xem chi tiết
-                    </span>
-                  </div>
-                </Link>
-              ))}
-            </div>
+            <Link
+              href="/markets"
+              className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-5 py-4 transition-shadow hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900"
+            >
+              <div>
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                  Mini App từ Nhà phát triển
+                </h2>
+                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                  {communityApps.length} app từ cộng đồng — bấm để xem tất cả
+                </p>
+              </div>
+              <span className="text-zinc-400 dark:text-zinc-500">→</span>
+            </Link>
           </section>
         )}
         </main>
