@@ -1,41 +1,26 @@
 // Knowledge base + system prompt cho chatbot hỗ trợ AI Marketplace.
-// Sửa file này để cập nhật FAQ / thông tin sản phẩm — hot reload sẽ apply ngay.
+// productInfo được build ĐỘNG từ Supabase mỗi lần chat — không hardcode danh sách Mini App/giá,
+// để không bao giờ lỗi thời khi thêm Mini App mới hoặc đổi giá/margin qua /admin.
+// Sửa FAQ bên dưới để cập nhật câu hỏi thường gặp — phần này vẫn tĩnh vì ít đổi.
+
+import { getSupabaseAdmin } from "@/lib/supabase";
+import { computeDynamicCreditCost, getMediaPricingSettings } from "@/lib/pricing";
+import { CREDIT_PACKAGES } from "@/lib/mock-wallet";
 
 export const brandName = "AI Marketplace";
-
-export const productInfo = `AI Marketplace là nền tảng cung cấp nhiều Mini App AI (công cụ AI nhỏ, chuyên biệt). Người dùng trả "credit" theo lượt sử dụng thay vì trả phí cố định hàng tháng.
-
-Đăng ký tài khoản mới (chỉ cần email + mật khẩu) được tặng ngay 20 credit dùng thử miễn phí.
-
-DANH SÁCH MINI APP HIỆN CÓ:
-- Viết mô tả sản phẩm từ ảnh — 15 credit
-- Tóm tắt văn bản — 5 credit
-- Viết caption Facebook/TikTok — 8 credit
-- Dịch đa ngôn ngữ — 6 credit
-- Phân tích cảm xúc bình luận khách hàng — 10 credit
-
-BẢNG GIÁ NẠP CREDIT (trang /wallet):
-- Gói nhỏ: 100 credit — 49.000đ
-- Gói vừa: 300 credit — 129.000đ (phổ biến nhất, giá/credit rẻ hơn)
-- Gói lớn: 1.000 credit — 399.000đ
-- Gói doanh nghiệp: 5.000 credit — 1.799.000đ
-
-Thanh toán qua VietQR (Sepay) — quét mã bằng app ngân hàng, hệ thống tự động cộng credit trong vài giây đến khoảng 1 phút sau khi nhận được tiền, không cần chờ duyệt thủ công.
-
-Credit không có hạn sử dụng và không quy đổi ngược lại thành tiền mặt.`;
 
 export const faqs: { q: string; a: string }[] = [
   {
     q: "Credit là gì?",
-    a: "Credit là đơn vị dùng để chạy các Mini App AI trên nền tảng. Mỗi Mini App tiêu tốn một số credit cố định, hiển thị rõ trước khi anh/chị bấm Chạy ngay.",
+    a: "Credit là đơn vị dùng để chạy các Mini App AI trên nền tảng. Mỗi Mini App tiêu tốn một số credit, hiển thị rõ trước khi anh/chị bấm Chạy ngay.",
   },
   {
     q: "Đăng ký có mất phí không?",
-    a: "Không ạ. Đăng ký hoàn toàn miễn phí và được tặng ngay 20 credit dùng thử.",
+    a: "Không ạ. Đăng ký hoàn toàn miễn phí.",
   },
   {
     q: "Làm sao nạp thêm credit?",
-    a: "Anh/chị vào trang **Ví** (/wallet), chọn 1 trong 4 gói, bấm Thanh toán qua VietQR rồi quét mã bằng app ngân hàng. Hệ thống tự động cộng credit ngay sau khi nhận được tiền.",
+    a: "Anh/chị vào trang **Ví** (/wallet), chọn 1 gói phù hợp, bấm Thanh toán qua VietQR rồi quét mã bằng app ngân hàng. Hệ thống tự động cộng credit ngay sau khi nhận được tiền.",
   },
   {
     q: "Chạy Mini App bị lỗi thì có mất credit không?",
@@ -55,9 +40,69 @@ export const faqs: { q: string; a: string }[] = [
   },
 ];
 
-const faqBlock = faqs.map((f) => `Q: ${f.q}\nA: ${f.a}`).join("\n\n");
+async function buildProductInfo(): Promise<string> {
+  const supabase = getSupabaseAdmin();
 
-export const systemPrompt = `Bạn là trợ lý AI của ${brandName}.
+  const [{ data: apps }, { data: settings }] = await Promise.all([
+    supabase.from("mini_apps").select("name, credit_cost, model_config").eq("is_active", true),
+    supabase
+      .from("site_settings")
+      .select(
+        "signup_bonus_credits, promo_banner_enabled, subscription_enabled, subscription_price_vnd, subscription_duration_days"
+      )
+      .eq("id", 1)
+      .single(),
+  ]);
+
+  const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
+
+  const appLines = (apps ?? [])
+    .map((app) => {
+      const providerCostVnd = (app.model_config as { provider_cost_vnd?: number } | null)?.provider_cost_vnd;
+      const cost = providerCostVnd
+        ? computeDynamicCreditCost(providerCostVnd, marginPercent, vndPerCredit)
+        : app.credit_cost;
+      return `- ${app.name} — ${cost} credit`;
+    })
+    .join("\n");
+
+  const packageLines = CREDIT_PACKAGES.map(
+    (p) =>
+      `- ${p.credits.toLocaleString("vi-VN")} credit — ${p.priceVnd.toLocaleString("vi-VN")}đ${
+        p.isBestValue ? " (phổ biến nhất)" : ""
+      }`
+  ).join("\n");
+
+  const bonusLine = settings?.promo_banner_enabled
+    ? `Đăng ký tài khoản mới (chỉ cần email + mật khẩu) được tặng ngay ${settings.signup_bonus_credits} credit dùng thử miễn phí.`
+    : `Hiện tại không có chương trình tặng credit cho tài khoản mới.`;
+
+  const subLine = settings?.subscription_enabled
+    ? `\nNgoài mua credit lẻ, còn có **gói không giới hạn ${settings.subscription_price_vnd.toLocaleString(
+        "vi-VN"
+      )}đ / ${settings.subscription_duration_days} ngày** — chạy mọi Mini App không giới hạn số lượt trong thời gian gói còn hiệu lực, đăng ký/gia hạn tại trang /wallet.\n`
+    : "";
+
+  return `${brandName} là nền tảng cung cấp nhiều Mini App AI (công cụ AI nhỏ, chuyên biệt). Người dùng trả "credit" theo lượt sử dụng thay vì trả phí cố định hàng tháng.
+
+${bonusLine}
+
+DANH SÁCH MINI APP HIỆN CÓ:
+${appLines}
+${subLine}
+BẢNG GIÁ NẠP CREDIT (trang /wallet):
+${packageLines}
+
+Thanh toán qua VietQR (Sepay) — quét mã bằng app ngân hàng, hệ thống tự động cộng credit trong vài giây đến khoảng 1 phút sau khi nhận được tiền, không cần chờ duyệt thủ công.
+
+Credit không có hạn sử dụng và không quy đổi ngược lại thành tiền mặt.`;
+}
+
+export async function buildSystemPrompt(): Promise<string> {
+  const productInfo = await buildProductInfo();
+  const faqBlock = faqs.map((f) => `Q: ${f.q}\nA: ${f.a}`).join("\n\n");
+
+  return `Bạn là trợ lý AI của ${brandName}.
 
 NHIỆM VỤ:
 - Trả lời câu hỏi của người dùng về Mini App, credit, thanh toán, chính sách hoàn trên nền tảng ${brandName}.
@@ -87,3 +132,4 @@ NẾU NGƯỜI DÙNG GẶP VẤN ĐỀ KHÔNG TỰ XỬ LÝ ĐƯỢC (thanh toá
 - Hướng dẫn họ vào trang **Hỗ trợ** (/support) để liên hệ qua Zalo, kèm theo email tài khoản và mã đơn hàng (dạng DH000001) nếu có.
 - KHÔNG hứa hẹn thời gian xử lý cụ thể nếu không chắc chắn.
 `;
+}

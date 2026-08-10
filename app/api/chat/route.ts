@@ -1,7 +1,7 @@
 // app/api/chat/route.ts — proxy gọi OpenRouter với streaming cho chatbot hỗ trợ.
 // KHÔNG expose OPENROUTER_API_KEY ra client — mọi request từ widget đi qua route này.
 
-import { systemPrompt } from "@/lib/chatbot-knowledge";
+import { buildSystemPrompt } from "@/lib/chatbot-knowledge";
 
 export const runtime = "edge";
 
@@ -29,6 +29,9 @@ export async function POST(req: Request) {
 
   // Giới hạn lịch sử 20 turn cuối để tránh tốn token + vượt context window.
   const trimmed = messages.slice(-20);
+
+  // Build lại mỗi request — đọc danh sách Mini App/giá thật từ Supabase, không bao giờ lỗi thời.
+  const systemPrompt = await buildSystemPrompt();
 
   const upstream = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
