@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { CATEGORIES, MINI_APPS } from "@/lib/mock-mini-apps";
 import { BalanceBadge } from "@/components/BalanceBadge";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { Footer } from "@/components/Footer";
 import { useAuth } from "@/lib/auth-context";
 
 export default function MiniAppDetailPage() {
@@ -45,14 +46,7 @@ export default function MiniAppDetailPage() {
   }, [params.id]);
 
   if (!app) {
-    return (
-      <div className="mx-auto max-w-2xl px-6 py-16 text-center">
-        <p className="text-zinc-600 dark:text-zinc-400">Không tìm thấy Mini App này.</p>
-        <Link href="/" className="mt-4 inline-block text-sm font-medium underline">
-          Quay lại Danh mục
-        </Link>
-      </div>
-    );
+    return <CommunityMiniAppRunner miniAppId={params.id} />;
   }
 
   const relatedApps = MINI_APPS.filter(
@@ -516,6 +510,165 @@ export default function MiniAppDetailPage() {
           </section>
         )}
       </main>
+    </div>
+  );
+}
+
+type CommunityAppInfo = {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  creditCost: number;
+  developerName: string;
+};
+
+function CommunityMiniAppRunner({ miniAppId }: { miniAppId: string }) {
+  const { user } = useAuth();
+  const [appInfo, setAppInfo] = useState<CommunityAppInfo | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [input, setInput] = useState("");
+  const [result, setResult] = useState<string | null>(null);
+  const [isRunning, setIsRunning] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/mini-apps/community/${miniAppId}`)
+      .then((res) => res.json())
+      .then((data) => setAppInfo(data.app ?? null))
+      .finally(() => setLoading(false));
+  }, [miniAppId]);
+
+  async function handleRun() {
+    if (!user || !appInfo) return;
+    setIsRunning(true);
+    setResult(null);
+    setRunError(null);
+
+    try {
+      const res = await fetch(`/api/run/${appInfo.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input, userId: user.id }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setRunError(data.error ?? "Có lỗi xảy ra");
+        return;
+      }
+      setResult(data.output);
+      window.dispatchEvent(new Event("balance-updated"));
+    } catch {
+      setRunError("Không kết nối được tới server");
+    } finally {
+      setIsRunning(false);
+    }
+  }
+
+  if (loading) {
+    return <div className="min-h-full bg-zinc-50 dark:bg-black" />;
+  }
+
+  if (!appInfo) {
+    return (
+      <div className="mx-auto max-w-2xl px-6 py-16 text-center">
+        <p className="text-zinc-600 dark:text-zinc-400">Không tìm thấy Mini App này.</p>
+        <Link href="/" className="mt-4 inline-block text-sm font-medium underline">
+          Quay lại Danh mục
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-full bg-zinc-50 dark:bg-black">
+      <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-black/80">
+        <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
+          <Link href="/" className="text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50">
+            ← Quay lại Danh mục
+          </Link>
+          <div className="flex items-center gap-3">
+            <ThemeToggle />
+            <BalanceBadge />
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-3xl px-6 py-10">
+        <div className="mb-2 flex items-center gap-2">
+          <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+            {CATEGORIES[appInfo.category as keyof typeof CATEGORIES] ?? appInfo.category}
+          </span>
+          <span className="rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-medium text-sky-700 dark:bg-sky-900/40 dark:text-sky-400">
+            Cộng đồng
+          </span>
+        </div>
+        <h1 className="mb-2 text-2xl font-semibold text-zinc-900 dark:text-zinc-50">{appInfo.name}</h1>
+        <p className="mb-4 text-zinc-600 dark:text-zinc-400">{appInfo.description}</p>
+        <div className="mb-8 flex items-center gap-4 text-sm text-zinc-500 dark:text-zinc-400">
+          <span>Tạo bởi {appInfo.developerName}</span>
+        </div>
+
+        <section className="mb-8 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            Thử ngay
+          </h2>
+          <div className="mb-4">
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Nhập nội dung..."
+              rows={4}
+              className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+            />
+          </div>
+
+          {!user ? (
+            <div className="flex items-center justify-between rounded-lg bg-zinc-50 p-3 dark:bg-zinc-800">
+              <span className="text-sm text-zinc-600 dark:text-zinc-400">Cần đăng nhập để chạy Mini App</span>
+              <Link href="/login" className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white dark:bg-zinc-50 dark:text-zinc-900">
+                Đăng nhập
+              </Link>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                Thao tác này sẽ trừ{" "}
+                <strong className="text-zinc-900 dark:text-zinc-50">{appInfo.creditCost} credit</strong>
+              </span>
+              <button
+                onClick={handleRun}
+                disabled={isRunning || input.trim() === ""}
+                className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              >
+                {isRunning ? "Đang xử lý..." : "Chạy ngay"}
+              </button>
+            </div>
+          )}
+
+          {runError && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{runError}</p>}
+
+          {result && (
+            <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800">
+              <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Kết quả từ AI</p>
+              <p className="text-sm text-zinc-800 dark:text-zinc-200">{result}</p>
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={() => {
+                    setResult(null);
+                    setInput("");
+                  }}
+                  className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                >
+                  Chạy lại với input khác
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      </main>
+      <Footer />
     </div>
   );
 }
