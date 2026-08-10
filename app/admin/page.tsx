@@ -55,6 +55,8 @@ type Settings = {
   vndPerCredit: number;
 };
 
+type MiniAppPrice = { id: string; name: string; creditCost: number; dynamic: boolean };
+
 export default function AdminPage() {
   const [authState, setAuthState] = useState<"checking" | "loggedOut" | "loggedIn">("checking");
   const [password, setPassword] = useState("");
@@ -65,6 +67,11 @@ export default function AdminPage() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
+
+  const [miniApps, setMiniApps] = useState<MiniAppPrice[] | null>(null);
+  const [savingAppId, setSavingAppId] = useState<string | null>(null);
+  const [savedAppId, setSavedAppId] = useState<string | null>(null);
+  const [appPriceError, setAppPriceError] = useState<string | null>(null);
 
   async function loadStats() {
     const res = await fetch("/api/admin/stats");
@@ -84,10 +91,38 @@ export default function AdminPage() {
     setSettings(data);
   }
 
+  async function loadMiniApps() {
+    const res = await fetch("/api/admin/mini-apps");
+    if (!res.ok) return;
+    const data = await res.json();
+    setMiniApps(data.apps);
+  }
+
   useEffect(() => {
     loadStats();
     loadSettings();
+    loadMiniApps();
   }, []);
+
+  async function handleSaveMiniAppPrice(id: string, creditCost: number) {
+    setSavingAppId(id);
+    setSavedAppId(null);
+    setAppPriceError(null);
+    const res = await fetch("/api/admin/mini-apps", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, creditCost }),
+    });
+    setSavingAppId(null);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setAppPriceError(data.error ?? "Không lưu được giá");
+      return;
+    }
+    setSavedAppId(id);
+    setTimeout(() => setSavedAppId(null), 2000);
+    loadMiniApps();
+  }
 
   async function handleSaveSettings(e: React.FormEvent) {
     e.preventDefault();
@@ -322,6 +357,42 @@ export default function AdminPage() {
               )}
             </section>
 
+            <section className="mb-10 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+              <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Giá từng Mini App
+              </h2>
+              <p className="mb-4 text-xs text-zinc-400 dark:text-zinc-500">
+                App ảnh/video tính giá động theo margin% ở trên, không sửa trực tiếp được ở đây. App còn lại sửa giá cố định thoải mái.
+              </p>
+              {!miniApps ? (
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">Đang tải...</p>
+              ) : (
+                <div className="space-y-3">
+                  {miniApps.map((app) => (
+                    <div
+                      key={app.id}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-100 px-3 py-2 dark:border-zinc-800"
+                    >
+                      <span className="text-sm text-zinc-700 dark:text-zinc-300">{app.name}</span>
+                      {app.dynamic ? (
+                        <span className="text-sm text-zinc-400 dark:text-zinc-500">
+                          {app.creditCost} credit — tính động
+                        </span>
+                      ) : (
+                        <MiniAppPriceEditor
+                          app={app}
+                          saving={savingAppId === app.id}
+                          saved={savedAppId === app.id}
+                          onSave={(value) => handleSaveMiniAppPrice(app.id, value)}
+                        />
+                      )}
+                    </div>
+                  ))}
+                  {appPriceError && <p className="text-sm text-red-600 dark:text-red-400">{appPriceError}</p>}
+                </div>
+              )}
+            </section>
+
             <section className="mb-10">
               <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                 Giao dịch gần đây
@@ -414,6 +485,41 @@ function StatCard({ label, value }: { label: string; value: string }) {
     <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
       <p className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{label}</p>
       <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">{value}</p>
+    </div>
+  );
+}
+
+function MiniAppPriceEditor({
+  app,
+  saving,
+  saved,
+  onSave,
+}: {
+  app: MiniAppPrice;
+  saving: boolean;
+  saved: boolean;
+  onSave: (value: number) => void;
+}) {
+  const [value, setValue] = useState(app.creditCost);
+
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="number"
+        min={1}
+        value={value}
+        onChange={(e) => setValue(Number(e.target.value))}
+        className="w-24 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+      />
+      <span className="text-xs text-zinc-400 dark:text-zinc-500">credit</span>
+      <button
+        onClick={() => onSave(value)}
+        disabled={saving || value === app.creditCost}
+        className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+      >
+        {saving ? "Đang lưu..." : "Lưu"}
+      </button>
+      {saved && <span className="text-xs text-emerald-600 dark:text-emerald-400">✓</span>}
     </div>
   );
 }
