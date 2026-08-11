@@ -78,13 +78,22 @@ export async function PATCH(req: Request) {
   return Response.json({ success: true });
 }
 
-// Admin tự tạo Mini App dạng văn bản mới (nhập text -> AI trả lời bằng text, gọi OpenRouter) —
-// tự chủ không cần chờ code. App dạng ảnh/video vẫn cần code riêng do UI upload + hạ tầng job khác hẳn.
+// Model Fal.ai duy nhất đã kiểm chứng chạy được cho mỗi loại — admin không tự nhập chuỗi model để
+// tránh gõ sai làm gãy tích hợp (Tập 8 mục 3.2 cùng tinh thần "chỉ cho phép cấu hình an toàn").
+const IMAGE_MODEL = "fal-ai/flux-pro/kontext";
+const VIDEO_MODEL = "fal-ai/kling-video/v1.6/standard/image-to-video";
+
+// Admin tự tạo Mini App mới ngay từ /admin — hỗ trợ cả 3 dạng:
+// - "text": gọi OpenRouter với system prompt admin viết
+// - "image": gọi Fal.ai Flux Kontext (giống hệt luồng "Tạo ảnh quảng cáo sản phẩm" có sẵn)
+// - "video": nộp job bất đồng bộ qua Fal.ai Kling (giống hệt luồng "Tạo video quảng cáo ngắn" có sẵn,
+//   submitVideoJob() vốn đã tổng quát theo miniAppId nên không cần sửa gì ở lib/ai-router.ts cho video)
 export async function POST(req: Request) {
   const token = getCookie(req, ADMIN_COOKIE_NAME);
   if (!verifyAdminToken(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
 
-  const { name, description, category, creditCost, model, systemPrompt } = await req.json();
+  const body = await req.json();
+  const { type, name, description, creditCost } = body;
 
   if (typeof name !== "string" || !name.trim()) {
     return Response.json({ error: "Thiếu tên Mini App" }, { status: 400 });
@@ -92,17 +101,32 @@ export async function POST(req: Request) {
   if (typeof description !== "string" || !description.trim()) {
     return Response.json({ error: "Thiếu mô tả" }, { status: 400 });
   }
-  if (!["anh", "van-ban", "video", "am-thanh"].includes(category)) {
-    return Response.json({ error: "Danh mục không hợp lệ" }, { status: 400 });
-  }
   if (typeof creditCost !== "number" || creditCost <= 0 || !Number.isInteger(creditCost)) {
     return Response.json({ error: "Giá phải là số nguyên dương" }, { status: 400 });
   }
-  if (typeof model !== "string" || !model.trim()) {
-    return Response.json({ error: "Thiếu model" }, { status: 400 });
-  }
-  if (typeof systemPrompt !== "string" || !systemPrompt.trim()) {
-    return Response.json({ error: "Thiếu hướng dẫn cho AI (system prompt)" }, { status: 400 });
+
+  let category: string;
+  let modelConfig: Record<string, unknown>;
+
+  if (type === "image") {
+    category = "anh";
+    modelConfig = { model: IMAGE_MODEL, output_type: "image" };
+  } else if (type === "video") {
+    category = "video";
+    modelConfig = { model: VIDEO_MODEL, output_type: "video" };
+  } else {
+    const { category: textCategory, model, systemPrompt } = body;
+    if (!["anh", "van-ban", "video", "am-thanh"].includes(textCategory)) {
+      return Response.json({ error: "Danh mục không hợp lệ" }, { status: 400 });
+    }
+    if (typeof model !== "string" || !model.trim()) {
+      return Response.json({ error: "Thiếu model" }, { status: 400 });
+    }
+    if (typeof systemPrompt !== "string" || !systemPrompt.trim()) {
+      return Response.json({ error: "Thiếu hướng dẫn cho AI (system prompt)" }, { status: 400 });
+    }
+    category = textCategory;
+    modelConfig = { model: model.trim(), max_tokens: 500, system_prompt: systemPrompt.trim(), output_type: "text" };
   }
 
   const supabase = getSupabaseAdmin();
@@ -127,11 +151,7 @@ export async function POST(req: Request) {
     developer_id: null,
     review_status: "approved",
     is_active: true,
-    model_config: {
-      model: model.trim(),
-      max_tokens: 500,
-      system_prompt: systemPrompt.trim(),
-    },
+    model_config: modelConfig,
   });
 
   if (error) return Response.json({ error: error.message }, { status: 500 });

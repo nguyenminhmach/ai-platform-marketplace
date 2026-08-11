@@ -102,9 +102,13 @@ async function callOpenRouter(
   return data.choices[0].message.content as string;
 }
 
-// Gọi Fal.ai (Flux Kontext) để sinh ảnh — nhận prompt + ảnh tham chiếu tuỳ chọn,
-// giữ đúng sản phẩm thật khi tạo bối cảnh mới (khác callOpenRouter: ảnh vào -> chữ ra).
-async function generateImageFal(prompt: string, referenceImageDataUrl?: string): Promise<string> {
+// Gọi Fal.ai (mặc định Flux Kontext, admin tạo app ảnh mới cũng dùng chung model này) để sinh ảnh —
+// nhận prompt + ảnh tham chiếu tuỳ chọn, giữ đúng sản phẩm thật khi tạo bối cảnh mới.
+async function generateImageFal(
+  prompt: string,
+  referenceImageDataUrl?: string,
+  model = "fal-ai/flux-pro/kontext"
+): Promise<string> {
   const apiKey = process.env.FAL_KEY;
   if (!apiKey) throw new Error("Chưa cấu hình FAL_KEY trong .env.local");
 
@@ -113,7 +117,7 @@ async function generateImageFal(prompt: string, referenceImageDataUrl?: string):
     body.image_url = referenceImageDataUrl;
   }
 
-  const response = await fetch("https://fal.run/fal-ai/flux-pro/kontext", {
+  const response = await fetch(`https://fal.run/${model}`, {
     method: "POST",
     headers: {
       Authorization: `Key ${apiKey}`,
@@ -330,7 +334,7 @@ export async function runMiniApp(
       output = result.output;
       await recordDeveloperEarning(miniApp, result.actualCostUsd);
     } else if (miniApp.model_config.output_type === "image") {
-      output = await generateImageFal(userInput, imageDataUrl);
+      output = await generateImageFal(userInput, imageDataUrl, miniApp.model_config.model);
     } else {
       // App admin tự tạo qua /admin đặt system_prompt riêng trong model_config; 5 app gốc dùng bảng cứng ở trên
       const systemPrompt = miniApp.model_config.system_prompt ?? SYSTEM_PROMPTS[miniAppId] ?? "Bạn là trợ lý AI hữu ích.";

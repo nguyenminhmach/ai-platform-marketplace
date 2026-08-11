@@ -114,6 +114,7 @@ export default function AdminPage() {
   const [togglingAppId, setTogglingAppId] = useState<string | null>(null);
 
   const [showNewAppForm, setShowNewAppForm] = useState(false);
+  const [newAppType, setNewAppType] = useState<"text" | "image" | "video">("text");
   const [newApp, setNewApp] = useState({
     name: "",
     description: "",
@@ -263,7 +264,7 @@ export default function AdminPage() {
     const res = await fetch("/api/admin/mini-apps", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(newApp),
+      body: JSON.stringify({ ...newApp, type: newAppType }),
     });
     setCreatingApp(false);
     if (!res.ok) {
@@ -272,6 +273,7 @@ export default function AdminPage() {
       return;
     }
     setNewApp({ name: "", description: "", category: "van-ban", creditCost: 10, model: MODEL_OPTIONS[0].value, systemPrompt: "" });
+    setNewAppType("text");
     setShowNewAppForm(false);
     loadMiniApps();
   }
@@ -549,9 +551,32 @@ export default function AdminPage() {
                   onSubmit={handleCreateApp}
                   className="mb-4 space-y-3 rounded-lg border border-dashed border-zinc-300 p-4 dark:border-zinc-700"
                 >
-                  <p className="text-xs text-zinc-400 dark:text-zinc-500">
-                    Chỉ tạo được app dạng văn bản (nhập text, AI trả lời text). App ảnh/video cần hạ tầng riêng — nhờ Claude Code làm giúp.
-                  </p>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Loại Mini App</label>
+                    <div className="flex gap-2">
+                      {(["text", "image", "video"] as const).map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => setNewAppType(t)}
+                          className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                            newAppType === t
+                              ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                              : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                          }`}
+                        >
+                          {t === "text" ? "Văn bản" : t === "image" ? "Ảnh" : "Video"}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+                      {newAppType === "text"
+                        ? "Người dùng nhập text, AI trả lời text — gọi OpenRouter."
+                        : newAppType === "image"
+                          ? "Người dùng nhập mô tả + ảnh tham chiếu (tuỳ chọn), AI tạo ảnh mới — dùng chung model Flux Kontext với app \"Tạo ảnh quảng cáo sản phẩm\"."
+                          : "Người dùng nhập mô tả + ảnh khung hình đầu/cuối (tuỳ chọn), AI tạo video ngắn — dùng chung model Kling với app \"Tạo video quảng cáo ngắn\", chạy bất đồng bộ (vài phút)."}
+                    </p>
+                  </div>
                   <div>
                     <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Tên Mini App</label>
                     <input
@@ -573,20 +598,22 @@ export default function AdminPage() {
                     />
                   </div>
                   <div className="flex flex-wrap gap-3">
-                    <div>
-                      <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Danh mục</label>
-                      <select
-                        value={newApp.category}
-                        onChange={(e) => setNewApp({ ...newApp, category: e.target.value })}
-                        className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-                      >
-                        {NEW_APP_CATEGORIES.map((c) => (
-                          <option key={c.value} value={c.value}>
-                            {c.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    {newAppType === "text" && (
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Danh mục</label>
+                        <select
+                          value={newApp.category}
+                          onChange={(e) => setNewApp({ ...newApp, category: e.target.value })}
+                          className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                        >
+                          {NEW_APP_CATEGORIES.map((c) => (
+                            <option key={c.value} value={c.value}>
+                              {c.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                     <div>
                       <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Giá (credit)</label>
                       <input
@@ -597,33 +624,37 @@ export default function AdminPage() {
                         className="w-28 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                       />
                     </div>
+                    {newAppType === "text" && (
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Model AI</label>
+                        <select
+                          value={newApp.model}
+                          onChange={(e) => setNewApp({ ...newApp, model: e.target.value })}
+                          className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                        >
+                          {MODEL_OPTIONS.map((m) => (
+                            <option key={m.value} value={m.value}>
+                              {m.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                  {newAppType === "text" && (
                     <div>
-                      <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Model AI</label>
-                      <select
-                        value={newApp.model}
-                        onChange={(e) => setNewApp({ ...newApp, model: e.target.value })}
-                        className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-                      >
-                        {MODEL_OPTIONS.map((m) => (
-                          <option key={m.value} value={m.value}>
-                            {m.label}
-                          </option>
-                        ))}
-                      </select>
+                      <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                        Hướng dẫn cho AI (system prompt)
+                      </label>
+                      <textarea
+                        value={newApp.systemPrompt}
+                        onChange={(e) => setNewApp({ ...newApp, systemPrompt: e.target.value })}
+                        rows={3}
+                        placeholder="Bạn là chuyên gia viết email marketing tiếng Việt. Viết email ngắn gọn, thuyết phục, dựa trên chủ đề người dùng cung cấp."
+                        className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                      />
                     </div>
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                      Hướng dẫn cho AI (system prompt)
-                    </label>
-                    <textarea
-                      value={newApp.systemPrompt}
-                      onChange={(e) => setNewApp({ ...newApp, systemPrompt: e.target.value })}
-                      rows={3}
-                      placeholder="Bạn là chuyên gia viết email marketing tiếng Việt. Viết email ngắn gọn, thuyết phục, dựa trên chủ đề người dùng cung cấp."
-                      className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-                    />
-                  </div>
+                  )}
                   <div className="flex items-center gap-3">
                     <button
                       type="submit"
