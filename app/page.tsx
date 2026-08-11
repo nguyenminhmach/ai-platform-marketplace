@@ -10,6 +10,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAuth } from "@/lib/auth-context";
 
 type HomepageChip = { id: string; type: "category" | "search" | "link"; label: string; value: string };
+type ExtraApp = { id: string; name: string; description: string; category: MiniApp["category"]; creditCost: number };
 
 export default function Home() {
   const { user } = useAuth();
@@ -18,6 +19,8 @@ export default function Home() {
   const [signupBonusCredits, setSignupBonusCredits] = useState(20);
   const [promoBannerEnabled, setPromoBannerEnabled] = useState(true);
   const [homepageChips, setHomepageChips] = useState<HomepageChip[]>([]);
+  const [inactiveIds, setInactiveIds] = useState<string[]>([]);
+  const [extraApps, setExtraApps] = useState<ExtraApp[]>([]);
   const resultsRef = useRef<HTMLDivElement>(null);
 
   function runSearch(value: string) {
@@ -35,20 +38,42 @@ export default function Home() {
         setHomepageChips(data.homepageChips ?? []);
       })
       .catch(() => {});
+
+    // App admin ẩn (Xoá) hoặc tự thêm mới qua /admin — Tất cả Mini App phải phản ánh đúng, không chỉ list tĩnh
+    fetch("/api/mini-apps/catalog")
+      .then((res) => res.json())
+      .then((data) => {
+        setInactiveIds(data.inactiveIds ?? []);
+        setExtraApps(data.extraApps ?? []);
+      })
+      .catch(() => {});
   }, []);
 
-  const filteredApps = useMemo(() => {
-    return MINI_APPS.filter((app) => {
-      const matchesCategory = category === "tat-ca" || app.category === category;
-      const matchesQuery =
-        query.trim() === "" ||
-        app.name.toLowerCase().includes(query.trim().toLowerCase()) ||
-        app.description.toLowerCase().includes(query.trim().toLowerCase());
-      return matchesCategory && matchesQuery;
-    });
-  }, [query, category]);
+  const activeMiniApps = useMemo(
+    () => MINI_APPS.filter((app) => !inactiveIds.includes(app.id)),
+    [inactiveIds]
+  );
 
-  const popularApps = MINI_APPS.filter((app) => app.popular);
+  function matches(name: string, description: string, appCategory: string) {
+    const matchesCategory = category === "tat-ca" || appCategory === category;
+    const matchesQuery =
+      query.trim() === "" ||
+      name.toLowerCase().includes(query.trim().toLowerCase()) ||
+      description.toLowerCase().includes(query.trim().toLowerCase());
+    return matchesCategory && matchesQuery;
+  }
+
+  const filteredApps = useMemo(
+    () => activeMiniApps.filter((app) => matches(app.name, app.description, app.category)),
+    [activeMiniApps, query, category]
+  );
+
+  const filteredExtraApps = useMemo(
+    () => extraApps.filter((app) => matches(app.name, app.description, app.category)),
+    [extraApps, query, category]
+  );
+
+  const popularApps = activeMiniApps.filter((app) => app.popular);
 
   return (
     <div className="flex min-h-full bg-zinc-50 dark:bg-black">
@@ -197,7 +222,7 @@ export default function Home() {
           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             Tất cả Mini App
           </h2>
-          {filteredApps.length === 0 ? (
+          {filteredApps.length === 0 && filteredExtraApps.length === 0 ? (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
               Không tìm thấy Mini App phù hợp.
             </p>
@@ -205,6 +230,9 @@ export default function Home() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {filteredApps.map((app) => (
                 <MiniAppCard key={app.id} app={app} />
+              ))}
+              {filteredExtraApps.map((app) => (
+                <ExtraAppCard key={app.id} app={app} />
               ))}
             </div>
           )}
@@ -342,5 +370,27 @@ function MiniAppCard({ app }: { app: MiniApp }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// App admin tự thêm qua /admin — chưa có icon/rating/demo riêng như 7 app gốc nên dùng card đơn giản hơn
+function ExtraAppCard({ app }: { app: ExtraApp }) {
+  return (
+    <Link
+      href={`/mini-app/${app.id}`}
+      className="flex flex-col rounded-xl border border-zinc-200 bg-white p-5 transition-shadow hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900"
+    >
+      <span className="mb-2 w-fit rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+        {CATEGORIES[app.category]}
+      </span>
+      <h3 className="mb-1 font-semibold text-zinc-900 dark:text-zinc-50">{app.name}</h3>
+      <p className="mb-4 flex-1 text-sm text-zinc-600 dark:text-zinc-400">{app.description}</p>
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">{app.creditCost} credit</span>
+        <span className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white dark:bg-zinc-50 dark:text-zinc-900">
+          Xem chi tiết
+        </span>
+      </div>
+    </Link>
   );
 }

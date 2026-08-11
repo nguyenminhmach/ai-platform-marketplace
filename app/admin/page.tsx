@@ -56,7 +56,26 @@ type Settings = {
   usdToVndRate: number;
 };
 
-type MiniAppPrice = { id: string; name: string; creditCost: number; dynamic: boolean };
+type MiniAppPrice = {
+  id: string;
+  name: string;
+  creditCost: number;
+  dynamic: boolean;
+  isActive: boolean;
+  ownApp: boolean;
+};
+
+const MODEL_OPTIONS = [
+  { value: "google/gemini-3-flash-preview", label: "Gemini Flash (rẻ, nhanh)" },
+  { value: "anthropic/claude-sonnet-4.6", label: "Claude Sonnet (chất lượng cao hơn, đắt hơn)" },
+];
+
+const NEW_APP_CATEGORIES: Array<{ value: string; label: string }> = [
+  { value: "van-ban", label: "Văn bản" },
+  { value: "anh", label: "Ảnh" },
+  { value: "video", label: "Video" },
+  { value: "am-thanh", label: "Âm thanh" },
+];
 
 type HomepageChip = { id: string; type: "category" | "search" | "link"; label: string; value: string };
 
@@ -92,6 +111,19 @@ export default function AdminPage() {
   const [savingAppId, setSavingAppId] = useState<string | null>(null);
   const [savedAppId, setSavedAppId] = useState<string | null>(null);
   const [appPriceError, setAppPriceError] = useState<string | null>(null);
+  const [togglingAppId, setTogglingAppId] = useState<string | null>(null);
+
+  const [showNewAppForm, setShowNewAppForm] = useState(false);
+  const [newApp, setNewApp] = useState({
+    name: "",
+    description: "",
+    category: "van-ban",
+    creditCost: 10,
+    model: MODEL_OPTIONS[0].value,
+    systemPrompt: "",
+  });
+  const [creatingApp, setCreatingApp] = useState(false);
+  const [newAppError, setNewAppError] = useState<string | null>(null);
 
   const [pendingDevs, setPendingDevs] = useState<PendingDeveloper[]>([]);
   const [pendingApps, setPendingApps] = useState<PendingApp[]>([]);
@@ -210,6 +242,37 @@ export default function AdminPage() {
     }
     setSavedAppId(id);
     setTimeout(() => setSavedAppId(null), 2000);
+    loadMiniApps();
+  }
+
+  async function handleToggleActive(id: string, isActive: boolean) {
+    setTogglingAppId(id);
+    await fetch("/api/admin/mini-apps", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, isActive }),
+    });
+    setTogglingAppId(null);
+    loadMiniApps();
+  }
+
+  async function handleCreateApp(e: React.FormEvent) {
+    e.preventDefault();
+    setCreatingApp(true);
+    setNewAppError(null);
+    const res = await fetch("/api/admin/mini-apps", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(newApp),
+    });
+    setCreatingApp(false);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setNewAppError(data.error ?? "Không tạo được Mini App");
+      return;
+    }
+    setNewApp({ name: "", description: "", category: "van-ban", creditCost: 10, model: MODEL_OPTIONS[0].value, systemPrompt: "" });
+    setShowNewAppForm(false);
     loadMiniApps();
   }
 
@@ -466,12 +529,114 @@ export default function AdminPage() {
             </section>
 
             <section className="mb-10 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-              <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                Giá từng Mini App
-              </h2>
+              <div className="mb-1 flex items-center justify-between">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                  Mini App
+                </h2>
+                <button
+                  onClick={() => setShowNewAppForm((v) => !v)}
+                  className="rounded-full bg-zinc-900 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                >
+                  {showNewAppForm ? "Đóng" : "+ Thêm Mini App mới"}
+                </button>
+              </div>
               <p className="mb-4 text-xs text-zinc-400 dark:text-zinc-500">
-                App ảnh/video tính giá động theo margin% ở trên, không sửa trực tiếp được ở đây. App còn lại sửa giá cố định thoải mái.
+                App ảnh/video tính giá động theo margin% ở trên, không sửa trực tiếp được ở đây. Nút Xoá chỉ ẩn app khỏi trang chủ (không mất dữ liệu), bấm lại để khôi phục.
               </p>
+
+              {showNewAppForm && (
+                <form
+                  onSubmit={handleCreateApp}
+                  className="mb-4 space-y-3 rounded-lg border border-dashed border-zinc-300 p-4 dark:border-zinc-700"
+                >
+                  <p className="text-xs text-zinc-400 dark:text-zinc-500">
+                    Chỉ tạo được app dạng văn bản (nhập text, AI trả lời text). App ảnh/video cần hạ tầng riêng — nhờ Claude Code làm giúp.
+                  </p>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Tên Mini App</label>
+                    <input
+                      type="text"
+                      value={newApp.name}
+                      onChange={(e) => setNewApp({ ...newApp, name: e.target.value })}
+                      placeholder="Ví dụ: Viết email marketing"
+                      className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Mô tả (hiện ở trang chủ)</label>
+                    <input
+                      type="text"
+                      value={newApp.description}
+                      onChange={(e) => setNewApp({ ...newApp, description: e.target.value })}
+                      placeholder="Nhập chủ đề, AI viết email marketing thuyết phục"
+                      className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Danh mục</label>
+                      <select
+                        value={newApp.category}
+                        onChange={(e) => setNewApp({ ...newApp, category: e.target.value })}
+                        className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                      >
+                        {NEW_APP_CATEGORIES.map((c) => (
+                          <option key={c.value} value={c.value}>
+                            {c.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Giá (credit)</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={newApp.creditCost}
+                        onChange={(e) => setNewApp({ ...newApp, creditCost: Number(e.target.value) })}
+                        className="w-28 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Model AI</label>
+                      <select
+                        value={newApp.model}
+                        onChange={(e) => setNewApp({ ...newApp, model: e.target.value })}
+                        className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                      >
+                        {MODEL_OPTIONS.map((m) => (
+                          <option key={m.value} value={m.value}>
+                            {m.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                      Hướng dẫn cho AI (system prompt)
+                    </label>
+                    <textarea
+                      value={newApp.systemPrompt}
+                      onChange={(e) => setNewApp({ ...newApp, systemPrompt: e.target.value })}
+                      rows={3}
+                      placeholder="Bạn là chuyên gia viết email marketing tiếng Việt. Viết email ngắn gọn, thuyết phục, dựa trên chủ đề người dùng cung cấp."
+                      className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                    />
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="submit"
+                      disabled={creatingApp}
+                      className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                    >
+                      {creatingApp ? "Đang tạo..." : "Tạo Mini App"}
+                    </button>
+                    {newAppError && <span className="text-sm text-red-600 dark:text-red-400">{newAppError}</span>}
+                  </div>
+                </form>
+              )}
+
               {!miniApps ? (
                 <p className="text-sm text-zinc-500 dark:text-zinc-400">Đang tải...</p>
               ) : (
@@ -479,21 +644,37 @@ export default function AdminPage() {
                   {miniApps.map((app) => (
                     <div
                       key={app.id}
-                      className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-100 px-3 py-2 dark:border-zinc-800"
+                      className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-100 px-3 py-2 dark:border-zinc-800 ${
+                        !app.isActive ? "opacity-50" : ""
+                      }`}
                     >
-                      <span className="text-sm text-zinc-700 dark:text-zinc-300">{app.name}</span>
-                      {app.dynamic ? (
-                        <span className="text-sm text-zinc-400 dark:text-zinc-500">
-                          {app.creditCost} credit — tính động
-                        </span>
-                      ) : (
-                        <MiniAppPriceEditor
-                          app={app}
-                          saving={savingAppId === app.id}
-                          saved={savedAppId === app.id}
-                          onSave={(value) => handleSaveMiniAppPrice(app.id, value)}
-                        />
-                      )}
+                      <span className="text-sm text-zinc-700 dark:text-zinc-300">
+                        {app.name}
+                        {!app.isActive && <span className="ml-2 text-xs text-zinc-400 dark:text-zinc-500">(đã ẩn)</span>}
+                      </span>
+                      <div className="flex items-center gap-3">
+                        {app.dynamic ? (
+                          <span className="text-sm text-zinc-400 dark:text-zinc-500">
+                            {app.creditCost} credit — tính động
+                          </span>
+                        ) : (
+                          <MiniAppPriceEditor
+                            app={app}
+                            saving={savingAppId === app.id}
+                            saved={savedAppId === app.id}
+                            onSave={(value) => handleSaveMiniAppPrice(app.id, value)}
+                          />
+                        )}
+                        <button
+                          onClick={() => handleToggleActive(app.id, !app.isActive)}
+                          disabled={togglingAppId === app.id}
+                          className={`rounded-full px-3 py-1 text-xs font-medium text-white disabled:opacity-50 ${
+                            app.isActive ? "bg-red-600" : "bg-emerald-600"
+                          }`}
+                        >
+                          {app.isActive ? "Xoá" : "Khôi phục"}
+                        </button>
+                      </div>
                     </div>
                   ))}
                   {appPriceError && <p className="text-sm text-red-600 dark:text-red-400">{appPriceError}</p>}

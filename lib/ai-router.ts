@@ -15,6 +15,7 @@ type MiniAppRow = {
     integration_mode?: "dify";
     endpoint_url?: string;
     api_key?: string;
+    system_prompt?: string;
   };
 };
 
@@ -331,7 +332,8 @@ export async function runMiniApp(
     } else if (miniApp.model_config.output_type === "image") {
       output = await generateImageFal(userInput, imageDataUrl);
     } else {
-      const systemPrompt = SYSTEM_PROMPTS[miniAppId] ?? "Bạn là trợ lý AI hữu ích.";
+      // App admin tự tạo qua /admin đặt system_prompt riêng trong model_config; 5 app gốc dùng bảng cứng ở trên
+      const systemPrompt = miniApp.model_config.system_prompt ?? SYSTEM_PROMPTS[miniAppId] ?? "Bạn là trợ lý AI hữu ích.";
       output = await callOpenRouter(
         miniApp.model_config.model,
         miniApp.model_config.max_tokens ?? 500,

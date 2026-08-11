@@ -520,7 +520,7 @@ type CommunityAppInfo = {
   description: string;
   category: string;
   creditCost: number;
-  developerName: string;
+  developerName: string | null;
 };
 
 function CommunityMiniAppRunner({ miniAppId }: { miniAppId: string }) {
@@ -600,14 +600,16 @@ function CommunityMiniAppRunner({ miniAppId }: { miniAppId: string }) {
           <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
             {CATEGORIES[appInfo.category as keyof typeof CATEGORIES] ?? appInfo.category}
           </span>
-          <span className="rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-medium text-sky-700 dark:bg-sky-900/40 dark:text-sky-400">
-            Cộng đồng
-          </span>
+          {appInfo.developerName && (
+            <span className="rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-medium text-sky-700 dark:bg-sky-900/40 dark:text-sky-400">
+              Cộng đồng
+            </span>
+          )}
         </div>
         <h1 className="mb-2 text-2xl font-semibold text-zinc-900 dark:text-zinc-50">{appInfo.name}</h1>
         <p className="mb-4 text-zinc-600 dark:text-zinc-400">{appInfo.description}</p>
         <div className="mb-8 flex items-center gap-4 text-sm text-zinc-500 dark:text-zinc-400">
-          <span>Tạo bởi {appInfo.developerName}</span>
+          {appInfo.developerName && <span>Tạo bởi {appInfo.developerName}</span>}
         </div>
 
         <section className="mb-8 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">

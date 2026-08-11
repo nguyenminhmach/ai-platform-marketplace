@@ -4,13 +4,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const { id } = await params;
   const supabase = getSupabaseAdmin();
 
+  // Không lọc developer_id — route này còn dùng chung cho app admin tự thêm qua /admin (developer_id null),
+  // khác với /api/mini-apps/community (danh sách trang Markets) chỉ liệt kê app của nhà phát triển thứ 3.
   const { data, error } = await supabase
     .from("mini_apps")
     .select("id, name, description, category, credit_cost, developers(display_name)")
     .eq("id", id)
     .eq("is_active", true)
     .eq("review_status", "approved")
-    .not("developer_id", "is", null)
     .single();
 
   if (error || !data) {
@@ -27,7 +28,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       description: data.description,
       category: data.category,
       creditCost: data.credit_cost,
-      developerName: developerName ?? "Ẩn danh",
+      developerName: developerName ?? null,
     },
   });
 }
