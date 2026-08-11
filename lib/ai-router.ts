@@ -60,13 +60,15 @@ async function getMiniAppConfig(miniAppId: string): Promise<MiniAppRow> {
   return row;
 }
 
+// usage.include=true là extension riêng của OpenRouter — trả kèm chi phí USD thật họ đã tính,
+// khỏi phải tự áng chừng theo bảng giá từng model (chính xác hơn, tự cập nhật khi họ đổi giá).
 async function callOpenRouter(
   model: string,
   maxTokens: number,
   systemPrompt: string,
   userInput: string,
   imageDataUrl?: string
-) {
+): Promise<{ output: string; costUsd: number; tokensUsed: number }> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("Chưa cấu hình OPENROUTER_API_KEY trong .env.local");
 
@@ -91,6 +93,7 @@ async function callOpenRouter(
       ],
       max_tokens: maxTokens,
       temperature: 0.7,
+      usage: { include: true },
     }),
   });
 
@@ -99,7 +102,11 @@ async function callOpenRouter(
   }
 
   const data = await response.json();
-  return data.choices[0].message.content as string;
+  return {
+    output: data.choices[0].message.content as string,
+    costUsd: data.usage?.cost ?? 0,
+    tokensUsed: data.usage?.total_tokens ?? 0,
+  };
 }
 
 // Gọi Fal.ai (mặc định Flux Kontext, admin tạo app ảnh mới cũng dùng chung model này) để sinh ảnh —
@@ -194,6 +201,26 @@ async function callDeveloperEndpoint(
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+// Ghi chi phí AI thật (USD OpenRouter báo về) cho từng lượt chạy app văn bản — trước đây không lưu ở
+// đâu cả nên chỉ áng chừng được, giờ có usage_logs để tra cứu chính xác + làm nền cho đối chiếu sau này.
+async function recordUsageLog(
+  userId: string,
+  miniAppId: string,
+  creditTransactionId: number | null,
+  actualCostUsd: number,
+  tokensUsed: number
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  await supabase.from("usage_logs").insert({
+    user_id: userId,
+    mini_app_id: miniAppId,
+    credit_transaction_id: creditTransactionId,
+    actual_cost_usd: actualCostUsd,
+    tokens_used: tokensUsed,
+    status: "success",
+  });
 }
 
 // Ghi nhận hoa hồng cho dev sau 1 lượt chạy thành công (Tập 8 mục 6.1) — sổ cái riêng, không sửa/xoá dòng
@@ -338,13 +365,15 @@ export async function runMiniApp(
     } else {
       // App admin tự tạo qua /admin đặt system_prompt riêng trong model_config; 5 app gốc dùng bảng cứng ở trên
       const systemPrompt = miniApp.model_config.system_prompt ?? SYSTEM_PROMPTS[miniAppId] ?? "Bạn là trợ lý AI hữu ích.";
-      output = await callOpenRouter(
+      const result = await callOpenRouter(
         miniApp.model_config.model,
         miniApp.model_config.max_tokens ?? 500,
         systemPrompt,
         userInput,
         imageDataUrl
       );
+      output = result.output;
+      await recordUsageLog(userId, miniAppId, deduction.txId, result.costUsd, result.tokensUsed);
     }
 
     return { output, newBalance: deduction.newBalance };
