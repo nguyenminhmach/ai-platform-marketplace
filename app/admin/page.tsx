@@ -58,6 +58,14 @@ type Settings = {
 
 type MiniAppPrice = { id: string; name: string; creditCost: number; dynamic: boolean };
 
+type HomepageChip = { id: string; type: "category" | "search" | "link"; label: string; value: string };
+
+const CHIP_TYPE_LABEL: Record<HomepageChip["type"], string> = {
+  category: "Danh mục",
+  search: "Tìm nhanh",
+  link: "Liên kết",
+};
+
 type PendingDeveloper = { id: string; display_name: string; status: string; created_at: string };
 type PendingApp = {
   id: string;
@@ -88,6 +96,10 @@ export default function AdminPage() {
   const [pendingDevs, setPendingDevs] = useState<PendingDeveloper[]>([]);
   const [pendingApps, setPendingApps] = useState<PendingApp[]>([]);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
+
+  const [homepageChips, setHomepageChips] = useState<HomepageChip[] | null>(null);
+  const [savingChips, setSavingChips] = useState(false);
+  const [chipsError, setChipsError] = useState<string | null>(null);
 
   async function loadStats() {
     const res = await fetch("/api/admin/stats");
@@ -122,12 +134,52 @@ export default function AdminPage() {
     setPendingApps(data.pendingApps ?? []);
   }
 
+  async function loadHomepageChips() {
+    const res = await fetch("/api/admin/homepage-chips");
+    if (!res.ok) return;
+    const data = await res.json();
+    setHomepageChips(data.chips ?? []);
+  }
+
   useEffect(() => {
     loadStats();
     loadSettings();
     loadMiniApps();
     loadDeveloperReview();
+    loadHomepageChips();
   }, []);
+
+  async function saveHomepageChips(chips: HomepageChip[]) {
+    setSavingChips(true);
+    setChipsError(null);
+    const res = await fetch("/api/admin/homepage-chips", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chips }),
+    });
+    setSavingChips(false);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setChipsError(data.error ?? "Không lưu được");
+      return;
+    }
+    setHomepageChips(chips);
+  }
+
+  function handleMoveChip(index: number, direction: -1 | 1) {
+    if (!homepageChips) return;
+    const target = index + direction;
+    if (target < 0 || target >= homepageChips.length) return;
+    const next = [...homepageChips];
+    [next[index], next[target]] = [next[target], next[index]];
+    saveHomepageChips(next);
+  }
+
+  function handleDeleteChip(index: number) {
+    if (!homepageChips) return;
+    const next = homepageChips.filter((_, i) => i !== index);
+    saveHomepageChips(next);
+  }
 
   async function handleReview(type: "developer" | "mini_app", id: string, action: "approve" | "reject") {
     setReviewingId(id);
@@ -196,6 +248,10 @@ export default function AdminPage() {
     }
     setPassword("");
     loadStats();
+    loadSettings();
+    loadMiniApps();
+    loadDeveloperReview();
+    loadHomepageChips();
   }
 
   async function handleLogout() {
@@ -441,6 +497,63 @@ export default function AdminPage() {
                     </div>
                   ))}
                   {appPriceError && <p className="text-sm text-red-600 dark:text-red-400">{appPriceError}</p>}
+                </div>
+              )}
+            </section>
+
+            <section className="mb-10 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+              <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Hàng chip lọc trang chủ
+              </h2>
+              <p className="mb-4 text-xs text-zinc-400 dark:text-zinc-500">
+                Hàng "Tất cả / Mô tả / Tóm tắt / Markets..." ngay dưới ô tìm kiếm. Dùng nút ↑↓ để đổi thứ tự, nút Xoá để bỏ hẳn.
+              </p>
+              {!homepageChips ? (
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">Đang tải...</p>
+              ) : homepageChips.length === 0 ? (
+                <p className="text-sm text-zinc-400 dark:text-zinc-500">Không còn chip nào.</p>
+              ) : (
+                <div className="space-y-2">
+                  {homepageChips.map((chip, index) => (
+                    <div
+                      key={chip.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-100 px-3 py-2 dark:border-zinc-800"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+                          {CHIP_TYPE_LABEL[chip.type]}
+                        </span>
+                        <span className="text-sm text-zinc-700 dark:text-zinc-300">{chip.label}</span>
+                        <span className="text-xs text-zinc-400 dark:text-zinc-500">({chip.value})</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleMoveChip(index, -1)}
+                          disabled={savingChips || index === 0}
+                          aria-label="Đưa lên trước"
+                          className="rounded-full border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 disabled:opacity-30 dark:border-zinc-600 dark:text-zinc-300"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          onClick={() => handleMoveChip(index, 1)}
+                          disabled={savingChips || index === homepageChips.length - 1}
+                          aria-label="Đưa xuống sau"
+                          className="rounded-full border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 disabled:opacity-30 dark:border-zinc-600 dark:text-zinc-300"
+                        >
+                          ↓
+                        </button>
+                        <button
+                          onClick={() => handleDeleteChip(index)}
+                          disabled={savingChips}
+                          className="rounded-full bg-red-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+                        >
+                          Xoá
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {chipsError && <p className="text-sm text-red-600 dark:text-red-400">{chipsError}</p>}
                 </div>
               )}
             </section>

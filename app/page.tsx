@@ -9,30 +9,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAuth } from "@/lib/auth-context";
 
-const CATEGORY_FILTERS: Array<{ key: MiniApp["category"] | "tat-ca"; label: string }> = [
-  { key: "tat-ca", label: "Tất cả" },
-  { key: "anh", label: "Ảnh" },
-  { key: "van-ban", label: "Văn bản" },
-  { key: "video", label: "Video" },
-  { key: "am-thanh", label: "Âm thanh" },
-];
-
-const QUICK_CHIPS: Array<{ label: string; query: string }> = [
-  { label: "Mô tả", query: "mô tả sản phẩm" },
-  { label: "Tóm tắt", query: "tóm tắt văn bản" },
-  { label: "Caption", query: "caption" },
-  { label: "Dịch", query: "dịch" },
-  { label: "Cảm xúc", query: "cảm xúc" },
-];
-
-type CommunityApp = {
-  id: string;
-  name: string;
-  description: string;
-  category: MiniApp["category"];
-  creditCost: number;
-  developerName: string;
-};
+type HomepageChip = { id: string; type: "category" | "search" | "link"; label: string; value: string };
 
 export default function Home() {
   const { user } = useAuth();
@@ -40,15 +17,8 @@ export default function Home() {
   const [category, setCategory] = useState<MiniApp["category"] | "tat-ca">("tat-ca");
   const [signupBonusCredits, setSignupBonusCredits] = useState(20);
   const [promoBannerEnabled, setPromoBannerEnabled] = useState(true);
-  const [communityApps, setCommunityApps] = useState<CommunityApp[]>([]);
+  const [homepageChips, setHomepageChips] = useState<HomepageChip[]>([]);
   const resultsRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    fetch("/api/mini-apps/community")
-      .then((res) => res.json())
-      .then((data) => setCommunityApps(data.apps ?? []))
-      .catch(() => {});
-  }, []);
 
   function runSearch(value: string) {
     setQuery(value);
@@ -62,6 +32,7 @@ export default function Home() {
       .then((data) => {
         setSignupBonusCredits(data.signupBonusCredits);
         setPromoBannerEnabled(data.promoBannerEnabled);
+        setHomepageChips(data.homepageChips ?? []);
       })
       .catch(() => {});
   }, []);
@@ -163,34 +134,48 @@ export default function Home() {
               </button>
             </div>
           </form>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {QUICK_CHIPS.map((chip) => (
-              <button
-                key={chip.label}
-                onClick={() => runSearch(chip.query)}
-                className="rounded-full border border-zinc-200 px-3 py-1 text-xs font-medium text-zinc-600 transition-colors hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-50"
-              >
-                {chip.label}
-              </button>
-            ))}
-          </div>
         </section>
 
-        {/* Bộ lọc danh mục */}
+        {/* Hàng chip lọc/tìm nhanh — gộp danh mục + tìm nhanh + Markets, thứ tự và việc ẩn/xoá do admin quyết định qua /admin */}
         <section className="mb-8 flex flex-wrap gap-2">
-          {CATEGORY_FILTERS.map((filter) => (
-            <button
-              key={filter.key}
-              onClick={() => setCategory(filter.key)}
-              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-                category === filter.key
-                  ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
-                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
-              }`}
-            >
-              {filter.label}
-            </button>
-          ))}
+          {homepageChips.map((chip) => {
+            if (chip.type === "category") {
+              const isActive = category === chip.value;
+              return (
+                <button
+                  key={chip.id}
+                  onClick={() => setCategory(chip.value as MiniApp["category"] | "tat-ca")}
+                  className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                    isActive
+                      ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                      : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  {chip.label}
+                </button>
+              );
+            }
+            if (chip.type === "search") {
+              return (
+                <button
+                  key={chip.id}
+                  onClick={() => runSearch(chip.value)}
+                  className="rounded-full border border-zinc-200 px-4 py-1.5 text-sm font-medium text-zinc-600 transition-colors hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-50"
+                >
+                  {chip.label}
+                </button>
+              );
+            }
+            return (
+              <Link
+                key={chip.id}
+                href={chip.value}
+                className="rounded-full border border-zinc-200 px-4 py-1.5 text-sm font-medium text-zinc-600 transition-colors hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-50"
+              >
+                {chip.label}
+              </Link>
+            );
+          })}
         </section>
 
         {/* Mini App phổ biến nhất — chỉ hiện khi không tìm kiếm/lọc */}
@@ -224,26 +209,6 @@ export default function Home() {
             </div>
           )}
         </section>
-
-        {/* Mini App do nhà phát triển bên thứ 3 tạo — chỉ hiện 1 dòng tiêu đề, bấm vào mới sang trang riêng (Giai đoạn 4) */}
-        {communityApps.length > 0 && (
-          <section className="mt-10">
-            <Link
-              href="/markets"
-              className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-5 py-4 transition-shadow hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900"
-            >
-              <div>
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                  Mini App từ Nhà phát triển
-                </h2>
-                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                  {communityApps.length} app từ cộng đồng — bấm để xem tất cả
-                </p>
-              </div>
-              <span className="text-zinc-400 dark:text-zinc-500">→</span>
-            </Link>
-          </section>
-        )}
         </main>
         <Footer />
       </div>

@@ -6,7 +6,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from("site_settings")
     .select(
-      "signup_bonus_credits, promo_banner_enabled, subscription_enabled, subscription_price_vnd, subscription_duration_days"
+      "signup_bonus_credits, promo_banner_enabled, subscription_enabled, subscription_price_vnd, subscription_duration_days, homepage_chips"
     )
     .eq("id", 1)
     .single();
@@ -18,6 +18,7 @@ export async function GET() {
       subscriptionEnabled: false,
       subscriptionPriceVnd: 499000,
       subscriptionDurationDays: 30,
+      homepageChips: [],
     });
   }
 
@@ -27,5 +28,6 @@ export async function GET() {
     subscriptionEnabled: data.subscription_enabled,
     subscriptionPriceVnd: data.subscription_price_vnd,
     subscriptionDurationDays: data.subscription_duration_days,
+    homepageChips: data.homepage_chips ?? [],
   });
 }
