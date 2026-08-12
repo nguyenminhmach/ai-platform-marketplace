@@ -203,6 +203,23 @@ async function callDeveloperEndpoint(
   }
 }
 
+// Lưu link ảnh/video vừa tạo thành công vào gallery "Lịch sử kết quả" của user — trước đây link chỉ
+// trả về cho trình duyệt lúc đó rồi mất, không xem lại được.
+export async function recordGenerationHistory(
+  userId: string,
+  miniAppId: string,
+  outputType: "image" | "video",
+  outputUrl: string
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  await supabase.from("generation_history").insert({
+    user_id: userId,
+    mini_app_id: miniAppId,
+    output_type: outputType,
+    output_url: outputUrl,
+  });
+}
+
 // Ghi chi phí AI thật (USD OpenRouter báo về) cho từng lượt chạy app văn bản — trước đây không lưu ở
 // đâu cả nên chỉ áng chừng được, giờ có usage_logs để tra cứu chính xác + làm nền cho đối chiếu sau này.
 async function recordUsageLog(
@@ -362,6 +379,7 @@ export async function runMiniApp(
       await recordDeveloperEarning(miniApp, result.actualCostUsd);
     } else if (miniApp.model_config.output_type === "image") {
       output = await generateImageFal(userInput, imageDataUrl, miniApp.model_config.model);
+      await recordGenerationHistory(userId, miniAppId, "image", output);
     } else {
       // App admin tự tạo qua /admin đặt system_prompt riêng trong model_config; 5 app gốc dùng bảng cứng ở trên
       const systemPrompt = miniApp.model_config.system_prompt ?? SYSTEM_PROMPTS[miniAppId] ?? "Bạn là trợ lý AI hữu ích.";

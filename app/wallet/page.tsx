@@ -45,6 +45,15 @@ function formatDate(iso: string) {
   });
 }
 
+type HistoryItem = {
+  id: number;
+  miniAppId: string;
+  miniAppName: string;
+  outputType: "image" | "video";
+  outputUrl: string;
+  createdAt: string;
+};
+
 type OrderInfo = {
   orderCode: string;
   qrUrl: string;
@@ -78,6 +87,10 @@ export default function WalletPage() {
   const [order, setOrder] = useState<OrderInfo | null>(null);
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [orderPaid, setOrderPaid] = useState(false);
+
+  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [openMenuId, setOpenMenuId] = useState<number | null>(null);
 
   const [subscriptionEnabled, setSubscriptionEnabled] = useState(false);
   const [subscriptionPriceVnd, setSubscriptionPriceVnd] = useState(0);
@@ -159,6 +172,29 @@ export default function WalletPage() {
   }
 
   useEffect(loadWallet, [user]);
+
+  function loadHistory() {
+    if (!user) return;
+    fetch(`/api/history?userId=${user.id}`)
+      .then((res) => res.json())
+      .then((data) => {
+        setHistoryItems(data.items ?? []);
+        setHistoryLoading(false);
+      });
+  }
+
+  useEffect(loadHistory, [user]);
+
+  async function handleDeleteHistory(id: number) {
+    if (!user) return;
+    setOpenMenuId(null);
+    setHistoryItems((items) => items.filter((item) => item.id !== id));
+    await fetch(`/api/history/${id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: user.id }),
+    });
+  }
 
   // Polling — hỏi mỗi 3 giây xem đơn hàng đã được Sepay báo thanh toán chưa
   useEffect(() => {
@@ -489,6 +525,68 @@ export default function WalletPage() {
               </tbody>
             </table>
           </div>
+        </section>
+
+        <section className="mt-12">
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            Lịch sử kết quả
+          </h2>
+          {historyLoading ? (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">Đang tải...</p>
+          ) : historyItems.length === 0 ? (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">Chưa có ảnh/video nào được tạo.</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              {historyItems.map((item) => (
+                <div
+                  key={item.id}
+                  className="relative overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
+                >
+                  {item.outputType === "image" ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={item.outputUrl} alt={item.miniAppName} className="aspect-square w-full object-cover" />
+                  ) : (
+                    <video src={item.outputUrl} className="aspect-square w-full object-cover" muted />
+                  )}
+
+                  <div className="absolute right-2 top-2">
+                    <button
+                      onClick={() => setOpenMenuId(openMenuId === item.id ? null : item.id)}
+                      aria-label="Tuỳ chọn"
+                      className="flex h-7 w-7 items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/70"
+                    >
+                      ⋯
+                    </button>
+                    {openMenuId === item.id && (
+                      <div className="absolute right-0 mt-1 w-32 overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-800">
+                        <a
+                          href={item.outputUrl}
+                          download
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => setOpenMenuId(null)}
+                          className="block px-3 py-1.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                        >
+                          Tải xuống
+                        </a>
+                        <button
+                          onClick={() => handleDeleteHistory(item.id)}
+                          className="block w-full px-3 py-1.5 text-left text-xs text-red-600 hover:bg-zinc-100 dark:text-red-400 dark:hover:bg-zinc-700"
+                        >
+                          Xoá
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-2">
+                    <p className="truncate text-xs font-medium text-zinc-700 dark:text-zinc-300">{item.miniAppName}</p>
+                    <p className="text-[10px] text-zinc-400 dark:text-zinc-500">{formatDate(item.createdAt)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       </main>
       <Footer />

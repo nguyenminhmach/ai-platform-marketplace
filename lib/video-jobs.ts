@@ -8,6 +8,7 @@
 
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { refundCredit } from "@/lib/credit-system";
+import { recordGenerationHistory } from "@/lib/ai-router";
 
 const STALE_CHECK_MS = 30_000; // job "processing" lâu hơn mốc này mới chủ động hỏi lại Fal.ai
 const ABANDON_MS = 2 * 60 * 60 * 1000; // job cũ hơn 2 giờ vẫn chưa xong -> coi như bỏ, hoàn credit
@@ -72,6 +73,7 @@ export async function applyFalResult(job: VideoJobRow, falPayload: Record<string
   const { data: publicUrlData } = supabase.storage.from("videos").getPublicUrl(filePath);
 
   await supabase.from("video_jobs").update({ status: "done", output_url: publicUrlData.publicUrl }).eq("id", job.id);
+  await recordGenerationHistory(job.user_id, job.mini_app_id, "video", publicUrlData.publicUrl);
   return "done";
 }
 
