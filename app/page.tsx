@@ -82,12 +82,17 @@ export default function Home() {
       <Sidebar />
 
       <div className="min-w-0 flex-1">
-        {/* Header + Ví credit */}
+        {/* Header + Ví credit — có luôn tiêu đề hero để đỡ tốn thêm 1 khối riêng bên dưới */}
         <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-black/80">
-          <div className="flex items-center justify-between gap-4 px-6 py-4">
-            <span className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 md:hidden">
-              AI Marketplace
-            </span>
+          <div className="flex items-center justify-between gap-4 px-6 py-5">
+            <div>
+              <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+                Hàng chục công cụ AI, trả tiền theo lượt dùng
+              </h1>
+              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                Chọn Mini App bên dưới, chạy ngay — không cần cài đặt gì thêm.
+              </p>
+            </div>
             <div className="ml-auto flex items-center gap-3">
               <ThemeToggle />
               <BalanceBadge />
@@ -122,16 +127,6 @@ export default function Home() {
             )}
           </section>
         )}
-
-        {/* Hero ngắn */}
-        <section className="mx-auto mb-10 max-w-2xl text-center">
-          <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
-            Hàng chục công cụ AI, trả tiền theo lượt dùng
-          </h1>
-          <p className="mt-2 text-zinc-600 dark:text-zinc-400">
-            Chọn Mini App bên dưới, chạy ngay — không cần cài đặt gì thêm.
-          </p>
-        </section>
 
         {/* Ô tìm Mini App dạng chat */}
         <section className="mx-auto mb-6 max-w-2xl">
