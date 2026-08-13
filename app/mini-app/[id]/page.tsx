@@ -322,24 +322,28 @@ export default function MiniAppDetailPage() {
           <span>{app.usageCount.toLocaleString("vi-VN")} lượt đã chạy</span>
         </div>
 
-        {/* Demo input/output mẫu — Tập 5 mục 1.2: cần thấy ví dụ thật trước khi bỏ credit ra thử */}
-        <section className="mb-8 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-            Ví dụ minh hoạ
-          </h2>
-          <div className="mb-3">
-            <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Input mẫu</p>
-            <p className="rounded-lg bg-zinc-50 p-3 text-sm text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-              {app.demoInput}
-            </p>
-          </div>
-          <div>
-            <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Kết quả AI trả về</p>
-            <p className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-300">
-              {app.demoOutput}
-            </p>
-          </div>
-        </section>
+        {/* Demo input/output mẫu — Tập 5 mục 1.2: cần thấy ví dụ thật trước khi bỏ credit ra thử.
+            Bỏ riêng cho "thay-trang-phuc" — card trang chủ đã có ảnh minh hoạ trực quan hơn rồi, mục
+            text ở đây thành thừa/rối cho app này (các app khác vẫn giữ). */}
+        {app.inputType !== "outfit-swap" && (
+          <section className="mb-8 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              Ví dụ minh hoạ
+            </h2>
+            <div className="mb-3">
+              <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Input mẫu</p>
+              <p className="rounded-lg bg-zinc-50 p-3 text-sm text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                {app.demoInput}
+              </p>
+            </div>
+            <div>
+              <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Kết quả AI trả về</p>
+              <p className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-300">
+                {app.demoOutput}
+              </p>
+            </div>
+          </section>
+        )}
 
         {/* Khu vực nhập input thật + chạy */}
         <section className="mb-8 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
