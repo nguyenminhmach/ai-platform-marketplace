@@ -518,14 +518,15 @@ export default function MiniAppDetailPage() {
                 <div>
                   <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Ảnh người mẫu</p>
                   {imageDataUrl ? (
-                    <div className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800">
+                    <div className="relative aspect-square w-full">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={imageDataUrl} alt="Ảnh người mẫu" className="h-20 w-20 rounded-md object-cover" />
+                      <img src={imageDataUrl} alt="Ảnh người mẫu" className="h-full w-full rounded-lg object-cover" />
                       <button
                         onClick={() => setImageDataUrl(null)}
-                        className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                        aria-label="Xoá ảnh"
+                        className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-xs text-white hover:bg-black/80"
                       >
-                        Xóa
+                        ×
                       </button>
                     </div>
                   ) : (
