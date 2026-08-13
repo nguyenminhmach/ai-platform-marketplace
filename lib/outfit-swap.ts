@@ -15,7 +15,7 @@ const MINI_APP_ID = "thay-trang-phuc";
 const MAX_GARMENTS = 4;
 
 export const DEFAULT_OUTFIT_SWAP_PROMPT =
-  "Giữ nguyên khuôn mặt, dáng người, tư thế, biểu cảm, góc chụp, ánh sáng và bối cảnh của ảnh người mẫu. Chỉ thay trang phục của người mẫu bằng đúng bộ trang phục trong ảnh tham chiếu — giữ đúng kiểu dáng, màu sắc, hoạ tiết và chất liệu của trang phục đó.";
+  "Giữ nguyên khuôn mặt, dáng người, tư thế, biểu cảm, góc chụp, ánh sáng và bối cảnh của ảnh người mẫu. Giữ nguyên mọi phụ kiện và đồ vật người mẫu đang cầm/đeo (điện thoại, túi xách, trang sức...) — không thay đổi hình dạng, màu sắc hay vị trí của chúng. Chỉ thay trang phục của người mẫu bằng đúng bộ trang phục trong ảnh tham chiếu — giữ đúng kiểu dáng, màu sắc, hoạ tiết và chất liệu của trang phục đó.";
 
 async function getModelAndProviderCost(): Promise<{ model: string; providerCostVnd: number }> {
   const supabase = getSupabaseAdmin();
