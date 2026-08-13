@@ -314,6 +314,13 @@ const ICON_CONFIG: Record<
       </>
     ),
   },
+  shirt: {
+    bg: "bg-pink-50 dark:bg-pink-950/40",
+    iconColor: "text-pink-600 dark:text-pink-400",
+    path: (
+      <path d="M16 3l-4 2-4-2-5 4 3 4 2-1.5V21h8V9.5L18 11l3-4-5-4z" />
+    ),
+  },
 };
 
 function MiniAppCard({ app }: { app: MiniApp }) {

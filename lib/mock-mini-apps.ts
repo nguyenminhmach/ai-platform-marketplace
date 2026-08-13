@@ -3,11 +3,11 @@ export type MiniApp = {
   name: string;
   description: string;
   category: "anh" | "van-ban" | "video" | "am-thanh";
-  icon: "photo" | "file-text" | "caption" | "translate" | "sentiment" | "sparkles" | "film";
+  icon: "photo" | "file-text" | "caption" | "translate" | "sentiment" | "sparkles" | "film" | "shirt";
   creditCost: number;
   popular?: boolean;
   isNew?: boolean;
-  inputType: "text" | "image" | "image-gen" | "video-gen";
+  inputType: "text" | "image" | "image-gen" | "video-gen" | "outfit-swap";
   outputType?: "text" | "image" | "video";
   inputLabel: string;
   inputPlaceholder: string;
@@ -124,6 +124,23 @@ export const MINI_APPS: MiniApp[] = [
     inputPlaceholder: "Ví dụ: sản phẩm xoay tròn trên bàn, ánh sáng studio, chuyển động mượt",
     demoInput: "Chai nước hoa xoay tròn chậm trên nền đen, ánh sáng lung linh",
     demoOutput: "Video 4 giây, chai nước hoa xoay 360 độ mượt mà, ánh sáng phản chiếu đẹp.",
+    usageCount: 0,
+    rating: 5.0,
+  },
+  {
+    id: "thay-trang-phuc",
+    name: "Thay trang phục cho người mẫu",
+    description: "Tải 1 ảnh người mẫu + tối đa 10 ảnh trang phục tham chiếu, AI ghép người mẫu mặc thử từng bộ đồ, giữ nguyên khuôn mặt/dáng người/bối cảnh.",
+    category: "anh",
+    icon: "shirt",
+    creditCost: 12,
+    isNew: true,
+    inputType: "outfit-swap",
+    outputType: "image",
+    inputLabel: "Câu lệnh mô tả (có thể chỉnh sửa)",
+    inputPlaceholder: "",
+    demoInput: "Ảnh người mẫu + 3 ảnh trang phục tham chiếu",
+    demoOutput: "3 ảnh người mẫu mặc thử 3 bộ đồ khác nhau, giữ đúng khuôn mặt và dáng người gốc.",
     usageCount: 0,
     rating: 5.0,
   },

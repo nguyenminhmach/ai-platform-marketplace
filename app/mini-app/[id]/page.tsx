@@ -27,11 +27,30 @@ export default function MiniAppDetailPage() {
   const [liveCreditCost, setLiveCreditCost] = useState<number | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // "Thay trang phục": imageDataUrl dùng chung làm ảnh người mẫu, garmentImages là danh sách trang phục
+  // tham chiếu riêng (tối đa 10) — kết quả trả về nhiều ảnh nên dùng state riêng, không dùng chung `result`.
+  const [garmentImages, setGarmentImages] = useState<string[]>([]);
+  const [garmentError, setGarmentError] = useState<string | null>(null);
+  const [outfitSwapPricePerImage, setOutfitSwapPricePerImage] = useState<number | null>(null);
+  const [outfitSwapResults, setOutfitSwapResults] = useState<string[] | null>(null);
+
   useEffect(() => {
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (params.id === "thay-trang-phuc") {
+      fetch("/api/outfit-swap")
+        .then((res) => res.json())
+        .then((data) => {
+          setOutfitSwapPricePerImage(data.pricePerImage);
+          setInput(data.defaultPrompt);
+        })
+        .catch(() => {});
+    }
+  }, [params.id]);
 
   // Ảnh/video có giá tính động theo chi phí thật + biên lợi nhuận, khác app text (giá cố định)
   useEffect(() => {
@@ -71,6 +90,70 @@ export default function MiniAppDetailPage() {
     const reader = new FileReader();
     reader.onload = () => setImageDataUrl(reader.result as string);
     reader.readAsDataURL(file);
+  }
+
+  function handleGarmentFilesChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (files.length === 0) return;
+
+    setGarmentError(null);
+    const remainingSlots = 10 - garmentImages.length;
+    if (remainingSlots <= 0) {
+      setGarmentError("Tối đa 10 ảnh trang phục");
+      return;
+    }
+
+    const filesToAdd = files.slice(0, remainingSlots);
+    filesToAdd.forEach((file) => {
+      if (!file.type.startsWith("image/")) {
+        setGarmentError("Chỉ nhận file ảnh (JPG, PNG, WEBP...)");
+        return;
+      }
+      if (file.size > 4 * 1024 * 1024) {
+        setGarmentError("Mỗi ảnh tối đa 4MB");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => setGarmentImages((prev) => [...prev, reader.result as string]);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function removeGarmentImage(index: number) {
+    setGarmentImages((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  async function handleRunOutfitSwap() {
+    if (!user || garmentImages.length === 0 || !imageDataUrl) return;
+    setIsRunning(true);
+    setOutfitSwapResults(null);
+    setRunError(null);
+
+    try {
+      const res = await fetch("/api/outfit-swap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: user.id,
+          modelImageDataUrl: imageDataUrl,
+          garmentImageDataUrls: garmentImages,
+          prompt: input,
+        }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setRunError(data.error ?? "Có lỗi xảy ra");
+        return;
+      }
+      setOutfitSwapResults(data.outputs);
+      window.dispatchEvent(new Event("balance-updated"));
+    } catch {
+      setRunError("Không kết nối được tới server");
+    } finally {
+      setIsRunning(false);
+    }
   }
 
   function handleEndFrameFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -263,9 +346,11 @@ export default function MiniAppDetailPage() {
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             Thử ngay
           </h2>
-          <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            {app.inputLabel}
-          </label>
+          {app.inputType !== "outfit-swap" && (
+            <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              {app.inputLabel}
+            </label>
+          )}
 
           {app.inputType === "image" ? (
             <div className="mb-4">
@@ -393,6 +478,70 @@ export default function MiniAppDetailPage() {
                 </div>
               </div>
             </div>
+          ) : app.inputType === "outfit-swap" ? (
+            <div className="mb-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                    Ảnh trang phục tham chiếu (tối đa 10)
+                  </p>
+                  <div className="mb-2 grid grid-cols-3 gap-2">
+                    {garmentImages.map((url, index) => (
+                      <div key={index} className="relative">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={url} alt={`Trang phục ${index + 1}`} className="aspect-square w-full rounded-md object-cover" />
+                        <button
+                          onClick={() => removeGarmentImage(index)}
+                          aria-label="Xoá ảnh"
+                          className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-xs text-white hover:bg-black/80"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  {garmentImages.length < 10 && (
+                    <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 py-5 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                      <span className="mb-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                        Bấm để thêm ảnh trang phục ({garmentImages.length}/10)
+                      </span>
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400">JPG, PNG, WEBP — mỗi ảnh tối đa 4MB</span>
+                      <input type="file" accept="image/*" multiple onChange={handleGarmentFilesChange} className="hidden" />
+                    </label>
+                  )}
+                  {garmentError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{garmentError}</p>}
+                </div>
+                <div>
+                  <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Ảnh người mẫu</p>
+                  {imageDataUrl ? (
+                    <div className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={imageDataUrl} alt="Ảnh người mẫu" className="h-20 w-20 rounded-md object-cover" />
+                      <button
+                        onClick={() => setImageDataUrl(null)}
+                        className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                      >
+                        Xóa
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 py-8 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                      <span className="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">Bấm để tải ảnh người mẫu</span>
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400">JPG, PNG, WEBP — tối đa 4MB</span>
+                      <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+                    </label>
+                  )}
+                  {imageError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{imageError}</p>}
+                </div>
+              </div>
+              <p className="mb-1 mt-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">{app.inputLabel}</p>
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                rows={3}
+                className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+              />
+            </div>
           ) : (
             <div className="mb-4">
               <textarea
@@ -412,7 +561,31 @@ export default function MiniAppDetailPage() {
             </div>
           )}
 
-          {!user ? (
+          {app.inputType === "outfit-swap" && !user ? (
+            <div className="flex items-center justify-between rounded-lg bg-zinc-50 p-3 dark:bg-zinc-800">
+              <span className="text-sm text-zinc-600 dark:text-zinc-400">Cần đăng nhập để chạy Mini App</span>
+              <Link href="/login" className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white dark:bg-zinc-50 dark:text-zinc-900">
+                Đăng nhập
+              </Link>
+            </div>
+          ) : app.inputType === "outfit-swap" ? (
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                Thao tác này sẽ trừ{" "}
+                <strong className="text-zinc-900 dark:text-zinc-50">
+                  {(outfitSwapPricePerImage ?? 0) * garmentImages.length} credit
+                </strong>{" "}
+                ({garmentImages.length} × {outfitSwapPricePerImage ?? "..."} credit)
+              </span>
+              <button
+                onClick={handleRunOutfitSwap}
+                disabled={isRunning || garmentImages.length === 0 || !imageDataUrl}
+                className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              >
+                {isRunning ? "Đang xử lý..." : "Chạy ngay"}
+              </button>
+            </div>
+          ) : !user ? (
             <div className="flex items-center justify-between rounded-lg bg-zinc-50 p-3 dark:bg-zinc-800">
               <span className="text-sm text-zinc-600 dark:text-zinc-400">Cần đăng nhập để chạy Mini App</span>
               <Link href="/login" className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white dark:bg-zinc-50 dark:text-zinc-900">
@@ -443,6 +616,41 @@ export default function MiniAppDetailPage() {
 
           {runError && (
             <p className="mt-3 text-sm text-red-600 dark:text-red-400">{runError}</p>
+          )}
+
+          {outfitSwapResults && (
+            <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800">
+              <p className="mb-3 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                Kết quả từ AI ({outfitSwapResults.length} ảnh)
+              </p>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {outfitSwapResults.map((url, index) => (
+                  <div key={index}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={url} alt={`Kết quả ${index + 1}`} className="aspect-square w-full rounded-lg object-cover" />
+                    <a
+                      href={url}
+                      download
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-1 block text-center text-xs font-medium text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
+                    >
+                      Tải xuống
+                    </a>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => {
+                  setOutfitSwapResults(null);
+                  setGarmentImages([]);
+                  setImageDataUrl(null);
+                }}
+                className="mt-3 rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+              >
+                Chạy lại với ảnh khác
+              </button>
+            </div>
           )}
 
           {result && (
