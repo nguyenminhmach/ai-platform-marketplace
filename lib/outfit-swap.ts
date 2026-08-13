@@ -1,4 +1,4 @@
-// "Thay trang phục cho người mẫu" — 1 ảnh người mẫu + tối đa 10 ảnh trang phục tham chiếu, ghép qua
+// "Thay trang phục cho người mẫu" — 1 ảnh người mẫu + tối đa N ảnh trang phục tham chiếu, ghép qua
 // Fal.ai Nano Banana Pro Edit (fal-ai/gemini-3-pro-image-preview/edit), MỖI bộ đồ = 1 lần gọi riêng
 // (model chỉ nhận tối đa 2 ảnh/lần), chạy song song rồi gộp kết quả. Khác các app ảnh khác: giá tính
 // theo SỐ LƯỢNG bộ đồ đưa vào (không cố định 1 mức), nên không dùng chung getMiniAppConfig()/runMiniApp().
@@ -9,7 +9,10 @@ import { computeDynamicCreditCost, getMediaPricingSettings } from "@/lib/pricing
 import { recordGenerationHistory } from "@/lib/ai-router";
 
 const MINI_APP_ID = "thay-trang-phuc";
-const MAX_GARMENTS = 10;
+// Test thực tế: 6 ảnh chạy song song bị Vercel Hobby giết ở đúng mốc 60s (maxDuration tối đa cho phép
+// trên Hobby, không nâng được nếu không lên gói Pro) -> mất credit không hoàn (function bị kill cứng,
+// code refundCredit trong catch không kịp chạy). Hạ xuống 4 để nằm trong ngưỡng an toàn đã kiểm chứng.
+const MAX_GARMENTS = 4;
 
 export const DEFAULT_OUTFIT_SWAP_PROMPT =
   "Giữ nguyên khuôn mặt, dáng người, tư thế, biểu cảm, góc chụp, ánh sáng và bối cảnh của ảnh người mẫu. Chỉ thay trang phục của người mẫu bằng đúng bộ trang phục trong ảnh tham chiếu — giữ đúng kiểu dáng, màu sắc, hoạ tiết và chất liệu của trang phục đó.";

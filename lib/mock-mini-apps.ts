@@ -130,7 +130,7 @@ export const MINI_APPS: MiniApp[] = [
   {
     id: "thay-trang-phuc",
     name: "Thay trang phục cho người mẫu",
-    description: "Tải 1 ảnh người mẫu + tối đa 10 ảnh trang phục tham chiếu, AI ghép người mẫu mặc thử từng bộ đồ, giữ nguyên khuôn mặt/dáng người/bối cảnh.",
+    description: "Tải 1 ảnh người mẫu + tối đa 4 ảnh trang phục tham chiếu, AI ghép người mẫu mặc thử từng bộ đồ, giữ nguyên khuôn mặt/dáng người/bối cảnh.",
     category: "anh",
     icon: "shirt",
     creditCost: 12,

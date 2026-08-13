@@ -28,7 +28,7 @@ export default function MiniAppDetailPage() {
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // "Thay trang phục": imageDataUrl dùng chung làm ảnh người mẫu, garmentImages là danh sách trang phục
-  // tham chiếu riêng (tối đa 10) — kết quả trả về nhiều ảnh nên dùng state riêng, không dùng chung `result`.
+  // tham chiếu riêng (tối đa 4) — kết quả trả về nhiều ảnh nên dùng state riêng, không dùng chung `result`.
   const [garmentImages, setGarmentImages] = useState<string[]>([]);
   const [garmentError, setGarmentError] = useState<string | null>(null);
   const [outfitSwapPricePerImage, setOutfitSwapPricePerImage] = useState<number | null>(null);
@@ -98,9 +98,9 @@ export default function MiniAppDetailPage() {
     if (files.length === 0) return;
 
     setGarmentError(null);
-    const remainingSlots = 10 - garmentImages.length;
+    const remainingSlots = 4 - garmentImages.length;
     if (remainingSlots <= 0) {
-      setGarmentError("Tối đa 10 ảnh trang phục");
+      setGarmentError("Tối đa 4 ảnh trang phục");
       return;
     }
 
@@ -487,7 +487,7 @@ export default function MiniAppDetailPage() {
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                    Ảnh trang phục tham chiếu (tối đa 10)
+                    Ảnh trang phục tham chiếu (tối đa 4)
                   </p>
                   {garmentImages.length > 0 && (
                     <div className="mb-2 grid grid-cols-3 gap-2">
@@ -506,10 +506,10 @@ export default function MiniAppDetailPage() {
                       ))}
                     </div>
                   )}
-                  {garmentImages.length < 10 && (
+                  {garmentImages.length < 4 && (
                     <label className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-4 text-center dark:border-zinc-700 dark:bg-zinc-800">
                       <span className="mb-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                        Bấm để thêm ảnh trang phục ({garmentImages.length}/10)
+                        Bấm để thêm ảnh trang phục ({garmentImages.length}/4)
                       </span>
                       <span className="text-xs text-zinc-500 dark:text-zinc-400">JPG, PNG, WEBP — mỗi ảnh tối đa 4MB</span>
                       <input type="file" accept="image/*" multiple onChange={handleGarmentFilesChange} className="hidden" />
