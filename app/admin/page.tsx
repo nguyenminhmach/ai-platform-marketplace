@@ -296,7 +296,10 @@ export default function AdminPage() {
       return;
     }
 
+    // Đệm bằng "" nếu upload thẳng vào ô sau khi ô trước còn trống — tránh mảng có "lỗ" (undefined)
+    // biến thành null khi JSON.stringify, khiến server từ chối vì demoImageUrls phải toàn chuỗi.
     const nextUrls = [...app.demoImageUrls];
+    while (nextUrls.length < index) nextUrls.push("");
     nextUrls[index] = uploadData.url;
     const saveRes = await fetch("/api/admin/mini-apps", {
       method: "PATCH",
