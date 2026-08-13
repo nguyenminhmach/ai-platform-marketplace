@@ -88,10 +88,10 @@ export default function Home() {
             <div />
             {/* Cột giữa auto-width + 2 cột 1fr hai bên -> canh giữa thật sự, thẳng hàng với ô chat bên dưới */}
             <div className="text-center">
-              <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+              <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
                 Hàng chục công cụ AI, trả tiền theo lượt dùng
               </h1>
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              <p className="text-base text-zinc-600 dark:text-zinc-400">
                 Chọn Mini App bên dưới, chạy ngay — không cần cài đặt gì thêm.
               </p>
             </div>
