@@ -505,7 +505,7 @@ export default function MiniAppDetailPage() {
                     ))}
                   </div>
                   {garmentImages.length < 10 && (
-                    <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 py-5 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                    <label className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-4 text-center dark:border-zinc-700 dark:bg-zinc-800">
                       <span className="mb-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">
                         Bấm để thêm ảnh trang phục ({garmentImages.length}/10)
                       </span>
@@ -529,7 +529,7 @@ export default function MiniAppDetailPage() {
                       </button>
                     </div>
                   ) : (
-                    <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 py-8 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                    <label className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-4 text-center dark:border-zinc-700 dark:bg-zinc-800">
                       <span className="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">Bấm để tải ảnh người mẫu</span>
                       <span className="text-xs text-zinc-500 dark:text-zinc-400">JPG, PNG, WEBP — tối đa 4MB</span>
                       <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
