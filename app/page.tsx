@@ -353,13 +353,25 @@ function MiniAppCard({ app, demoImages }: { app: MiniApp; demoImages?: string[] 
         {isBeforeAfter ? (
           <>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={images[0]} alt="" className="h-28 flex-1 rounded-md object-cover object-top" />
+            <img
+              src={images[0]}
+              alt=""
+              className="h-24 flex-1 rounded-md border border-zinc-200 bg-white object-contain p-0.5 dark:border-zinc-700 dark:bg-zinc-900"
+            />
             <ConnectorBadge symbol="+" color="bg-pink-500" />
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={images[1]} alt="" className="h-20 w-14 shrink-0 rounded-md border border-zinc-200 object-contain bg-white p-0.5 dark:border-zinc-700" />
+            <img
+              src={images[1]}
+              alt=""
+              className="h-16 w-12 shrink-0 rounded-md border border-zinc-200 bg-white object-contain p-0.5 dark:border-zinc-700 dark:bg-zinc-900"
+            />
             <ConnectorBadge symbol="=" color="bg-violet-500" />
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={images[2]} alt="" className="h-28 flex-1 rounded-md object-cover object-top" />
+            <img
+              src={images[2]}
+              alt=""
+              className="h-24 flex-1 rounded-md border border-zinc-200 bg-white object-contain p-0.5 dark:border-zinc-700 dark:bg-zinc-900"
+            />
           </>
         ) : images.length > 0 ? (
           // Ảnh minh hoạ admin upload ở /admin — thay cho icon để card sinh động hơn.
@@ -400,13 +412,13 @@ function MiniAppCard({ app, demoImages }: { app: MiniApp; demoImages?: string[] 
         )}
       </div>
 
-      <div className="flex flex-1 flex-col p-5">
-        <span className="mb-2 w-fit rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+      <div className="flex flex-1 flex-col p-4">
+        <span className="mb-1.5 w-fit rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
           {CATEGORIES[app.category]}
         </span>
-        <h3 className="mb-1 font-semibold text-zinc-900 dark:text-zinc-50">{app.name}</h3>
-        <p className="mb-2 flex-1 text-sm text-zinc-600 dark:text-zinc-400">{app.description}</p>
-        <div className="mb-4 flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+        <h3 className="mb-0.5 text-sm font-semibold text-zinc-900 dark:text-zinc-50">{app.name}</h3>
+        <p className="mb-1.5 line-clamp-2 flex-1 text-xs text-zinc-600 dark:text-zinc-400">{app.description}</p>
+        <div className="mb-2 flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
           <span>⭐ {app.rating}</span>
           <span>·</span>
           <span>{app.usageCount.toLocaleString("vi-VN")} lượt dùng</span>
