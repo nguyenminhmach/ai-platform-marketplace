@@ -21,6 +21,7 @@ export default function Home() {
   const [homepageChips, setHomepageChips] = useState<HomepageChip[]>([]);
   const [inactiveIds, setInactiveIds] = useState<string[]>([]);
   const [extraApps, setExtraApps] = useState<ExtraApp[]>([]);
+  const [demoImageUrls, setDemoImageUrls] = useState<Record<string, string[]>>({});
   const resultsRef = useRef<HTMLDivElement>(null);
 
   function runSearch(value: string) {
@@ -45,6 +46,7 @@ export default function Home() {
       .then((data) => {
         setInactiveIds(data.inactiveIds ?? []);
         setExtraApps(data.extraApps ?? []);
+        setDemoImageUrls(data.demoImageUrls ?? {});
       })
       .catch(() => {});
   }, []);
@@ -211,7 +213,7 @@ export default function Home() {
             </h2>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {popularApps.map((app) => (
-                <MiniAppCard key={app.id} app={app} />
+                <MiniAppCard key={app.id} app={app} demoImages={demoImageUrls[app.id]} />
               ))}
             </div>
           </section>
@@ -229,7 +231,7 @@ export default function Home() {
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {filteredApps.map((app) => (
-                <MiniAppCard key={app.id} app={app} />
+                <MiniAppCard key={app.id} app={app} demoImages={demoImageUrls[app.id]} />
               ))}
               {filteredExtraApps.map((app) => (
                 <ExtraAppCard key={app.id} app={app} />
@@ -323,24 +325,31 @@ const ICON_CONFIG: Record<
   },
 };
 
-function MiniAppCard({ app }: { app: MiniApp }) {
+function MiniAppCard({ app, demoImages }: { app: MiniApp; demoImages?: string[] }) {
   const iconConfig = ICON_CONFIG[app.icon];
+  const images = (demoImages ?? []).filter(Boolean).slice(0, 2);
 
   return (
     <div className="flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white transition-shadow hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900">
-      <div className={`relative flex h-16 items-center justify-center ${iconConfig.bg}`}>
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.7"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={`h-6 w-6 ${iconConfig.iconColor}`}
-        >
-          {iconConfig.path}
-        </svg>
+      <div className={`relative flex h-16 items-center justify-center ${images.length > 0 ? "" : iconConfig.bg}`}>
+        {images.length > 0 ? (
+          // Ảnh minh hoạ admin upload ở /admin — thay cho icon để card sinh động hơn
+          // eslint-disable-next-line @next/next/no-img-element
+          images.map((url, i) => <img key={i} src={url} alt="" className="h-16 flex-1 object-cover" />)
+        ) : (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={`h-6 w-6 ${iconConfig.iconColor}`}
+          >
+            {iconConfig.path}
+          </svg>
+        )}
         {app.popular && (
           <span className="absolute right-2 top-2 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/60 dark:text-amber-300">
             Hot

@@ -40,6 +40,8 @@ export async function GET(req: Request) {
     ownApp: !app.developer_id,
     // dynamic = true nếu app này đã dùng công thức margin% (ảnh/video) — giá cố định bên dưới sẽ bị ghi đè, không sửa được qua đây
     dynamic: !!(app.model_config as { provider_cost_vnd?: number } | null)?.provider_cost_vnd,
+    // Ảnh minh hoạ hiện trên card trang chủ thay cho icon — admin tự đổi được, không cần sửa code
+    demoImageUrls: (app.model_config as { demo_image_urls?: string[] } | null)?.demo_image_urls ?? [],
   }));
 
   return Response.json({ apps });
@@ -49,15 +51,17 @@ export async function PATCH(req: Request) {
   const token = getCookie(req, ADMIN_COOKIE_NAME);
   if (!verifyAdminToken(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
 
-  const { id, creditCost, isActive } = await req.json();
+  const { id, creditCost, isActive, demoImageUrls } = await req.json();
   if (typeof id !== "string" || !id) {
     return Response.json({ error: "Thiếu id" }, { status: 400 });
   }
-  if (creditCost === undefined && isActive === undefined) {
+  if (creditCost === undefined && isActive === undefined && demoImageUrls === undefined) {
     return Response.json({ error: "Không có gì để cập nhật" }, { status: 400 });
   }
 
+  const supabase = getSupabaseAdmin();
   const update: Record<string, unknown> = {};
+
   if (creditCost !== undefined) {
     if (typeof creditCost !== "number" || creditCost <= 0 || !Number.isInteger(creditCost)) {
       return Response.json({ error: "creditCost phải là số nguyên dương" }, { status: 400 });
@@ -70,8 +74,15 @@ export async function PATCH(req: Request) {
     }
     update.is_active = isActive;
   }
+  if (demoImageUrls !== undefined) {
+    if (!Array.isArray(demoImageUrls) || !demoImageUrls.every((u) => typeof u === "string")) {
+      return Response.json({ error: "demoImageUrls phải là mảng chuỗi" }, { status: 400 });
+    }
+    // Gộp vào model_config hiện có thay vì ghi đè — model_config còn chứa model/output_type/provider_cost_vnd...
+    const { data: current } = await supabase.from("mini_apps").select("model_config").eq("id", id).single();
+    update.model_config = { ...((current?.model_config as object) ?? {}), demo_image_urls: demoImageUrls };
+  }
 
-  const supabase = getSupabaseAdmin();
   const { error } = await supabase.from("mini_apps").update(update).eq("id", id);
   if (error) return Response.json({ error: error.message }, { status: 500 });
 

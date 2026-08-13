@@ -9,16 +9,20 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("mini_apps")
-    .select("id, name, description, category, credit_cost, is_active")
+    .select("id, name, description, category, credit_cost, is_active, model_config")
     .is("developer_id", null)
     .eq("review_status", "approved");
 
-  if (error) return Response.json({ inactiveIds: [], extraApps: [] });
+  if (error) return Response.json({ inactiveIds: [], extraApps: [], demoImageUrls: {} });
 
   const inactiveIds: string[] = [];
   const extraApps: { id: string; name: string; description: string; category: string; creditCost: number }[] = [];
+  const demoImageUrls: Record<string, string[]> = {};
 
   for (const row of data ?? []) {
+    const urls = (row.model_config as { demo_image_urls?: string[] } | null)?.demo_image_urls;
+    if (urls && urls.length > 0) demoImageUrls[row.id] = urls;
+
     if (staticIds.has(row.id)) {
       if (!row.is_active) inactiveIds.push(row.id);
     } else if (row.is_active) {
@@ -32,5 +36,5 @@ export async function GET() {
     }
   }
 
-  return Response.json({ inactiveIds, extraApps });
+  return Response.json({ inactiveIds, extraApps, demoImageUrls });
 }

@@ -63,6 +63,7 @@ type MiniAppPrice = {
   dynamic: boolean;
   isActive: boolean;
   ownApp: boolean;
+  demoImageUrls: string[];
 };
 
 const MODEL_OPTIONS = [
@@ -112,6 +113,7 @@ export default function AdminPage() {
   const [savedAppId, setSavedAppId] = useState<string | null>(null);
   const [appPriceError, setAppPriceError] = useState<string | null>(null);
   const [togglingAppId, setTogglingAppId] = useState<string | null>(null);
+  const [uploadingDemoImage, setUploadingDemoImage] = useState<string | null>(null);
 
   const [showNewAppForm, setShowNewAppForm] = useState(false);
   const [newAppType, setNewAppType] = useState<"text" | "image" | "video">("text");
@@ -254,6 +256,72 @@ export default function AdminPage() {
       body: JSON.stringify({ id, isActive }),
     });
     setTogglingAppId(null);
+    loadMiniApps();
+  }
+
+  // Ảnh minh hoạ hiện trên card trang chủ thay icon — upload lên bucket "demo-images" rồi lưu URL
+  // vào model_config.demo_image_urls qua PATCH có sẵn. Tối đa 2 ảnh/app, đổi được bất cứ lúc nào.
+  async function handleUploadDemoImage(app: MiniAppPrice, index: number, file: File) {
+    if (!file.type.startsWith("image/")) {
+      setAppPriceError("Chỉ nhận file ảnh");
+      return;
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      setAppPriceError("Ảnh tối đa 4MB");
+      return;
+    }
+    setUploadingDemoImage(`${app.id}-${index}`);
+    setAppPriceError(null);
+
+    const dataUrl: string = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+    const uploadRes = await fetch("/api/admin/upload-demo-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ appId: app.id, dataUrl }),
+    });
+    const uploadData = await uploadRes.json().catch(() => ({}));
+    if (!uploadRes.ok) {
+      setUploadingDemoImage(null);
+      setAppPriceError(uploadData.error ?? "Không upload được ảnh");
+      return;
+    }
+
+    const nextUrls = [...app.demoImageUrls];
+    nextUrls[index] = uploadData.url;
+    const saveRes = await fetch("/api/admin/mini-apps", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: app.id, demoImageUrls: nextUrls }),
+    });
+    setUploadingDemoImage(null);
+    if (!saveRes.ok) {
+      const saveData = await saveRes.json().catch(() => ({}));
+      setAppPriceError(saveData.error ?? "Không lưu được ảnh");
+      return;
+    }
+    loadMiniApps();
+  }
+
+  async function handleRemoveDemoImage(app: MiniAppPrice, index: number) {
+    const nextUrls = app.demoImageUrls.filter((_, i) => i !== index);
+    setUploadingDemoImage(`${app.id}-${index}`);
+    const res = await fetch("/api/admin/mini-apps", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: app.id, demoImageUrls: nextUrls }),
+    });
+    setUploadingDemoImage(null);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setAppPriceError(data.error ?? "Không xoá được ảnh");
+      return;
+    }
     loadMiniApps();
   }
 
@@ -679,10 +747,56 @@ export default function AdminPage() {
                         !app.isActive ? "opacity-50" : ""
                       }`}
                     >
-                      <span className="text-sm text-zinc-700 dark:text-zinc-300">
-                        {app.name}
-                        {!app.isActive && <span className="ml-2 text-xs text-zinc-400 dark:text-zinc-500">(đã ẩn)</span>}
-                      </span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm text-zinc-700 dark:text-zinc-300">
+                          {app.name}
+                          {!app.isActive && <span className="ml-2 text-xs text-zinc-400 dark:text-zinc-500">(đã ẩn)</span>}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {[0, 1].map((index) => {
+                            const key = `${app.id}-${index}`;
+                            const url = app.demoImageUrls[index];
+                            return (
+                              <label
+                                key={index}
+                                title="Ảnh minh hoạ trên card trang chủ"
+                                className="group relative flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-md border border-dashed border-zinc-300 bg-zinc-50 text-zinc-300 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-600"
+                              >
+                                {uploadingDemoImage === key ? (
+                                  <span className="text-[10px]">...</span>
+                                ) : url ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={url} alt="" className="h-full w-full object-cover" />
+                                ) : (
+                                  <span className="text-lg leading-none">+</span>
+                                )}
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    e.target.value = "";
+                                    if (file) handleUploadDemoImage(app, index, file);
+                                  }}
+                                />
+                                {url && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      handleRemoveDemoImage(app, index);
+                                    }}
+                                    className="absolute right-0 top-0 hidden h-3.5 w-3.5 items-center justify-center bg-red-600 text-[9px] leading-none text-white group-hover:flex"
+                                  >
+                                    ×
+                                  </button>
+                                )}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
                       <div className="flex items-center gap-3">
                         {app.dynamic ? (
                           <span className="text-sm text-zinc-400 dark:text-zinc-500">
