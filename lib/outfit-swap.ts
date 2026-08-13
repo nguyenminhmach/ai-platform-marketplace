@@ -1,7 +1,13 @@
 // "Thay trang phục cho người mẫu" — 1 ảnh người mẫu + tối đa N ảnh trang phục tham chiếu, ghép qua
-// Fal.ai Nano Banana Pro Edit (fal-ai/gemini-3-pro-image-preview/edit), MỖI bộ đồ = 1 lần gọi riêng
-// (model chỉ nhận tối đa 2 ảnh/lần). Khác các app ảnh khác: giá tính theo SỐ LƯỢNG bộ đồ đưa vào
-// (không cố định 1 mức), nên không dùng chung getMiniAppConfig()/runMiniApp().
+// Fal.ai FASHN Virtual Try-On v1.6 (fal-ai/fashn/tryon/v1.6), MỖI bộ đồ = 1 lần gọi riêng. Khác các
+// app ảnh khác: giá tính theo SỐ LƯỢNG bộ đồ đưa vào (không cố định 1 mức), nên không dùng chung
+// getMiniAppConfig()/runMiniApp().
+//
+// Đổi từ model đa năng "Nano Banana Pro Edit" (prompt-based) sang FASHN — model chuyên biệt cho
+// try-on, rẻ hơn 50% ($0.075 vs $0.15/ảnh) VÀ ổn định hơn với ảnh trang phục tham chiếu là ảnh người
+// khác mặc sẵn (garment_photo_type tự nhận diện on-model/flat-lay) — model cũ hay nhầm lẫn "lấy người
+// nào làm gốc" trong trường hợp đó, đã kiểm chứng qua test thật. Không còn nhận câu lệnh mô tả tự do
+// (structured API: model_image + garment_image, không có prompt).
 //
 // Chạy BẤT ĐỒNG BỘ qua Fal.ai queue (không phải fal.run đồng bộ) — submit xong trả về ngay, không
 // giữ 1 request chờ tới khi xong. Lý do: test thực tế 6 ảnh song song từng bị Vercel Hobby giết ở
@@ -14,12 +20,9 @@ import { computeDynamicCreditCost, getMediaPricingSettings } from "@/lib/pricing
 import { finalizeJobIfDone } from "@/lib/outfit-swap-jobs";
 
 const MINI_APP_ID = "thay-trang-phuc";
-const MODEL = "fal-ai/gemini-3-pro-image-preview/edit";
+const MODEL = "fal-ai/fashn/tryon/v1.6";
 const MAX_GARMENTS = 10; // không còn giới hạn bởi thời gian chờ 1 request nữa (đã chuyển bất đồng bộ)
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://ai-platform-marketplace.vercel.app";
-
-export const DEFAULT_OUTFIT_SWAP_PROMPT =
-  "Giữ nguyên khuôn mặt, dáng người, tư thế, biểu cảm, góc chụp, ánh sáng và bối cảnh của ảnh người mẫu. Giữ nguyên mọi phụ kiện và đồ vật người mẫu đang cầm/đeo (điện thoại, túi xách, trang sức...) — không thay đổi hình dạng, màu sắc hay vị trí của chúng. Chỉ thay trang phục của người mẫu bằng đúng bộ trang phục trong ảnh tham chiếu — giữ đúng kiểu dáng, màu sắc, hoạ tiết và chất liệu của trang phục đó.";
 
 async function getProviderCostVnd(): Promise<number> {
   const supabase = getSupabaseAdmin();
@@ -46,7 +49,6 @@ export async function submitOutfitSwapJob(
   userId: string,
   modelImageDataUrl: string,
   garmentImageDataUrls: string[],
-  prompt: string,
   idempotencyKey: string
 ): Promise<{ jobId: number; newBalance: number }> {
   if (garmentImageDataUrls.length === 0) throw new Error("Cần ít nhất 1 ảnh trang phục tham chiếu");
@@ -68,7 +70,7 @@ export async function submitOutfitSwapJob(
     .insert({
       user_id: userId,
       model_image_url: modelImageDataUrl,
-      prompt,
+      prompt: "",
       total_credit: totalCredit,
       credit_tx_id: deduction.txId,
       status: "processing",
@@ -101,7 +103,7 @@ export async function submitOutfitSwapJob(
         const response = await fetch(`https://queue.fal.run/${MODEL}?fal_webhook=${encodeURIComponent(webhookUrl)}`, {
           method: "POST",
           headers: { Authorization: `Key ${apiKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt, image_urls: [modelImageDataUrl, item.garment_image_url] }),
+          body: JSON.stringify({ model_image: modelImageDataUrl, garment_image: item.garment_image_url }),
         });
 
         if (!response.ok) {
