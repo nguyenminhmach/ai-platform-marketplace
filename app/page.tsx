@@ -347,7 +347,7 @@ function MiniAppCard({ app, demoImages }: { app: MiniApp; demoImages?: string[] 
     <div className="flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white transition-shadow hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900">
       <div
         className={`relative flex items-center justify-center ${
-          images.length > 0 ? "h-32 gap-1 bg-zinc-100 px-1 dark:bg-zinc-800" : `h-16 ${iconConfig.bg}`
+          images.length > 0 ? "h-40 gap-1 bg-zinc-100 px-1 dark:bg-zinc-800" : `h-20 ${iconConfig.bg}`
         }`}
       >
         {isBeforeAfter ? (
@@ -356,21 +356,21 @@ function MiniAppCard({ app, demoImages }: { app: MiniApp; demoImages?: string[] 
             <img
               src={images[0]}
               alt=""
-              className="h-24 flex-1 rounded-md border border-zinc-200 bg-white object-contain p-0.5 dark:border-zinc-700 dark:bg-zinc-900"
+              className="h-32 flex-1 rounded-md border border-zinc-200 bg-white object-contain p-0.5 dark:border-zinc-700 dark:bg-zinc-900"
             />
             <ConnectorBadge symbol="+" color="bg-pink-500" />
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={images[1]}
               alt=""
-              className="h-16 w-12 shrink-0 rounded-md border border-zinc-200 bg-white object-contain p-0.5 dark:border-zinc-700 dark:bg-zinc-900"
+              className="h-20 w-14 shrink-0 rounded-md border border-zinc-200 bg-white object-contain p-0.5 dark:border-zinc-700 dark:bg-zinc-900"
             />
             <ConnectorBadge symbol="=" color="bg-violet-500" />
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={images[2]}
               alt=""
-              className="h-24 flex-1 rounded-md border border-zinc-200 bg-white object-contain p-0.5 dark:border-zinc-700 dark:bg-zinc-900"
+              className="h-32 flex-1 rounded-md border border-zinc-200 bg-white object-contain p-0.5 dark:border-zinc-700 dark:bg-zinc-900"
             />
           </>
         ) : images.length > 0 ? (
@@ -383,7 +383,7 @@ function MiniAppCard({ app, demoImages }: { app: MiniApp; demoImages?: string[] 
               key={i}
               src={url}
               alt=""
-              className={`h-32 flex-1 object-cover object-top ${i > 0 ? "border-l border-white/40 dark:border-black/40" : ""}`}
+              className={`h-40 flex-1 object-cover object-top ${i > 0 ? "border-l border-white/40 dark:border-black/40" : ""}`}
             />
           ))
         ) : (
