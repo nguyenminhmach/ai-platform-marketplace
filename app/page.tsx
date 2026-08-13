@@ -331,11 +331,24 @@ function MiniAppCard({ app, demoImages }: { app: MiniApp; demoImages?: string[] 
 
   return (
     <div className="flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white transition-shadow hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900">
-      <div className={`relative flex h-16 items-center justify-center ${images.length > 0 ? "" : iconConfig.bg}`}>
+      <div
+        className={`relative flex items-center justify-center ${
+          images.length > 0 ? "h-32 bg-zinc-100 dark:bg-zinc-800" : `h-16 ${iconConfig.bg}`
+        }`}
+      >
         {images.length > 0 ? (
-          // Ảnh minh hoạ admin upload ở /admin — thay cho icon để card sinh động hơn
-          // eslint-disable-next-line @next/next/no-img-element
-          images.map((url, i) => <img key={i} src={url} alt="" className="h-16 flex-1 object-cover" />)
+          // Ảnh minh hoạ admin upload ở /admin — thay cho icon để card sinh động hơn.
+          // object-top vì đa số ảnh là chân dung/mẫu, giữ khuôn mặt trong khung khi crop xuống h-32.
+          // border-l tạo khe hở mảnh giữa 2 ảnh để không dính liền thành 1 khối lộn xộn.
+          images.map((url, i) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={i}
+              src={url}
+              alt=""
+              className={`h-32 flex-1 object-cover object-top ${i > 0 ? "border-l border-white/40 dark:border-black/40" : ""}`}
+            />
+          ))
         ) : (
           <svg
             xmlns="http://www.w3.org/2000/svg"
