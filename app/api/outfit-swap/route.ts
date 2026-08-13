@@ -1,15 +1,14 @@
 import { randomUUID } from "crypto";
-import { runOutfitSwap, getOutfitSwapPricePerImage, DEFAULT_OUTFIT_SWAP_PROMPT } from "@/lib/outfit-swap";
+import { submitOutfitSwapJob, getOutfitSwapPricePerImage, DEFAULT_OUTFIT_SWAP_PROMPT } from "@/lib/outfit-swap";
 import { InsufficientCreditError } from "@/lib/credit-system";
-
-// Tối đa 10 ảnh chạy song song, mỗi ảnh có thể mất 5-15s — dài hơn giới hạn mặc định 10s của Vercel Hobby.
-export const maxDuration = 60;
 
 export async function GET() {
   const pricePerImage = await getOutfitSwapPricePerImage();
   return Response.json({ pricePerImage, defaultPrompt: DEFAULT_OUTFIT_SWAP_PROMPT });
 }
 
+// Submit job bất đồng bộ — trả về ngay jobId, KHÔNG đợi Fal.ai xử lý xong (xem lib/outfit-swap.ts).
+// Frontend tự poll /api/outfit-swap/status để lấy kết quả.
 export async function POST(req: Request) {
   const { userId, modelImageDataUrl, garmentImageDataUrls, prompt } = await req.json();
 
@@ -25,8 +24,8 @@ export async function POST(req: Request) {
   }
 
   try {
-    const result = await runOutfitSwap(userId, modelImageDataUrl, garmentImageDataUrls, prompt, randomUUID());
-    return Response.json({ success: true, ...result });
+    const result = await submitOutfitSwapJob(userId, modelImageDataUrl, garmentImageDataUrls, prompt, randomUUID());
+    return Response.json({ success: true, jobId: result.jobId, newBalance: result.newBalance });
   } catch (err) {
     if (err instanceof InsufficientCreditError) {
       return Response.json({ error: "Không đủ credit", code: "INSUFFICIENT_CREDIT" }, { status: 402 });

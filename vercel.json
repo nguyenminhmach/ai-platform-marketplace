@@ -4,6 +4,10 @@
     {
       "path": "/api/video/sweep",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/outfit-swap/sweep",
+      "schedule": "0 4 * * *"
     }
   ]
 }
