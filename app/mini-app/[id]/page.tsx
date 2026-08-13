@@ -489,21 +489,23 @@ export default function MiniAppDetailPage() {
                   <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
                     Ảnh trang phục tham chiếu (tối đa 10)
                   </p>
-                  <div className="mb-2 grid grid-cols-3 gap-2">
-                    {garmentImages.map((url, index) => (
-                      <div key={index} className="relative">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={url} alt={`Trang phục ${index + 1}`} className="aspect-square w-full rounded-md object-cover" />
-                        <button
-                          onClick={() => removeGarmentImage(index)}
-                          aria-label="Xoá ảnh"
-                          className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-xs text-white hover:bg-black/80"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                  </div>
+                  {garmentImages.length > 0 && (
+                    <div className="mb-2 grid grid-cols-3 gap-2">
+                      {garmentImages.map((url, index) => (
+                        <div key={index} className="relative">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={url} alt={`Trang phục ${index + 1}`} className="aspect-square w-full rounded-md object-cover" />
+                          <button
+                            onClick={() => removeGarmentImage(index)}
+                            aria-label="Xoá ảnh"
+                            className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-xs text-white hover:bg-black/80"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {garmentImages.length < 10 && (
                     <label className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-4 text-center dark:border-zinc-700 dark:bg-zinc-800">
                       <span className="mb-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">
