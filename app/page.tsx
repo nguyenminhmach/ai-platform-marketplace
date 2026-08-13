@@ -84,8 +84,10 @@ export default function Home() {
       <div className="min-w-0 flex-1">
         {/* Header + Ví credit — có luôn tiêu đề hero để đỡ tốn thêm 1 khối riêng bên dưới */}
         <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-black/80">
-          <div className="flex items-center justify-between gap-4 px-6 py-5">
-            <div>
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 px-6 py-5">
+            <div />
+            {/* Cột giữa auto-width + 2 cột 1fr hai bên -> canh giữa thật sự, thẳng hàng với ô chat bên dưới */}
+            <div className="text-center">
               <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
                 Hàng chục công cụ AI, trả tiền theo lượt dùng
               </h1>
@@ -93,7 +95,7 @@ export default function Home() {
                 Chọn Mini App bên dưới, chạy ngay — không cần cài đặt gì thêm.
               </p>
             </div>
-            <div className="ml-auto flex items-center gap-3">
+            <div className="flex items-center justify-end gap-3">
               <ThemeToggle />
               <BalanceBadge />
               {user && (
