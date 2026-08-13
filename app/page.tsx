@@ -325,18 +325,43 @@ const ICON_CONFIG: Record<
   },
 };
 
+// Badge tròn "+" / "=" chèn giữa các ảnh minh hoạ, kiểu "trước + trang phục = sau"
+function ConnectorBadge({ symbol, color }: { symbol: string; color: string }) {
+  return (
+    <span
+      className={`z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white ${color}`}
+    >
+      {symbol}
+    </span>
+  );
+}
+
 function MiniAppCard({ app, demoImages }: { app: MiniApp; demoImages?: string[] }) {
   const iconConfig = ICON_CONFIG[app.icon];
-  const images = (demoImages ?? []).filter(Boolean).slice(0, 2);
+  const images = (demoImages ?? []).filter(Boolean).slice(0, 3);
+  // Đủ 3 ảnh (trước/trang phục/sau) → minh hoạ kiểu "A + B = C" cho rõ tính năng.
+  // Chỉ 1-2 ảnh → ghép đơn giản cạnh nhau (fallback cho app khác chưa có đủ bộ 3).
+  const isBeforeAfter = images.length === 3;
 
   return (
     <div className="flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white transition-shadow hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900">
       <div
         className={`relative flex items-center justify-center ${
-          images.length > 0 ? "h-32 bg-zinc-100 dark:bg-zinc-800" : `h-16 ${iconConfig.bg}`
+          images.length > 0 ? "h-32 gap-1 bg-zinc-100 px-1 dark:bg-zinc-800" : `h-16 ${iconConfig.bg}`
         }`}
       >
-        {images.length > 0 ? (
+        {isBeforeAfter ? (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={images[0]} alt="" className="h-28 flex-1 rounded-md object-cover object-top" />
+            <ConnectorBadge symbol="+" color="bg-pink-500" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={images[1]} alt="" className="h-20 w-14 shrink-0 rounded-md border border-zinc-200 object-contain bg-white p-0.5 dark:border-zinc-700" />
+            <ConnectorBadge symbol="=" color="bg-violet-500" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={images[2]} alt="" className="h-28 flex-1 rounded-md object-cover object-top" />
+          </>
+        ) : images.length > 0 ? (
           // Ảnh minh hoạ admin upload ở /admin — thay cho icon để card sinh động hơn.
           // object-top vì đa số ảnh là chân dung/mẫu, giữ khuôn mặt trong khung khi crop xuống h-32.
           // border-l tạo khe hở mảnh giữa 2 ảnh để không dính liền thành 1 khối lộn xộn.

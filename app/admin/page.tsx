@@ -66,6 +66,10 @@ type MiniAppPrice = {
   demoImageUrls: string[];
 };
 
+// 3 ảnh minh hoạ trên card trang chủ: trước → trang phục → sau (kiểu "A + B = C") thay vì 2 ảnh rời rạc,
+// để minh hoạ rõ tính năng thay đồ như card tham khảo admin gửi.
+const DEMO_IMAGE_SLOT_LABELS = ["Trước", "Trang phục", "Sau"];
+
 const MODEL_OPTIONS = [
   { value: "google/gemini-3-flash-preview", label: "Gemini Flash (rẻ, nhanh)" },
   { value: "anthropic/claude-sonnet-4.6", label: "Claude Sonnet (chất lượng cao hơn, đắt hơn)" },
@@ -753,46 +757,48 @@ export default function AdminPage() {
                           {!app.isActive && <span className="ml-2 text-xs text-zinc-400 dark:text-zinc-500">(đã ẩn)</span>}
                         </span>
                         <div className="flex items-center gap-1.5">
-                          {[0, 1].map((index) => {
+                          {DEMO_IMAGE_SLOT_LABELS.map((label, index) => {
                             const key = `${app.id}-${index}`;
                             const url = app.demoImageUrls[index];
                             return (
-                              <label
-                                key={index}
-                                title="Ảnh minh hoạ trên card trang chủ"
-                                className="group relative flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-md border border-dashed border-zinc-300 bg-zinc-50 text-zinc-300 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-600"
-                              >
-                                {uploadingDemoImage === key ? (
-                                  <span className="text-[10px]">...</span>
-                                ) : url ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img src={url} alt="" className="h-full w-full object-cover" />
-                                ) : (
-                                  <span className="text-lg leading-none">+</span>
-                                )}
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  className="hidden"
-                                  onChange={(e) => {
-                                    const file = e.target.files?.[0];
-                                    e.target.value = "";
-                                    if (file) handleUploadDemoImage(app, index, file);
-                                  }}
-                                />
-                                {url && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      handleRemoveDemoImage(app, index);
+                              <div key={index} className="flex flex-col items-center gap-0.5">
+                                <label
+                                  title={`Ảnh "${label}" trên card trang chủ`}
+                                  className="group relative flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-md border border-dashed border-zinc-300 bg-zinc-50 text-zinc-300 hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-600"
+                                >
+                                  {uploadingDemoImage === key ? (
+                                    <span className="text-[10px]">...</span>
+                                  ) : url ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={url} alt="" className="h-full w-full object-cover" />
+                                  ) : (
+                                    <span className="text-lg leading-none">+</span>
+                                  )}
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      e.target.value = "";
+                                      if (file) handleUploadDemoImage(app, index, file);
                                     }}
-                                    className="absolute right-0 top-0 hidden h-3.5 w-3.5 items-center justify-center bg-red-600 text-[9px] leading-none text-white group-hover:flex"
-                                  >
-                                    ×
-                                  </button>
-                                )}
-                              </label>
+                                  />
+                                  {url && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        handleRemoveDemoImage(app, index);
+                                      }}
+                                      className="absolute right-0 top-0 hidden h-3.5 w-3.5 items-center justify-center bg-red-600 text-[9px] leading-none text-white group-hover:flex"
+                                    >
+                                      ×
+                                    </button>
+                                  )}
+                                </label>
+                                <span className="text-[9px] leading-none text-zinc-400 dark:text-zinc-600">{label}</span>
+                              </div>
                             );
                           })}
                         </div>
