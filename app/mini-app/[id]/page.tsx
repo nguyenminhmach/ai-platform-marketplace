@@ -31,7 +31,13 @@ export default function MiniAppDetailPage() {
   // tham chiếu riêng (tối đa 10) — kết quả trả về nhiều ảnh nên dùng state riêng, không dùng chung `result`.
   const [garmentImages, setGarmentImages] = useState<string[]>([]);
   const [garmentError, setGarmentError] = useState<string | null>(null);
-  type OutfitSwapModel = { key: "generic" | "fashn" | "fashn_max"; label: string; pricePerImage: number; hasPrompt: boolean };
+  type OutfitSwapModel = {
+    key: "generic" | "fashn" | "fashn_max";
+    label: string;
+    pricePerImage: number;
+    hasPrompt: boolean;
+    defaultPrompt?: string;
+  };
   const [outfitSwapModels, setOutfitSwapModels] = useState<OutfitSwapModel[]>([]);
   const [outfitSwapModelChoice, setOutfitSwapModelChoice] = useState<"generic" | "fashn" | "fashn_max" | null>(null);
   const [outfitSwapResults, setOutfitSwapResults] = useState<string[] | null>(null);
@@ -53,7 +59,9 @@ export default function MiniAppDetailPage() {
           setOutfitSwapModels(models);
           // Mặc định FASHN nếu có bật, không thì lấy model còn lại đang bật
           const fashn = models.find((m) => m.key === "fashn");
-          setOutfitSwapModelChoice(fashn?.key ?? models[0]?.key ?? null);
+          const defaultModel = fashn ?? models[0];
+          setOutfitSwapModelChoice(defaultModel?.key ?? null);
+          if (defaultModel?.defaultPrompt) setInput(defaultModel.defaultPrompt);
         })
         .catch(() => {});
     }
