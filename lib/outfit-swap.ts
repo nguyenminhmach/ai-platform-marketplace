@@ -100,11 +100,15 @@ function buildFalRequestBody(
     //
     // segmentation_free mặc định true (không phân vùng rõ ràng) — tài liệu FASHN ghi rõ: nếu trang
     // phục gốc không được loại bỏ đúng cách, đặt false để bật lại chế độ phân vùng chính xác hơn.
+    //
+    // mode: giá v1.6 CỐ ĐỊNH $0.075 dù chọn mode nào (khác Try-On Max) — đổi lên "quality" không
+    // tốn thêm tiền, thử giảm lỗi biến dạng ở vùng chi tiết nhỏ (tay, điện thoại cầm trên tay).
     return {
       model_image: modelImageDataUrl,
       garment_image: garmentImageDataUrl,
       category,
       segmentation_free: false,
+      mode: "quality",
     };
   }
   return { prompt, image_urls: [modelImageDataUrl, garmentImageDataUrl] };
