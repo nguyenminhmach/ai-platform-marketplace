@@ -1,7 +1,10 @@
 // Logic xử lý kết quả job "Thay trang phục" — dùng chung cho webhook Fal.ai, fallback check khi
 // frontend poll, và cron dọn dẹp hàng ngày. Mô hình giống hệt lib/video-jobs.ts, chỉ khác 1 job
-// gồm NHIỀU item con (mỗi bộ trang phục = 1 lần gọi Fal.ai riêng) nên phải chờ đủ mọi item mới
-// chốt trạng thái job cha.
+// gồm NHIỀU item con (mỗi bộ trang phục = 1 lần gọi riêng) nên phải chờ đủ mọi item mới chốt trạng
+// thái job cha, VÀ mỗi item có thể thuộc 1 trong 2 provider khác nhau (item.provider):
+// - "fal": model chạy qua Fal.ai (generic/fashn), có webhook + fallback poll qua queue.fal.run.
+// - "fashn_direct": FASHN Try-On Max chạy qua API riêng (api.fashn.ai), KHÔNG có webhook — chỉ dựa
+//   vào poll từ frontend + cron sweep.
 //
 // Refund theo kiểu all-or-nothing (giữ nguyên quyết định thiết kế cũ): chỉ cần 1 item lỗi là hoàn
 // lại TOÀN BỘ credit của cả lượt chạy — đơn giản hơn hoàn theo tỉ lệ, và giữ tính chất kết quả trả
@@ -12,13 +15,21 @@ import { refundCredit } from "@/lib/credit-system";
 import { recordGenerationHistory } from "@/lib/ai-router";
 
 const MINI_APP_ID = "thay-trang-phuc";
-const STALE_CHECK_MS = 30_000; // item "processing" lâu hơn mốc này mới chủ động hỏi lại Fal.ai
+const STALE_CHECK_MS = 30_000; // item "processing" lâu hơn mốc này mới chủ động hỏi lại provider
 const ABANDON_MS = 2 * 60 * 60 * 1000; // job cũ hơn 2 giờ vẫn chưa xong -> coi như bỏ, hoàn credit
+
+// Model Fal.ai thật theo model_choice — cần đúng để fallback poll hỏi đúng endpoint (webhook thì
+// Fal.ai tự biết, chỉ fallback poll mới cần map này).
+const FAL_MODEL_ENDPOINTS: Record<string, string> = {
+  generic: "fal-ai/gemini-3-pro-image-preview/edit",
+  fashn: "fal-ai/fashn/tryon/v1.6",
+};
 
 type JobRow = {
   id: number;
   user_id: string;
   status: string;
+  model_choice: string | null;
   total_credit: number;
   credit_tx_id: number | null;
   created_at: string;
@@ -29,12 +40,13 @@ type JobItemRow = {
   job_id: number;
   garment_image_url: string;
   fal_request_id: string | null;
+  provider: string;
   status: string;
   output_url: string | null;
   updated_at: string;
 };
 
-/** Áp kết quả Fal.ai (thành công hoặc lỗi) vào 1 item — dùng chung cho webhook lẫn fallback poll. */
+/** Áp kết quả (thành công hoặc lỗi) vào 1 item — dùng chung cho webhook Fal.ai, fallback poll, và cron sweep (mọi provider). */
 export async function applyFalResultToItem(item: JobItemRow, falPayload: Record<string, unknown>): Promise<void> {
   const supabase = getSupabaseAdmin();
 
@@ -42,7 +54,7 @@ export async function applyFalResultToItem(item: JobItemRow, falPayload: Record<
   if (isError) {
     await supabase
       .from("outfit_swap_job_items")
-      .update({ status: "failed", error_message: falPayload.error ? String(falPayload.error) : "Fal.ai báo lỗi" })
+      .update({ status: "failed", error_message: falPayload.error ? String(falPayload.error) : "Provider báo lỗi" })
       .eq("id", item.id);
     await finalizeJobIfDone(item.job_id);
     return;
@@ -55,7 +67,37 @@ export async function applyFalResultToItem(item: JobItemRow, falPayload: Record<
   if (!outputUrl) {
     await supabase
       .from("outfit_swap_job_items")
-      .update({ status: "failed", error_message: "Không tìm thấy ảnh trong phản hồi Fal.ai" })
+      .update({ status: "failed", error_message: "Không tìm thấy ảnh trong phản hồi" })
+      .eq("id", item.id);
+    await finalizeJobIfDone(item.job_id);
+    return;
+  }
+
+  await supabase.from("outfit_swap_job_items").update({ status: "done", output_url: outputUrl }).eq("id", item.id);
+  await finalizeJobIfDone(item.job_id);
+}
+
+/** Áp kết quả từ FASHN Try-On Max (api.fashn.ai riêng — payload dạng {status, output: [url], error} khác Fal.ai). */
+async function applyFashnDirectResultToItem(
+  item: JobItemRow,
+  data: { status?: string; output?: string[]; error?: unknown }
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+
+  if (data.status === "failed" || data.error) {
+    await supabase
+      .from("outfit_swap_job_items")
+      .update({ status: "failed", error_message: data.error ? String(data.error) : "FASHN báo lỗi" })
+      .eq("id", item.id);
+    await finalizeJobIfDone(item.job_id);
+    return;
+  }
+
+  const outputUrl = data.output?.[0];
+  if (!outputUrl) {
+    await supabase
+      .from("outfit_swap_job_items")
+      .update({ status: "failed", error_message: "Không tìm thấy ảnh trong phản hồi FASHN" })
       .eq("id", item.id);
     await finalizeJobIfDone(item.job_id);
     return;
@@ -104,7 +146,7 @@ export async function finalizeJobIfDone(jobId: number): Promise<void> {
 }
 
 /** Chủ động hỏi lại Fal.ai xem item đã xong chưa — gọi khi item "processing" quá lâu mà chưa có webhook. */
-async function resolveFalItem(item: JobItemRow): Promise<void> {
+async function resolveFalItem(item: JobItemRow, model: string): Promise<void> {
   if (item.status !== "processing" || !item.fal_request_id) return;
 
   const updatedAgeMs = Date.now() - new Date(item.updated_at).getTime();
@@ -112,8 +154,6 @@ async function resolveFalItem(item: JobItemRow): Promise<void> {
 
   const apiKey = process.env.FAL_KEY;
   if (!apiKey) return;
-
-  const model = "fal-ai/gemini-3-pro-image-preview/edit";
 
   try {
     const statusRes = await fetch(`https://queue.fal.run/${model}/requests/${item.fal_request_id}/status`, {
@@ -136,7 +176,32 @@ async function resolveFalItem(item: JobItemRow): Promise<void> {
   }
 }
 
-/** Frontend gọi khi poll — trả trạng thái job + kết quả đã có, đồng thời chủ động hỏi lại Fal.ai cho item còn treo. */
+/** Chủ động hỏi lại FASHN Try-On Max (api.fashn.ai) — provider này KHÔNG có webhook, luôn phải dựa vào poll. */
+async function resolveFashnDirectItem(item: JobItemRow): Promise<void> {
+  if (item.status !== "processing" || !item.fal_request_id) return;
+
+  const updatedAgeMs = Date.now() - new Date(item.updated_at).getTime();
+  if (updatedAgeMs < STALE_CHECK_MS) return;
+
+  const apiKey = process.env.FASHN_API_KEY;
+  if (!apiKey) return;
+
+  try {
+    const statusRes = await fetch(`https://api.fashn.ai/v1/status/${item.fal_request_id}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!statusRes.ok) return;
+    const data = await statusRes.json();
+
+    if (data.status !== "completed" && data.status !== "failed") return; // vẫn đang xử lý bên FASHN
+
+    await applyFashnDirectResultToItem(item, data);
+  } catch {
+    // bỏ qua lỗi mạng tạm thời, lần poll tiếp theo của frontend sẽ thử lại
+  }
+}
+
+/** Frontend gọi khi poll — trả trạng thái job + kết quả đã có, đồng thời chủ động hỏi lại provider cho item còn treo. */
 export async function resolveOutfitSwapJob(
   jobId: number
 ): Promise<{ status: string; outputs: string[]; totalItems: number; doneCount: number; errorMessage: string | null }> {
@@ -147,7 +212,12 @@ export async function resolveOutfitSwapJob(
 
   if (job.status === "processing") {
     const { data: items } = await supabase.from("outfit_swap_job_items").select("*").eq("job_id", jobId);
-    await Promise.all((items ?? []).filter((i) => i.status === "processing").map((i) => resolveFalItem(i)));
+    const falModel = FAL_MODEL_ENDPOINTS[(job as JobRow).model_choice ?? "fashn"] ?? FAL_MODEL_ENDPOINTS.fashn;
+    await Promise.all(
+      (items ?? [])
+        .filter((i) => i.status === "processing")
+        .map((i) => (i.provider === "fashn_direct" ? resolveFashnDirectItem(i) : resolveFalItem(i, falModel)))
+    );
   }
 
   const { data: freshJob } = await supabase.from("outfit_swap_jobs").select("*").eq("id", jobId).single();
@@ -183,7 +253,7 @@ export async function sweepAbandonedOutfitSwapJobs(): Promise<number> {
   if (!staleJobs || staleJobs.length === 0) return 0;
 
   for (const row of staleJobs) {
-    // Quá 2 giờ vẫn "processing" -> coi mọi item còn treo là hỏng, hoàn credit
+    // Quá 2 giờ vẫn "processing" -> coi mọi item còn treo là hỏng, hoàn credit (dùng chung cho mọi provider)
     const { data: items } = await supabase.from("outfit_swap_job_items").select("*").eq("job_id", row.id);
     for (const item of items ?? []) {
       if (item.status === "processing") {

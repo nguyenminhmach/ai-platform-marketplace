@@ -1,19 +1,22 @@
 // "Thay trang phục cho người mẫu" — 1 ảnh người mẫu + tối đa N ảnh trang phục tham chiếu, ghép qua
-// Fal.ai, MỖI bộ đồ = 1 lần gọi riêng. Khác các app ảnh khác: giá tính theo SỐ LƯỢNG bộ đồ đưa vào
+// AI, MỖI bộ đồ = 1 lần gọi riêng. Khác các app ảnh khác: giá tính theo SỐ LƯỢNG bộ đồ đưa vào
 // (không cố định 1 mức), nên không dùng chung getMiniAppConfig()/runMiniApp().
 //
-// Hỗ trợ SONG SONG 2 model, admin bật/tắt từng cái qua model_config.models.{generic,fashn}.enabled:
-// - "generic": Nano Banana Pro Edit (fal-ai/gemini-3-pro-image-preview/edit) — nhận câu lệnh mô tả
-//   tự do, đa năng nhưng hay nhầm lẫn "lấy người nào làm gốc" khi ảnh trang phục tham chiếu là ảnh
-//   người khác mặc sẵn (đã kiểm chứng qua test thật).
-// - "fashn": FASHN Virtual Try-On v1.6 (fal-ai/fashn/tryon/v1.6) — API có cấu trúc (model_image +
-//   garment_image, KHÔNG nhận prompt), rẻ hơn 50%, ổn định hơn nhờ garment_photo_type tự nhận diện
-//   ảnh trang phục on-model/flat-lay. Nếu cả 2 đều bật, người dùng tự chọn; mặc định FASHN.
+// Hỗ trợ SONG SONG 3 model, admin bật/tắt từng cái qua model_config.models.{generic,fashn,fashn_max}.enabled:
+// - "generic": Nano Banana Pro Edit (fal-ai/gemini-3-pro-image-preview/edit, qua Fal.ai) — nhận câu
+//   lệnh mô tả tự do, đa năng nhưng hay nhầm lẫn "lấy người nào làm gốc" khi ảnh trang phục tham
+//   chiếu là ảnh người khác mặc sẵn (đã kiểm chứng qua test thật).
+// - "fashn": FASHN Virtual Try-On v1.6 (fal-ai/fashn/tryon/v1.6, qua Fal.ai) — API có cấu trúc
+//   (model_image + garment_image, KHÔNG nhận prompt tự do), rẻ hơn, ổn định hơn cho phần lớn trường hợp.
+// - "fashn_max": FASHN Try-On Max — chất lượng/fidelity cao hơn v1.6, NHƯNG chạy qua API RIÊNG của
+//   chính FASHN (api.fashn.ai), không qua Fal.ai, cần FASHN_API_KEY riêng. Có prompt (chỉ để chỉnh
+//   nhỏ như "bỏ khăn", không phải prompt tự do toàn phần).
+// Nếu nhiều hơn 1 model bật, người dùng tự chọn; mặc định ưu tiên FASHN nếu có bật.
 //
-// Chạy BẤT ĐỒNG BỘ qua Fal.ai queue (không phải fal.run đồng bộ) — submit xong trả về ngay, không
-// giữ 1 request chờ tới khi xong. Lý do: test thực tế 6 ảnh song song từng bị Vercel Hobby giết ở
-// mốc 60s (maxDuration tối đa cho phép), mất credit không hoàn vì function bị kill cứng giữa chừng.
-// Xem lib/outfit-swap-jobs.ts cho phần chốt kết quả (webhook/poll/cron), mô hình giống lib/video-jobs.ts.
+// Chạy BẤT ĐỒNG BỘ — submit xong trả về ngay, không giữ 1 request chờ tới khi xong. Lý do: test thực
+// tế 6 ảnh song song từng bị Vercel Hobby giết ở mốc 60s (maxDuration tối đa cho phép), mất credit
+// không hoàn vì function bị kill cứng giữa chừng. Model qua Fal.ai dùng queue.fal.run + webhook;
+// "fashn_max" qua api.fashn.ai KHÔNG có webhook, chỉ poll (xem lib/outfit-swap-jobs.ts).
 
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { deductCredit, refundCredit, InsufficientCreditError } from "@/lib/credit-system";
@@ -24,15 +27,18 @@ const MINI_APP_ID = "thay-trang-phuc";
 const MAX_GARMENTS = 10; // không còn giới hạn bởi thời gian chờ 1 request nữa (đã chuyển bất đồng bộ)
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://ai-platform-marketplace.vercel.app";
 
-export type OutfitSwapModelKey = "generic" | "fashn";
+export type OutfitSwapModelKey = "generic" | "fashn" | "fashn_max";
 
 type ModelEntry = { model: string; provider_cost_vnd: number; enabled: boolean };
-type ModelsConfig = Record<OutfitSwapModelKey, ModelEntry>;
+type ModelsConfig = Partial<Record<OutfitSwapModelKey, ModelEntry>>;
 
 const MODEL_LABELS: Record<OutfitSwapModelKey, string> = {
   generic: "AI đa năng (tuỳ chỉnh câu lệnh)",
   fashn: "AI chuyên thử đồ (nhanh, rẻ hơn)",
+  fashn_max: "AI chuyên thử đồ (chất lượng cao)",
 };
+
+const PREFERRED_DEFAULT_ORDER: OutfitSwapModelKey[] = ["fashn", "fashn_max", "generic"];
 
 async function getModelsConfig(): Promise<ModelsConfig> {
   const supabase = getSupabaseAdmin();
@@ -55,18 +61,16 @@ export async function getEnabledOutfitSwapModels(): Promise<
   const modelsConfig = await getModelsConfig();
   const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
 
-  return (Object.keys(modelsConfig) as OutfitSwapModelKey[])
-    .filter((key) => modelsConfig[key]?.enabled)
-    .map((key) => ({
-      key,
-      label: MODEL_LABELS[key],
-      pricePerImage: computeDynamicCreditCost(modelsConfig[key].provider_cost_vnd, marginPercent, vndPerCredit),
-      hasPrompt: key === "generic",
-    }));
+  return PREFERRED_DEFAULT_ORDER.filter((key) => modelsConfig[key]?.enabled).map((key) => ({
+    key,
+    label: MODEL_LABELS[key],
+    pricePerImage: computeDynamicCreditCost(modelsConfig[key]!.provider_cost_vnd, marginPercent, vndPerCredit),
+    hasPrompt: key !== "fashn",
+  }));
 }
 
 function buildFalRequestBody(
-  modelKey: OutfitSwapModelKey,
+  modelKey: "generic" | "fashn",
   modelImageDataUrl: string,
   garmentImageDataUrl: string,
   prompt: string
@@ -87,6 +91,30 @@ function buildFalRequestBody(
   return { prompt, image_urls: [modelImageDataUrl, garmentImageDataUrl] };
 }
 
+/** Submit 1 item lên FASHN Try-On Max (api.fashn.ai riêng, không qua Fal.ai) — trả về prediction id. */
+async function submitFashnMaxItem(modelImageUrl: string, garmentImageUrl: string, prompt: string): Promise<string> {
+  const apiKey = process.env.FASHN_API_KEY;
+  if (!apiKey) throw new Error("Chưa cấu hình FASHN_API_KEY trong .env.local");
+
+  const inputs: Record<string, unknown> = { product_image: garmentImageUrl, model_image: modelImageUrl, num_images: 1 };
+  if (prompt.trim()) inputs.prompt = prompt.trim();
+
+  const response = await fetch("https://api.fashn.ai/v1/run", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model_name: "tryon-max", inputs }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "Unknown FASHN error");
+    throw new Error(`FASHN lỗi: ${response.status} ${errText}`);
+  }
+
+  const data = await response.json();
+  if (data.error) throw new Error(`FASHN lỗi: ${data.error}`);
+  return data.id as string;
+}
+
 export async function submitOutfitSwapJob(
   userId: string,
   modelImageDataUrl: string,
@@ -98,13 +126,13 @@ export async function submitOutfitSwapJob(
   if (garmentImageDataUrls.length === 0) throw new Error("Cần ít nhất 1 ảnh trang phục tham chiếu");
   if (garmentImageDataUrls.length > MAX_GARMENTS) throw new Error(`Tối đa ${MAX_GARMENTS} ảnh trang phục mỗi lượt`);
 
-  const apiKey = process.env.FAL_KEY;
-  if (!apiKey) throw new Error("Chưa cấu hình FAL_KEY trong .env.local");
-
   const modelsConfig = await getModelsConfig();
   const modelEntry = modelsConfig[modelChoice];
   if (!modelEntry?.enabled) throw new Error("Model đã chọn hiện không khả dụng");
   if (modelChoice === "generic" && !prompt.trim()) throw new Error("Thiếu câu lệnh mô tả");
+
+  const falApiKey = process.env.FAL_KEY;
+  if (modelChoice !== "fashn_max" && !falApiKey) throw new Error("Chưa cấu hình FAL_KEY trong .env.local");
 
   const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
   const perImageCredit = computeDynamicCreditCost(modelEntry.provider_cost_vnd, marginPercent, vndPerCredit);
@@ -121,7 +149,7 @@ export async function submitOutfitSwapJob(
       user_id: userId,
       model_image_url: modelImageDataUrl,
       model_choice: modelChoice,
-      prompt: modelChoice === "generic" ? prompt : "",
+      prompt: modelChoice !== "fashn" ? prompt : "",
       total_credit: totalCredit,
       credit_tx_id: deduction.txId,
       status: "processing",
@@ -136,7 +164,13 @@ export async function submitOutfitSwapJob(
 
   const { data: items, error: itemsError } = await supabase
     .from("outfit_swap_job_items")
-    .insert(garmentImageDataUrls.map((garmentImageUrl) => ({ job_id: job.id, garment_image_url: garmentImageUrl })))
+    .insert(
+      garmentImageDataUrls.map((garmentImageUrl) => ({
+        job_id: job.id,
+        garment_image_url: garmentImageUrl,
+        provider: modelChoice === "fashn_max" ? "fashn_direct" : "fal",
+      }))
+    )
     .select("id, garment_image_url");
 
   if (itemsError || !items) {
@@ -145,15 +179,22 @@ export async function submitOutfitSwapJob(
     throw new Error(itemsError?.message ?? "Không tạo được item thay trang phục");
   }
 
-  // Submit song song lên Fal.ai queue — mỗi item 1 request riêng, KHÔNG đợi Fal.ai xử lý xong
-  // (khác fal.run đồng bộ trước đây), submit xong là trả jobId về ngay cho client.
+  // Submit song song — mỗi item 1 request riêng, KHÔNG đợi xử lý xong, submit xong trả jobId ngay.
   await Promise.all(
     items.map(async (item) => {
       try {
+        if (modelChoice === "fashn_max") {
+          // api.fashn.ai không có webhook — chỉ lưu prediction id, việc chốt kết quả dựa hoàn toàn
+          // vào poll từ frontend (/api/outfit-swap/status) + cron sweep dự phòng.
+          const predictionId = await submitFashnMaxItem(modelImageDataUrl, item.garment_image_url, prompt);
+          await supabase.from("outfit_swap_job_items").update({ fal_request_id: predictionId }).eq("id", item.id);
+          return;
+        }
+
         const webhookUrl = `${SITE_URL}/api/outfit-swap/webhook?itemId=${item.id}`;
         const response = await fetch(`https://queue.fal.run/${modelEntry.model}?fal_webhook=${encodeURIComponent(webhookUrl)}`, {
           method: "POST",
-          headers: { Authorization: `Key ${apiKey}`, "Content-Type": "application/json" },
+          headers: { Authorization: `Key ${falApiKey}`, "Content-Type": "application/json" },
           body: JSON.stringify(buildFalRequestBody(modelChoice, modelImageDataUrl, item.garment_image_url, prompt)),
         });
 

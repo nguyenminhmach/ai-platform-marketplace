@@ -47,9 +47,13 @@ export async function GET(req: Request) {
       dynamic: !!config?.provider_cost_vnd || !!config?.models,
       // Ảnh minh hoạ hiện trên card trang chủ thay cho icon — admin tự đổi được, không cần sửa code
       demoImageUrls: config?.demo_image_urls ?? [],
-      // Riêng "Thay trang phục": bật/tắt từng model AI (đa năng/FASHN) — null nếu app không có nhiều model
+      // Riêng "Thay trang phục": bật/tắt từng model AI (đa năng/FASHN/FASHN Max) — null nếu app không có nhiều model
       outfitSwapModels: config?.models
-        ? { generic: !!config.models.generic?.enabled, fashn: !!config.models.fashn?.enabled }
+        ? {
+            generic: !!config.models.generic?.enabled,
+            fashn: !!config.models.fashn?.enabled,
+            fashn_max: !!config.models.fashn_max?.enabled,
+          }
         : null,
     };
   });

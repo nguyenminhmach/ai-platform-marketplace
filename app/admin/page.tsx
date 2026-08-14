@@ -64,7 +64,7 @@ type MiniAppPrice = {
   isActive: boolean;
   ownApp: boolean;
   demoImageUrls: string[];
-  outfitSwapModels: { generic: boolean; fashn: boolean } | null;
+  outfitSwapModels: { generic: boolean; fashn: boolean; fashn_max: boolean } | null;
 };
 
 // 3 ảnh minh hoạ trên card trang chủ: trước → trang phục → sau (kiểu "A + B = C") thay vì 2 ảnh rời rạc,
@@ -333,9 +333,9 @@ export default function AdminPage() {
     loadMiniApps();
   }
 
-  // Riêng "Thay trang phục": app có 2 model AI (đa năng/FASHN) chạy song song, admin bật/tắt từng
-  // cái — bật cả 2 thì người dùng tự chọn, chỉ bật 1 thì người dùng không thấy nút chọn gì cả.
-  async function handleToggleOutfitSwapModel(app: MiniAppPrice, key: "generic" | "fashn", enabled: boolean) {
+  // Riêng "Thay trang phục": app có 3 model AI (đa năng/FASHN/FASHN Max) chạy song song, admin bật/tắt
+  // từng cái — bật nhiều hơn 1 thì người dùng tự chọn, chỉ bật 1 thì người dùng không thấy nút chọn gì cả.
+  async function handleToggleOutfitSwapModel(app: MiniAppPrice, key: "generic" | "fashn" | "fashn_max", enabled: boolean) {
     setSavingAppId(app.id);
     setAppPriceError(null);
     const res = await fetch("/api/admin/mini-apps", {
@@ -869,6 +869,14 @@ export default function AdminPage() {
                             onChange={(e) => handleToggleOutfitSwapModel(app, "fashn", e.target.checked)}
                           />
                           FASHN
+                        </label>
+                        <label className="flex items-center gap-1.5">
+                          <input
+                            type="checkbox"
+                            checked={app.outfitSwapModels.fashn_max}
+                            onChange={(e) => handleToggleOutfitSwapModel(app, "fashn_max", e.target.checked)}
+                          />
+                          FASHN Max
                         </label>
                       </div>
                     )}

@@ -31,9 +31,9 @@ export default function MiniAppDetailPage() {
   // tham chiếu riêng (tối đa 10) — kết quả trả về nhiều ảnh nên dùng state riêng, không dùng chung `result`.
   const [garmentImages, setGarmentImages] = useState<string[]>([]);
   const [garmentError, setGarmentError] = useState<string | null>(null);
-  type OutfitSwapModel = { key: "generic" | "fashn"; label: string; pricePerImage: number; hasPrompt: boolean };
+  type OutfitSwapModel = { key: "generic" | "fashn" | "fashn_max"; label: string; pricePerImage: number; hasPrompt: boolean };
   const [outfitSwapModels, setOutfitSwapModels] = useState<OutfitSwapModel[]>([]);
-  const [outfitSwapModelChoice, setOutfitSwapModelChoice] = useState<"generic" | "fashn" | null>(null);
+  const [outfitSwapModelChoice, setOutfitSwapModelChoice] = useState<"generic" | "fashn" | "fashn_max" | null>(null);
   const [outfitSwapResults, setOutfitSwapResults] = useState<string[] | null>(null);
   const [outfitSwapStatusText, setOutfitSwapStatusText] = useState<string | null>(null);
   const [retryingIndex, setRetryingIndex] = useState<number | null>(null);
