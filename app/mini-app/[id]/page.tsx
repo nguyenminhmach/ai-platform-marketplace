@@ -36,6 +36,7 @@ export default function MiniAppDetailPage() {
   const [outfitSwapModelChoice, setOutfitSwapModelChoice] = useState<"generic" | "fashn" | null>(null);
   const [outfitSwapResults, setOutfitSwapResults] = useState<string[] | null>(null);
   const [outfitSwapStatusText, setOutfitSwapStatusText] = useState<string | null>(null);
+  const [retryingIndex, setRetryingIndex] = useState<number | null>(null);
 
   useEffect(() => {
     return () => {
@@ -234,6 +235,75 @@ export default function MiniAppDetailPage() {
       );
       setIsRunning(false);
       setOutfitSwapStatusText(null);
+    }
+  }
+
+  // Chạy lại riêng 1 ảnh kết quả sai — thay vì bắt chạy lại nguyên cả lượt (tốn thêm credit cho cả
+  // những ảnh vốn đã đúng). AI đôi khi ra sai ngẫu nhiên trên cùng 1 ảnh đầu vào, chạy lại có thể ra kết quả khác.
+  function pollRetryOutfitSwapStatus(jobId: number, index: number) {
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/outfit-swap/status?jobId=${jobId}`);
+        const data = await res.json();
+
+        if (data.status === "done" && data.outputs?.[0]) {
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          setOutfitSwapResults((prev) => {
+            if (!prev) return prev;
+            const next = [...prev];
+            next[index] = data.outputs[0];
+            return next;
+          });
+          setRetryingIndex(null);
+        } else if (data.status === "failed") {
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          setRunError(data.errorMessage ?? "Chạy lại thất bại, credit đã được hoàn");
+          setRetryingIndex(null);
+        }
+      } catch {
+        // bỏ qua lỗi mạng tạm thời, vòng poll tiếp theo sẽ thử lại
+      }
+    }, 4000);
+  }
+
+  async function handleRetryOutfitSwapItem(index: number) {
+    if (!user || !imageDataUrl || !outfitSwapModelChoice || retryingIndex !== null) return;
+    const garmentDataUrl = garmentImages[index];
+    if (!garmentDataUrl) return;
+
+    setRetryingIndex(index);
+    setRunError(null);
+
+    try {
+      const [modelImageUrl, garmentImageUrl] = await Promise.all([
+        uploadOutfitSwapImage(imageDataUrl),
+        uploadOutfitSwapImage(garmentDataUrl),
+      ]);
+
+      const res = await fetch("/api/outfit-swap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: user.id,
+          modelImageDataUrl: modelImageUrl,
+          garmentImageDataUrls: [garmentImageUrl],
+          modelChoice: outfitSwapModelChoice,
+          prompt: input,
+        }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setRunError(data.error ?? "Có lỗi xảy ra");
+        setRetryingIndex(null);
+        return;
+      }
+
+      window.dispatchEvent(new Event("balance-updated"));
+      pollRetryOutfitSwapStatus(data.jobId, index);
+    } catch {
+      setRunError("Không tải được ảnh lên, thử lại");
+      setRetryingIndex(null);
     }
   }
 
@@ -600,6 +670,9 @@ export default function MiniAppDetailPage() {
                 </div>
                 <div>
                   <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Ảnh người mẫu</p>
+                  <p className="mb-1 text-xs text-amber-600 dark:text-amber-500">
+                    Nên chọn ảnh mặc áo + quần/váy RỜI (không phải váy liền thân) để kết quả chính xác hơn khi chỉ đổi áo.
+                  </p>
                   {imageDataUrl ? (
                     <div className="relative aspect-square w-full">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -751,15 +824,26 @@ export default function MiniAppDetailPage() {
                   <div key={index}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={url} alt={`Kết quả ${index + 1}`} className="aspect-square w-full rounded-lg object-cover" />
-                    <a
-                      href={url}
-                      download
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-1 block text-center text-xs font-medium text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
-                    >
-                      Tải xuống
-                    </a>
+                    <div className="mt-1 flex items-center justify-center gap-2">
+                      <a
+                        href={url}
+                        download
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-center text-xs font-medium text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
+                      >
+                        Tải xuống
+                      </a>
+                      <span className="text-zinc-300 dark:text-zinc-700">·</span>
+                      <button
+                        onClick={() => handleRetryOutfitSwapItem(index)}
+                        disabled={retryingIndex !== null}
+                        title={`Chạy lại ảnh này (trừ thêm ${outfitSwapModels.find((m) => m.key === outfitSwapModelChoice)?.pricePerImage ?? ""} credit)`}
+                        className="text-center text-xs font-medium text-zinc-600 underline hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-40 dark:text-zinc-400 dark:hover:text-zinc-200"
+                      >
+                        {retryingIndex === index ? "Đang chạy lại..." : "Chạy lại ảnh này"}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
