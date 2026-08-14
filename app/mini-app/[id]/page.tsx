@@ -648,6 +648,9 @@ export default function MiniAppDetailPage() {
                   <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
                     Ảnh trang phục tham chiếu (tối đa 10)
                   </p>
+                  <p className="mb-1 text-xs text-amber-600 dark:text-amber-500">
+                    App chỉ áp dụng phần ÁO trong ảnh này — quần/váy sẽ giữ nguyên theo ảnh người mẫu gốc.
+                  </p>
                   {garmentImages.length > 0 && (
                     <div className="mb-2 grid grid-cols-3 gap-2">
                       {garmentImages.map((url, index) => (
