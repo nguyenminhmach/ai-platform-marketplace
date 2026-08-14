@@ -19,7 +19,7 @@ export async function POST(req: Request) {
   if (!Array.isArray(garmentImageDataUrls) || garmentImageDataUrls.length === 0) {
     return Response.json({ error: "Cần ít nhất 1 ảnh trang phục tham chiếu" }, { status: 400 });
   }
-  if (modelChoice !== "generic" && modelChoice !== "fashn") {
+  if (modelChoice !== "generic" && modelChoice !== "fashn" && modelChoice !== "fashn_max") {
     return Response.json({ error: "Thiếu lựa chọn model" }, { status: 400 });
   }
 
