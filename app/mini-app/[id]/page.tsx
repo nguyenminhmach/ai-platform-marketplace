@@ -31,6 +31,10 @@ export default function MiniAppDetailPage() {
   // tham chiếu riêng (tối đa 10) — kết quả trả về nhiều ảnh nên dùng state riêng, không dùng chung `result`.
   const [garmentImages, setGarmentImages] = useState<string[]>([]);
   const [garmentError, setGarmentError] = useState<string | null>(null);
+  // Loại trang phục cho từng ảnh — người dùng tự khai báo (không để AI đoán, hay bịa sai quần/váy
+  // khi ảnh tham chiếu là cả bộ). Song song index với garmentImages, mặc định "tops" (chỉ áo).
+  type GarmentCategory = "tops" | "one-pieces";
+  const [garmentCategories, setGarmentCategories] = useState<GarmentCategory[]>([]);
   type OutfitSwapModel = {
     key: "generic" | "fashn" | "fashn_max";
     label: string;
@@ -137,13 +141,21 @@ export default function MiniAppDetailPage() {
         return;
       }
       const reader = new FileReader();
-      reader.onload = () => setGarmentImages((prev) => [...prev, reader.result as string]);
+      reader.onload = () => {
+        setGarmentImages((prev) => [...prev, reader.result as string]);
+        setGarmentCategories((prev) => [...prev, "tops"]);
+      };
       reader.readAsDataURL(file);
     });
   }
 
   function removeGarmentImage(index: number) {
     setGarmentImages((prev) => prev.filter((_, i) => i !== index));
+    setGarmentCategories((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function setGarmentCategoryAt(index: number, category: GarmentCategory) {
+    setGarmentCategories((prev) => prev.map((c, i) => (i === index ? category : c)));
   }
 
   function pollOutfitSwapStatus(jobId: number) {
@@ -216,6 +228,7 @@ export default function MiniAppDetailPage() {
           userId: user.id,
           modelImageDataUrl: modelImageUrl,
           garmentImageDataUrls: garmentImageUrls,
+          garmentCategories: garmentCategories,
           modelChoice: outfitSwapModelChoice,
           prompt: input,
         }),
@@ -295,6 +308,7 @@ export default function MiniAppDetailPage() {
           userId: user.id,
           modelImageDataUrl: modelImageUrl,
           garmentImageDataUrls: [garmentImageUrl],
+          garmentCategories: [garmentCategories[index] ?? "tops"],
           modelChoice: outfitSwapModelChoice,
           prompt: input,
         }),
@@ -649,21 +663,47 @@ export default function MiniAppDetailPage() {
                     Ảnh trang phục tham chiếu (tối đa 10)
                   </p>
                   <p className="mb-1 text-xs text-amber-600 dark:text-amber-500">
-                    App chỉ áp dụng phần ÁO trong ảnh này — quần/váy sẽ giữ nguyên theo ảnh người mẫu gốc.
+                    Chọn đúng "Áo" hay "Cả bộ" cho từng ảnh bên dưới — chọn sai loại dễ khiến AI ra kết quả không khớp.
                   </p>
                   {garmentImages.length > 0 && (
                     <div className="mb-2 grid grid-cols-3 gap-2">
                       {garmentImages.map((url, index) => (
-                        <div key={index} className="relative">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={url} alt={`Trang phục ${index + 1}`} className="aspect-square w-full rounded-md object-cover" />
-                          <button
-                            onClick={() => removeGarmentImage(index)}
-                            aria-label="Xoá ảnh"
-                            className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-xs text-white hover:bg-black/80"
-                          >
-                            ×
-                          </button>
+                        <div key={index}>
+                          <div className="relative">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={url} alt={`Trang phục ${index + 1}`} className="aspect-square w-full rounded-md object-cover" />
+                            <button
+                              onClick={() => removeGarmentImage(index)}
+                              aria-label="Xoá ảnh"
+                              className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-xs text-white hover:bg-black/80"
+                            >
+                              ×
+                            </button>
+                          </div>
+                          <div className="mt-1 flex gap-0.5 text-[10px]">
+                            <button
+                              type="button"
+                              onClick={() => setGarmentCategoryAt(index, "tops")}
+                              className={`flex-1 rounded px-1 py-0.5 font-medium ${
+                                (garmentCategories[index] ?? "tops") === "tops"
+                                  ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                                  : "bg-zinc-100 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400"
+                              }`}
+                            >
+                              Áo
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setGarmentCategoryAt(index, "one-pieces")}
+                              className={`flex-1 rounded px-1 py-0.5 font-medium ${
+                                garmentCategories[index] === "one-pieces"
+                                  ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                                  : "bg-zinc-100 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400"
+                              }`}
+                            >
+                              Cả bộ
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>

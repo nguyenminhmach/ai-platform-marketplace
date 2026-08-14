@@ -82,22 +82,28 @@ export async function getEnabledOutfitSwapModels(): Promise<
   }));
 }
 
+export type GarmentCategory = "tops" | "one-pieces";
+
 function buildFalRequestBody(
   modelKey: "generic" | "fashn",
   modelImageDataUrl: string,
   garmentImageDataUrl: string,
-  prompt: string
+  prompt: string,
+  category: GarmentCategory
 ): Record<string, unknown> {
   if (modelKey === "fashn") {
-    // ĐÃ THỬ ép cứng category: "tops" cho mọi ảnh — SAI, vì không phải ảnh trang phục nào cũng là
-    // áo rời (có ảnh là váy liền thân), ép sai loại khiến FASHN phải tự bịa thêm quần cho đủ bộ.
-    // Bỏ ép, để "auto" tự nhận diện đúng loại từng ảnh (áo/quần/váy liền thân).
+    // ĐÃ THỬ ép cứng category: "tops" cho MỌI ảnh như nhau — SAI, vì không phải ảnh trang phục nào
+    // cũng là áo rời (có ảnh là cả bộ áo+quần/váy phối cùng hoặc váy liền thân). Cũng đã thử để
+    // "auto" tự đoán — cũng sai vì auto hay bịa thêm quần/váy không khớp. Giải pháp đúng: để NGƯỜI
+    // DÙNG tự khai báo "Áo" hay "Cả bộ" cho từng ảnh (UI ở trang chi tiết), category truyền vào đây
+    // theo đúng lựa chọn đó thay vì đoán.
     //
     // segmentation_free mặc định true (không phân vùng rõ ràng) — tài liệu FASHN ghi rõ: nếu trang
     // phục gốc không được loại bỏ đúng cách, đặt false để bật lại chế độ phân vùng chính xác hơn.
     return {
       model_image: modelImageDataUrl,
       garment_image: garmentImageDataUrl,
+      category,
       segmentation_free: false,
     };
   }
@@ -140,12 +146,16 @@ export async function submitOutfitSwapJob(
   userId: string,
   modelImageDataUrl: string,
   garmentImageDataUrls: string[],
+  garmentCategories: GarmentCategory[],
   modelChoice: OutfitSwapModelKey,
   prompt: string,
   idempotencyKey: string
 ): Promise<{ jobId: number; newBalance: number }> {
   if (garmentImageDataUrls.length === 0) throw new Error("Cần ít nhất 1 ảnh trang phục tham chiếu");
   if (garmentImageDataUrls.length > MAX_GARMENTS) throw new Error(`Tối đa ${MAX_GARMENTS} ảnh trang phục mỗi lượt`);
+  if (garmentCategories.length !== garmentImageDataUrls.length) {
+    throw new Error("Số lượng loại trang phục không khớp số ảnh");
+  }
 
   const modelsConfig = await getModelsConfig();
   const modelEntry = modelsConfig[modelChoice];
@@ -186,13 +196,14 @@ export async function submitOutfitSwapJob(
   const { data: items, error: itemsError } = await supabase
     .from("outfit_swap_job_items")
     .insert(
-      garmentImageDataUrls.map((garmentImageUrl) => ({
+      garmentImageDataUrls.map((garmentImageUrl, i) => ({
         job_id: job.id,
         garment_image_url: garmentImageUrl,
+        category: garmentCategories[i],
         provider: modelChoice === "fashn_max" ? "fashn_direct" : "fal",
       }))
     )
-    .select("id, garment_image_url");
+    .select("id, garment_image_url, category");
 
   if (itemsError || !items) {
     if (deduction.txId) await refundCredit(deduction.txId);
@@ -216,7 +227,9 @@ export async function submitOutfitSwapJob(
         const response = await fetch(`https://queue.fal.run/${modelEntry.model}?fal_webhook=${encodeURIComponent(webhookUrl)}`, {
           method: "POST",
           headers: { Authorization: `Key ${falApiKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify(buildFalRequestBody(modelChoice, modelImageDataUrl, item.garment_image_url, prompt)),
+          body: JSON.stringify(
+            buildFalRequestBody(modelChoice, modelImageDataUrl, item.garment_image_url, prompt, item.category as GarmentCategory)
+          ),
         });
 
         if (!response.ok) {

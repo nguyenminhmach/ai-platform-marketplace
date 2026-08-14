@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { submitOutfitSwapJob, getEnabledOutfitSwapModels, type OutfitSwapModelKey } from "@/lib/outfit-swap";
+import { submitOutfitSwapJob, getEnabledOutfitSwapModels, type OutfitSwapModelKey, type GarmentCategory } from "@/lib/outfit-swap";
 import { InsufficientCreditError } from "@/lib/credit-system";
 
 export async function GET() {
@@ -10,7 +10,7 @@ export async function GET() {
 // Submit job bất đồng bộ — trả về ngay jobId, KHÔNG đợi Fal.ai xử lý xong (xem lib/outfit-swap.ts).
 // Frontend tự poll /api/outfit-swap/status để lấy kết quả.
 export async function POST(req: Request) {
-  const { userId, modelImageDataUrl, garmentImageDataUrls, modelChoice, prompt } = await req.json();
+  const { userId, modelImageDataUrl, garmentImageDataUrls, garmentCategories, modelChoice, prompt } = await req.json();
 
   if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   if (typeof modelImageDataUrl !== "string" || !modelImageDataUrl) {
@@ -18,6 +18,13 @@ export async function POST(req: Request) {
   }
   if (!Array.isArray(garmentImageDataUrls) || garmentImageDataUrls.length === 0) {
     return Response.json({ error: "Cần ít nhất 1 ảnh trang phục tham chiếu" }, { status: 400 });
+  }
+  if (
+    !Array.isArray(garmentCategories) ||
+    garmentCategories.length !== garmentImageDataUrls.length ||
+    !garmentCategories.every((c: unknown) => c === "tops" || c === "one-pieces")
+  ) {
+    return Response.json({ error: "Thiếu loại trang phục (Áo/Cả bộ)" }, { status: 400 });
   }
   if (modelChoice !== "generic" && modelChoice !== "fashn" && modelChoice !== "fashn_max") {
     return Response.json({ error: "Thiếu lựa chọn model" }, { status: 400 });
@@ -28,6 +35,7 @@ export async function POST(req: Request) {
       userId,
       modelImageDataUrl,
       garmentImageDataUrls,
+      garmentCategories as GarmentCategory[],
       modelChoice as OutfitSwapModelKey,
       typeof prompt === "string" ? prompt : "",
       randomUUID()
