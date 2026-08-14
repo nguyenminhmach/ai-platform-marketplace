@@ -189,7 +189,12 @@ export default function MiniAppDetailPage() {
       );
       pollOutfitSwapStatus(data.jobId);
     } catch {
-      setRunError("Không kết nối được tới server");
+      // Server có thể đã submit job xong (và trừ credit) nhưng phản hồi bị rớt mạng trước khi về
+      // tới trình duyệt — không chắc chắn là lượt chạy thất bại, nên không giục chạy lại ngay kẻo
+      // bị trừ credit 2 lần cho cùng 1 lượt.
+      setRunError(
+        "Mất kết nối khi nhận phản hồi từ server. Lượt chạy có thể đã thực hiện thành công — anh kiểm tra /wallet → \"Lịch sử kết quả\" trước khi bấm chạy lại."
+      );
       setIsRunning(false);
       setOutfitSwapStatusText(null);
     }
