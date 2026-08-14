@@ -1,13 +1,14 @@
 // "Thay trang phục cho người mẫu" — 1 ảnh người mẫu + tối đa N ảnh trang phục tham chiếu, ghép qua
-// Fal.ai FASHN Virtual Try-On v1.6 (fal-ai/fashn/tryon/v1.6), MỖI bộ đồ = 1 lần gọi riêng. Khác các
-// app ảnh khác: giá tính theo SỐ LƯỢNG bộ đồ đưa vào (không cố định 1 mức), nên không dùng chung
-// getMiniAppConfig()/runMiniApp().
+// Fal.ai, MỖI bộ đồ = 1 lần gọi riêng. Khác các app ảnh khác: giá tính theo SỐ LƯỢNG bộ đồ đưa vào
+// (không cố định 1 mức), nên không dùng chung getMiniAppConfig()/runMiniApp().
 //
-// Đổi từ model đa năng "Nano Banana Pro Edit" (prompt-based) sang FASHN — model chuyên biệt cho
-// try-on, rẻ hơn 50% ($0.075 vs $0.15/ảnh) VÀ ổn định hơn với ảnh trang phục tham chiếu là ảnh người
-// khác mặc sẵn (garment_photo_type tự nhận diện on-model/flat-lay) — model cũ hay nhầm lẫn "lấy người
-// nào làm gốc" trong trường hợp đó, đã kiểm chứng qua test thật. Không còn nhận câu lệnh mô tả tự do
-// (structured API: model_image + garment_image, không có prompt).
+// Hỗ trợ SONG SONG 2 model, admin bật/tắt từng cái qua model_config.models.{generic,fashn}.enabled:
+// - "generic": Nano Banana Pro Edit (fal-ai/gemini-3-pro-image-preview/edit) — nhận câu lệnh mô tả
+//   tự do, đa năng nhưng hay nhầm lẫn "lấy người nào làm gốc" khi ảnh trang phục tham chiếu là ảnh
+//   người khác mặc sẵn (đã kiểm chứng qua test thật).
+// - "fashn": FASHN Virtual Try-On v1.6 (fal-ai/fashn/tryon/v1.6) — API có cấu trúc (model_image +
+//   garment_image, KHÔNG nhận prompt), rẻ hơn 50%, ổn định hơn nhờ garment_photo_type tự nhận diện
+//   ảnh trang phục on-model/flat-lay. Nếu cả 2 đều bật, người dùng tự chọn; mặc định FASHN.
 //
 // Chạy BẤT ĐỒNG BỘ qua Fal.ai queue (không phải fal.run đồng bộ) — submit xong trả về ngay, không
 // giữ 1 request chờ tới khi xong. Lý do: test thực tế 6 ảnh song song từng bị Vercel Hobby giết ở
@@ -20,11 +21,20 @@ import { computeDynamicCreditCost, getMediaPricingSettings } from "@/lib/pricing
 import { finalizeJobIfDone } from "@/lib/outfit-swap-jobs";
 
 const MINI_APP_ID = "thay-trang-phuc";
-const MODEL = "fal-ai/fashn/tryon/v1.6";
 const MAX_GARMENTS = 10; // không còn giới hạn bởi thời gian chờ 1 request nữa (đã chuyển bất đồng bộ)
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://ai-platform-marketplace.vercel.app";
 
-async function getProviderCostVnd(): Promise<number> {
+export type OutfitSwapModelKey = "generic" | "fashn";
+
+type ModelEntry = { model: string; provider_cost_vnd: number; enabled: boolean };
+type ModelsConfig = Record<OutfitSwapModelKey, ModelEntry>;
+
+const MODEL_LABELS: Record<OutfitSwapModelKey, string> = {
+  generic: "AI đa năng (tuỳ chỉnh câu lệnh)",
+  fashn: "AI chuyên thử đồ (nhanh, rẻ hơn)",
+};
+
+async function getModelsConfig(): Promise<ModelsConfig> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("mini_apps")
@@ -34,21 +44,45 @@ async function getProviderCostVnd(): Promise<number> {
     .single();
 
   if (error || !data) throw new Error("Không tìm thấy app Thay trang phục");
-  const config = data.model_config as { provider_cost_vnd: number };
-  return config.provider_cost_vnd;
+  const config = data.model_config as { models: ModelsConfig };
+  return config.models;
 }
 
-/** Giá credit cho 1 bộ đồ — trang chủ/trang chi tiết gọi hàm này để hiện giá trước khi chạy. */
-export async function getOutfitSwapPricePerImage(): Promise<number> {
-  const providerCostVnd = await getProviderCostVnd();
+/** Danh sách model đang bật + giá credit mỗi ảnh — trang chi tiết gọi hàm này để build nút chọn + giá. */
+export async function getEnabledOutfitSwapModels(): Promise<
+  { key: OutfitSwapModelKey; label: string; pricePerImage: number; hasPrompt: boolean }[]
+> {
+  const modelsConfig = await getModelsConfig();
   const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
-  return computeDynamicCreditCost(providerCostVnd, marginPercent, vndPerCredit);
+
+  return (Object.keys(modelsConfig) as OutfitSwapModelKey[])
+    .filter((key) => modelsConfig[key]?.enabled)
+    .map((key) => ({
+      key,
+      label: MODEL_LABELS[key],
+      pricePerImage: computeDynamicCreditCost(modelsConfig[key].provider_cost_vnd, marginPercent, vndPerCredit),
+      hasPrompt: key === "generic",
+    }));
+}
+
+function buildFalRequestBody(
+  modelKey: OutfitSwapModelKey,
+  modelImageDataUrl: string,
+  garmentImageDataUrl: string,
+  prompt: string
+): Record<string, unknown> {
+  if (modelKey === "fashn") {
+    return { model_image: modelImageDataUrl, garment_image: garmentImageDataUrl };
+  }
+  return { prompt, image_urls: [modelImageDataUrl, garmentImageDataUrl] };
 }
 
 export async function submitOutfitSwapJob(
   userId: string,
   modelImageDataUrl: string,
   garmentImageDataUrls: string[],
+  modelChoice: OutfitSwapModelKey,
+  prompt: string,
   idempotencyKey: string
 ): Promise<{ jobId: number; newBalance: number }> {
   if (garmentImageDataUrls.length === 0) throw new Error("Cần ít nhất 1 ảnh trang phục tham chiếu");
@@ -57,7 +91,13 @@ export async function submitOutfitSwapJob(
   const apiKey = process.env.FAL_KEY;
   if (!apiKey) throw new Error("Chưa cấu hình FAL_KEY trong .env.local");
 
-  const perImageCredit = await getOutfitSwapPricePerImage();
+  const modelsConfig = await getModelsConfig();
+  const modelEntry = modelsConfig[modelChoice];
+  if (!modelEntry?.enabled) throw new Error("Model đã chọn hiện không khả dụng");
+  if (modelChoice === "generic" && !prompt.trim()) throw new Error("Thiếu câu lệnh mô tả");
+
+  const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
+  const perImageCredit = computeDynamicCreditCost(modelEntry.provider_cost_vnd, marginPercent, vndPerCredit);
   const totalCredit = perImageCredit * garmentImageDataUrls.length;
 
   const deduction = await deductCredit(userId, totalCredit, MINI_APP_ID, idempotencyKey);
@@ -70,7 +110,8 @@ export async function submitOutfitSwapJob(
     .insert({
       user_id: userId,
       model_image_url: modelImageDataUrl,
-      prompt: "",
+      model_choice: modelChoice,
+      prompt: modelChoice === "generic" ? prompt : "",
       total_credit: totalCredit,
       credit_tx_id: deduction.txId,
       status: "processing",
@@ -100,10 +141,10 @@ export async function submitOutfitSwapJob(
     items.map(async (item) => {
       try {
         const webhookUrl = `${SITE_URL}/api/outfit-swap/webhook?itemId=${item.id}`;
-        const response = await fetch(`https://queue.fal.run/${MODEL}?fal_webhook=${encodeURIComponent(webhookUrl)}`, {
+        const response = await fetch(`https://queue.fal.run/${modelEntry.model}?fal_webhook=${encodeURIComponent(webhookUrl)}`, {
           method: "POST",
           headers: { Authorization: `Key ${apiKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ model_image: modelImageDataUrl, garment_image: item.garment_image_url }),
+          body: JSON.stringify(buildFalRequestBody(modelChoice, modelImageDataUrl, item.garment_image_url, prompt)),
         });
 
         if (!response.ok) {

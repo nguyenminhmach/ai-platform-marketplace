@@ -64,6 +64,7 @@ type MiniAppPrice = {
   isActive: boolean;
   ownApp: boolean;
   demoImageUrls: string[];
+  outfitSwapModels: { generic: boolean; fashn: boolean } | null;
 };
 
 // 3 ảnh minh hoạ trên card trang chủ: trước → trang phục → sau (kiểu "A + B = C") thay vì 2 ảnh rời rạc,
@@ -327,6 +328,25 @@ export default function AdminPage() {
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       setAppPriceError(data.error ?? "Không xoá được ảnh");
+      return;
+    }
+    loadMiniApps();
+  }
+
+  // Riêng "Thay trang phục": app có 2 model AI (đa năng/FASHN) chạy song song, admin bật/tắt từng
+  // cái — bật cả 2 thì người dùng tự chọn, chỉ bật 1 thì người dùng không thấy nút chọn gì cả.
+  async function handleToggleOutfitSwapModel(app: MiniAppPrice, key: "generic" | "fashn", enabled: boolean) {
+    setSavingAppId(app.id);
+    setAppPriceError(null);
+    const res = await fetch("/api/admin/mini-apps", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: app.id, outfitSwapModels: { [key]: enabled } }),
+    });
+    setSavingAppId(null);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setAppPriceError(data.error ?? "Không cập nhật được model");
       return;
     }
     loadMiniApps();
@@ -750,10 +770,11 @@ export default function AdminPage() {
                   {miniApps.map((app) => (
                     <div
                       key={app.id}
-                      className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-100 px-3 py-2 dark:border-zinc-800 ${
+                      className={`space-y-2 rounded-lg border border-zinc-100 px-3 py-2 dark:border-zinc-800 ${
                         !app.isActive ? "opacity-50" : ""
                       }`}
                     >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="flex items-center gap-3">
                         <span className="text-sm text-zinc-700 dark:text-zinc-300">
                           {app.name}
@@ -830,6 +851,28 @@ export default function AdminPage() {
                         </button>
                       </div>
                     </div>
+                    {app.outfitSwapModels && (
+                      <div className="flex items-center gap-4 border-t border-zinc-100 pt-2 text-xs text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+                        <span>Model AI:</span>
+                        <label className="flex items-center gap-1.5">
+                          <input
+                            type="checkbox"
+                            checked={app.outfitSwapModels.generic}
+                            onChange={(e) => handleToggleOutfitSwapModel(app, "generic", e.target.checked)}
+                          />
+                          Đa năng
+                        </label>
+                        <label className="flex items-center gap-1.5">
+                          <input
+                            type="checkbox"
+                            checked={app.outfitSwapModels.fashn}
+                            onChange={(e) => handleToggleOutfitSwapModel(app, "fashn", e.target.checked)}
+                          />
+                          FASHN
+                        </label>
+                      </div>
+                    )}
+                  </div>
                   ))}
                   {appPriceError && <p className="text-sm text-red-600 dark:text-red-400">{appPriceError}</p>}
                 </div>

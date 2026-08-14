@@ -32,17 +32,27 @@ export async function GET(req: Request) {
 
   if (error) return Response.json({ error: error.message }, { status: 500 });
 
-  const apps = (data ?? []).map((app) => ({
-    id: app.id,
-    name: app.name,
-    creditCost: app.credit_cost,
-    isActive: app.is_active,
-    ownApp: !app.developer_id,
-    // dynamic = true nếu app này đã dùng công thức margin% (ảnh/video) — giá cố định bên dưới sẽ bị ghi đè, không sửa được qua đây
-    dynamic: !!(app.model_config as { provider_cost_vnd?: number } | null)?.provider_cost_vnd,
-    // Ảnh minh hoạ hiện trên card trang chủ thay cho icon — admin tự đổi được, không cần sửa code
-    demoImageUrls: (app.model_config as { demo_image_urls?: string[] } | null)?.demo_image_urls ?? [],
-  }));
+  const apps = (data ?? []).map((app) => {
+    const config = app.model_config as
+      | { provider_cost_vnd?: number; demo_image_urls?: string[]; models?: Record<string, { enabled: boolean }> }
+      | null;
+    return {
+      id: app.id,
+      name: app.name,
+      creditCost: app.credit_cost,
+      isActive: app.is_active,
+      ownApp: !app.developer_id,
+      // dynamic = true nếu app này đã dùng công thức margin% (ảnh/video, kể cả app nhiều model như
+      // "Thay trang phục") — giá cố định bên dưới sẽ bị ghi đè, không sửa được qua đây
+      dynamic: !!config?.provider_cost_vnd || !!config?.models,
+      // Ảnh minh hoạ hiện trên card trang chủ thay cho icon — admin tự đổi được, không cần sửa code
+      demoImageUrls: config?.demo_image_urls ?? [],
+      // Riêng "Thay trang phục": bật/tắt từng model AI (đa năng/FASHN) — null nếu app không có nhiều model
+      outfitSwapModels: config?.models
+        ? { generic: !!config.models.generic?.enabled, fashn: !!config.models.fashn?.enabled }
+        : null,
+    };
+  });
 
   return Response.json({ apps });
 }
@@ -51,11 +61,11 @@ export async function PATCH(req: Request) {
   const token = getCookie(req, ADMIN_COOKIE_NAME);
   if (!verifyAdminToken(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
 
-  const { id, creditCost, isActive, demoImageUrls } = await req.json();
+  const { id, creditCost, isActive, demoImageUrls, outfitSwapModels } = await req.json();
   if (typeof id !== "string" || !id) {
     return Response.json({ error: "Thiếu id" }, { status: 400 });
   }
-  if (creditCost === undefined && isActive === undefined && demoImageUrls === undefined) {
+  if (creditCost === undefined && isActive === undefined && demoImageUrls === undefined && outfitSwapModels === undefined) {
     return Response.json({ error: "Không có gì để cập nhật" }, { status: 400 });
   }
 
@@ -81,6 +91,27 @@ export async function PATCH(req: Request) {
     // Gộp vào model_config hiện có thay vì ghi đè — model_config còn chứa model/output_type/provider_cost_vnd...
     const { data: current } = await supabase.from("mini_apps").select("model_config").eq("id", id).single();
     update.model_config = { ...((current?.model_config as object) ?? {}), demo_image_urls: demoImageUrls };
+  }
+  if (outfitSwapModels !== undefined) {
+    if (typeof outfitSwapModels !== "object" || outfitSwapModels === null) {
+      return Response.json({ error: "outfitSwapModels không hợp lệ" }, { status: 400 });
+    }
+    const { data: current } = await supabase.from("mini_apps").select("model_config").eq("id", id).single();
+    const currentConfig = (current?.model_config as { models?: Record<string, { enabled: boolean }> }) ?? {};
+    if (!currentConfig.models) {
+      return Response.json({ error: "App này không có nhiều model để bật/tắt" }, { status: 400 });
+    }
+    const nextModels = { ...currentConfig.models };
+    for (const key of Object.keys(outfitSwapModels)) {
+      if (nextModels[key] && typeof outfitSwapModels[key] === "boolean") {
+        nextModels[key] = { ...nextModels[key], enabled: outfitSwapModels[key] };
+      }
+    }
+    // Không cho tắt hết cả 2 — người dùng sẽ không chạy được app này nữa
+    if (!Object.values(nextModels).some((m) => m.enabled)) {
+      return Response.json({ error: "Phải bật ít nhất 1 model" }, { status: 400 });
+    }
+    update.model_config = { ...currentConfig, models: nextModels };
   }
 
   const { error } = await supabase.from("mini_apps").update(update).eq("id", id);

@@ -31,7 +31,9 @@ export default function MiniAppDetailPage() {
   // tham chiếu riêng (tối đa 10) — kết quả trả về nhiều ảnh nên dùng state riêng, không dùng chung `result`.
   const [garmentImages, setGarmentImages] = useState<string[]>([]);
   const [garmentError, setGarmentError] = useState<string | null>(null);
-  const [outfitSwapPricePerImage, setOutfitSwapPricePerImage] = useState<number | null>(null);
+  type OutfitSwapModel = { key: "generic" | "fashn"; label: string; pricePerImage: number; hasPrompt: boolean };
+  const [outfitSwapModels, setOutfitSwapModels] = useState<OutfitSwapModel[]>([]);
+  const [outfitSwapModelChoice, setOutfitSwapModelChoice] = useState<"generic" | "fashn" | null>(null);
   const [outfitSwapResults, setOutfitSwapResults] = useState<string[] | null>(null);
   const [outfitSwapStatusText, setOutfitSwapStatusText] = useState<string | null>(null);
 
@@ -45,7 +47,13 @@ export default function MiniAppDetailPage() {
     if (params.id === "thay-trang-phuc") {
       fetch("/api/outfit-swap")
         .then((res) => res.json())
-        .then((data) => setOutfitSwapPricePerImage(data.pricePerImage))
+        .then((data) => {
+          const models: OutfitSwapModel[] = data.models ?? [];
+          setOutfitSwapModels(models);
+          // Mặc định FASHN nếu có bật, không thì lấy model còn lại đang bật
+          const fashn = models.find((m) => m.key === "fashn");
+          setOutfitSwapModelChoice(fashn?.key ?? models[0]?.key ?? null);
+        })
         .catch(() => {});
     }
   }, [params.id]);
@@ -148,7 +156,7 @@ export default function MiniAppDetailPage() {
   }
 
   async function handleRunOutfitSwap() {
-    if (!user || garmentImages.length === 0 || !imageDataUrl) return;
+    if (!user || garmentImages.length === 0 || !imageDataUrl || !outfitSwapModelChoice) return;
     setIsRunning(true);
     setOutfitSwapResults(null);
     setRunError(null);
@@ -162,6 +170,8 @@ export default function MiniAppDetailPage() {
           userId: user.id,
           modelImageDataUrl: imageDataUrl,
           garmentImageDataUrls: garmentImages,
+          modelChoice: outfitSwapModelChoice,
+          prompt: input,
         }),
       });
       const data = await res.json();
@@ -570,6 +580,37 @@ export default function MiniAppDetailPage() {
                   {imageError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{imageError}</p>}
                 </div>
               </div>
+
+              {outfitSwapModels.length > 1 && (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {outfitSwapModels.map((m) => (
+                    <button
+                      key={m.key}
+                      type="button"
+                      onClick={() => setOutfitSwapModelChoice(m.key)}
+                      className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors ${
+                        outfitSwapModelChoice === m.key
+                          ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
+                          : "border-zinc-300 text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400"
+                      }`}
+                    >
+                      {m.label} — {m.pricePerImage} credit/ảnh
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {outfitSwapModels.find((m) => m.key === outfitSwapModelChoice)?.hasPrompt && (
+                <>
+                  <p className="mb-1 mt-4 text-xs font-medium text-zinc-500 dark:text-zinc-400">{app.inputLabel}</p>
+                  <textarea
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    rows={3}
+                    className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                  />
+                </>
+              )}
             </div>
           ) : (
             <div className="mb-4">
@@ -600,15 +641,22 @@ export default function MiniAppDetailPage() {
           ) : app.inputType === "outfit-swap" ? (
             <div className="flex items-center justify-between">
               <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                Thao tác này sẽ trừ{" "}
-                <strong className="text-zinc-900 dark:text-zinc-50">
-                  {(outfitSwapPricePerImage ?? 0) * garmentImages.length} credit
-                </strong>{" "}
-                ({garmentImages.length} × {outfitSwapPricePerImage ?? "..."} credit)
+                {(() => {
+                  const pricePerImage = outfitSwapModels.find((m) => m.key === outfitSwapModelChoice)?.pricePerImage ?? 0;
+                  return (
+                    <>
+                      Thao tác này sẽ trừ{" "}
+                      <strong className="text-zinc-900 dark:text-zinc-50">
+                        {pricePerImage * garmentImages.length} credit
+                      </strong>{" "}
+                      ({garmentImages.length} × {pricePerImage} credit)
+                    </>
+                  );
+                })()}
               </span>
               <button
                 onClick={handleRunOutfitSwap}
-                disabled={isRunning || garmentImages.length === 0 || !imageDataUrl}
+                disabled={isRunning || garmentImages.length === 0 || !imageDataUrl || !outfitSwapModelChoice}
                 className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
                 {isRunning ? "Đang xử lý..." : "Chạy ngay"}
