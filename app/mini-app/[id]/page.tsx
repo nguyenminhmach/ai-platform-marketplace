@@ -88,8 +88,15 @@ export default function MiniAppDetailPage() {
       setImageError("Chỉ nhận file ảnh (JPG, PNG, WEBP...)");
       return;
     }
-    if (file.size > 4 * 1024 * 1024) {
-      setImageError("Ảnh tối đa 4MB, anh chọn ảnh nhỏ hơn giúp em nhé");
+    // "Thay trang phục" upload ảnh này lên Storage riêng trước khi chạy (xem handleRunOutfitSwap) —
+    // cap 3MB thay vì 4MB vì base64 encode phình ~33%, 1 ảnh 4MB có thể tự vượt giới hạn request của Vercel.
+    const maxBytes = app?.inputType === "outfit-swap" ? 3 * 1024 * 1024 : 4 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      setImageError(
+        app?.inputType === "outfit-swap"
+          ? "Ảnh tối đa 3MB, anh chọn ảnh nhỏ hơn giúp em nhé"
+          : "Ảnh tối đa 4MB, anh chọn ảnh nhỏ hơn giúp em nhé"
+      );
       return;
     }
 
@@ -116,8 +123,8 @@ export default function MiniAppDetailPage() {
         setGarmentError("Chỉ nhận file ảnh (JPG, PNG, WEBP...)");
         return;
       }
-      if (file.size > 4 * 1024 * 1024) {
-        setGarmentError("Mỗi ảnh tối đa 4MB");
+      if (file.size > 3 * 1024 * 1024) {
+        setGarmentError("Mỗi ảnh tối đa 3MB");
         return;
       }
       const reader = new FileReader();
@@ -155,11 +162,41 @@ export default function MiniAppDetailPage() {
     }, 4000);
   }
 
+  async function uploadOutfitSwapImage(dataUrl: string): Promise<string> {
+    const res = await fetch("/api/outfit-swap/upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: user!.id, dataUrl }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? "Không tải được ảnh lên");
+    return data.url as string;
+  }
+
   async function handleRunOutfitSwap() {
     if (!user || garmentImages.length === 0 || !imageDataUrl || !outfitSwapModelChoice) return;
     setIsRunning(true);
     setOutfitSwapResults(null);
     setRunError(null);
+    setOutfitSwapStatusText("Đang tải ảnh lên...");
+
+    // Upload từng ảnh lên Storage TRƯỚC — gửi thẳng base64 gộp 6-7 ảnh trong 1 request chạy AI dễ
+    // vượt giới hạn ~4.5MB/request của Vercel, bị chặn 413 (đã xảy ra thật, lặp lại liên tục).
+    // Chưa trừ credit ở bước này nên lỗi ở đây luôn an toàn để bấm thử lại.
+    let modelImageUrl: string;
+    let garmentImageUrls: string[];
+    try {
+      [modelImageUrl, ...garmentImageUrls] = await Promise.all([
+        uploadOutfitSwapImage(imageDataUrl),
+        ...garmentImages.map(uploadOutfitSwapImage),
+      ]);
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : "Không tải được ảnh lên, thử lại");
+      setIsRunning(false);
+      setOutfitSwapStatusText(null);
+      return;
+    }
+
     setOutfitSwapStatusText("Đang gửi yêu cầu...");
 
     try {
@@ -168,8 +205,8 @@ export default function MiniAppDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId: user.id,
-          modelImageDataUrl: imageDataUrl,
-          garmentImageDataUrls: garmentImages,
+          modelImageDataUrl: modelImageUrl,
+          garmentImageDataUrls: garmentImageUrls,
           modelChoice: outfitSwapModelChoice,
           prompt: input,
         }),
@@ -555,7 +592,7 @@ export default function MiniAppDetailPage() {
                       <span className="mb-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">
                         Bấm để thêm ảnh trang phục ({garmentImages.length}/10)
                       </span>
-                      <span className="text-xs text-zinc-500 dark:text-zinc-400">JPG, PNG, WEBP — mỗi ảnh tối đa 4MB</span>
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400">JPG, PNG, WEBP — mỗi ảnh tối đa 3MB</span>
                       <input type="file" accept="image/*" multiple onChange={handleGarmentFilesChange} className="hidden" />
                     </label>
                   )}
@@ -578,7 +615,7 @@ export default function MiniAppDetailPage() {
                   ) : (
                     <label className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-4 text-center dark:border-zinc-700 dark:bg-zinc-800">
                       <span className="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">Bấm để tải ảnh người mẫu</span>
-                      <span className="text-xs text-zinc-500 dark:text-zinc-400">JPG, PNG, WEBP — tối đa 4MB</span>
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400">JPG, PNG, WEBP — tối đa 3MB</span>
                       <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
                     </label>
                   )}
