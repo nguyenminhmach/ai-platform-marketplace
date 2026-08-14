@@ -120,13 +120,14 @@ async function submitFashnMaxItem(modelImageUrl: string, garmentImageUrl: string
   const apiKey = process.env.FASHN_API_KEY;
   if (!apiKey) throw new Error("Chưa cấu hình FASHN_API_KEY trong .env.local");
 
-  // ĐÃ THỬ mode "fast" — test thật cho kết quả sai liên tục (tài liệu cảnh báo "fast" đánh đổi chất
-  // lượng lấy tốc độ). Đổi sang "quality" (cao nhất) + resolution "1k" = 3 credit/ảnh ($0.225).
+  // Đổi lại "fast" (giá thấp nhất, 1 credit/ảnh $0.075) theo yêu cầu user — LƯU Ý: lần trước dùng
+  // "fast" từng ra sai trang phục liên tục, đó là lý do trước đó đã đổi sang "quality". Nếu lại gặp
+  // sai liên tục, cân nhắc quay về "quality".
   const inputs: Record<string, unknown> = {
     product_image: garmentImageUrl,
     model_image: modelImageUrl,
     num_images: 1,
-    generation_mode: "quality",
+    generation_mode: "fast",
     resolution: "1k",
   };
   if (prompt.trim()) inputs.prompt = prompt.trim();
