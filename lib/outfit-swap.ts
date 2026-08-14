@@ -96,7 +96,15 @@ async function submitFashnMaxItem(modelImageUrl: string, garmentImageUrl: string
   const apiKey = process.env.FASHN_API_KEY;
   if (!apiKey) throw new Error("Chưa cấu hình FASHN_API_KEY trong .env.local");
 
-  const inputs: Record<string, unknown> = { product_image: garmentImageUrl, model_image: modelImageUrl, num_images: 1 };
+  // mode "fast" + resolution "1k" = 1 credit/ảnh ($0.075) — bằng đúng giá FASHN v1.6, nhưng chạy
+  // trên pipeline Try-On Max (bản FASHN khuyến nghị, fidelity cao hơn) nên nâng cấp miễn phí.
+  const inputs: Record<string, unknown> = {
+    product_image: garmentImageUrl,
+    model_image: modelImageUrl,
+    num_images: 1,
+    generation_mode: "fast",
+    resolution: "1k",
+  };
   if (prompt.trim()) inputs.prompt = prompt.trim();
 
   const response = await fetch("https://api.fashn.ai/v1/run", {
