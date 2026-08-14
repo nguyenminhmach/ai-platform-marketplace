@@ -72,7 +72,10 @@ function buildFalRequestBody(
   prompt: string
 ): Record<string, unknown> {
   if (modelKey === "fashn") {
-    return { model_image: modelImageDataUrl, garment_image: garmentImageDataUrl };
+    // category mặc định "auto" hay đoán sai khi ảnh người mẫu gốc mặc váy liền thân + trang phục
+    // tham chiếu chỉ là áo -> FASHN tự "bịa" thêm quần/váy mới thay vì giữ nguyên phần dưới gốc.
+    // Ép cứng "tops" vì mọi ảnh trang phục dùng cho app này từ trước tới giờ đều là áo.
+    return { model_image: modelImageDataUrl, garment_image: garmentImageDataUrl, category: "tops" };
   }
   return { prompt, image_urls: [modelImageDataUrl, garmentImageDataUrl] };
 }
