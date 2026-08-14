@@ -40,13 +40,14 @@ const MODEL_LABELS: Record<OutfitSwapModelKey, string> = {
 
 const PREFERRED_DEFAULT_ORDER: OutfitSwapModelKey[] = ["fashn", "fashn_max", "generic"];
 
-// Test thật phát hiện 2 vấn đề: (1) Try-On Max hay tự "sáng tạo" thêm chi tiết không có trong ảnh
+// Test thật phát hiện 3 vấn đề: (1) Try-On Max hay tự "sáng tạo" thêm chi tiết không có trong ảnh
 // gốc (thêm nơ ở cổ áo, đổi tay áo ngắn/phồng nhẹ thành tay bồng to kiểu giám mục); (2) không có
 // tham số "category" như v1.6 để ép rõ áo/quần/nguyên bộ, nên khi ảnh tham chiếu có cả áo lẫn
-// quần/váy, có lúc chỉ áp riêng áo, bỏ qua quần/váy. Soạn sẵn câu dặn rõ cả 2 để hạn chế — người
-// dùng vẫn sửa/xoá được vì đây chỉ là default, không ép cứng.
+// quần/váy, có lúc chỉ áp riêng áo, bỏ qua quần/váy; (3) điện thoại/phụ kiện cầm trên tay hay bị vẽ
+// méo/biến dạng. Soạn sẵn câu dặn rõ cả 3 để hạn chế — người dùng vẫn sửa/xoá được vì đây chỉ là
+// default, không ép cứng.
 const FASHN_MAX_DEFAULT_PROMPT =
-  "Giữ đúng chính xác kiểu dáng, độ dài tay áo và các chi tiết của trang phục trong ảnh tham chiếu — không thêm nơ, dây buộc, hoạ tiết hay bất kỳ chi tiết trang trí nào không có trong ảnh gốc. Nếu ảnh tham chiếu có cả áo và quần/váy, áp dụng đúng cả bộ (cả áo lẫn quần/váy) cho người mẫu, không chỉ riêng áo trên.";
+  "Giữ đúng chính xác kiểu dáng, độ dài tay áo và các chi tiết của trang phục trong ảnh tham chiếu — không thêm nơ, dây buộc, hoạ tiết hay bất kỳ chi tiết trang trí nào không có trong ảnh gốc. Nếu ảnh tham chiếu có cả áo và quần/váy, áp dụng đúng cả bộ (cả áo lẫn quần/váy) cho người mẫu, không chỉ riêng áo trên. Giữ nguyên chính xác hình dạng, màu sắc và vị trí của điện thoại, túi xách, trang sức và mọi phụ kiện người mẫu đang cầm hoặc đeo — không được làm biến dạng hay vẽ sai các vật dụng này.";
 
 const DEFAULT_PROMPTS: Partial<Record<OutfitSwapModelKey, string>> = {
   fashn_max: FASHN_MAX_DEFAULT_PROMPT,
