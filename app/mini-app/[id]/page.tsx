@@ -28,6 +28,16 @@ export default function MiniAppDetailPage() {
   const [liveCreditCost, setLiveCreditCost] = useState<number | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Đăng video kết quả thẳng lên kênh YouTube của user (OAuth qua Google) — chỉ áp dụng cho app
+  // outputType "video". youtubeStatus null = chưa kiểm tra xong.
+  const [youtubeStatus, setYoutubeStatus] = useState<{ connected: boolean; channelTitle: string | null } | null>(null);
+  const [showYoutubeForm, setShowYoutubeForm] = useState(false);
+  const [youtubeTitle, setYoutubeTitle] = useState("");
+  const [youtubeDescription, setYoutubeDescription] = useState("");
+  const [youtubePublishing, setYoutubePublishing] = useState(false);
+  const [youtubePublishedUrl, setYoutubePublishedUrl] = useState<string | null>(null);
+  const [youtubeError, setYoutubeError] = useState<string | null>(null);
+
   // "Thay trang phục": imageDataUrl dùng chung làm ảnh người mẫu, garmentImages là danh sách trang phục
   // tham chiếu riêng (tối đa 10) — kết quả trả về nhiều ảnh nên dùng state riêng, không dùng chung `result`.
   const [garmentImages, setGarmentImages] = useState<string[]>([]);
@@ -63,6 +73,20 @@ export default function MiniAppDetailPage() {
       if (prefillUrl) setImageDataUrl(prefillUrl);
     }
   }, [app?.inputType, searchParams]);
+
+  // Kiểm tra đã kết nối YouTube chưa (chỉ app tạo video mới cần) + đọc phản hồi từ trang
+  // /api/youtube/callback redirect về (?youtube=connected|denied|error).
+  useEffect(() => {
+    if (app?.outputType !== "video" || !user) return;
+    fetch(`/api/youtube/status?userId=${user.id}`)
+      .then((res) => res.json())
+      .then((data) => setYoutubeStatus(data))
+      .catch(() => {});
+
+    const youtubeParam = searchParams.get("youtube");
+    if (youtubeParam === "denied") setYoutubeError("Anh đã từ chối cấp quyền YouTube.");
+    if (youtubeParam === "error") setYoutubeError("Kết nối YouTube thất bại, thử lại.");
+  }, [app?.outputType, user, searchParams]);
 
   useEffect(() => {
     if (params.id === "thay-trang-phuc") {
@@ -464,6 +488,30 @@ export default function MiniAppDetailPage() {
       setRunError("Không kết nối được tới server");
       setIsRunning(false);
       setVideoStatusText(null);
+    }
+  }
+
+  async function handlePublishYoutube() {
+    if (!user || !result || !youtubeTitle.trim()) return;
+    setYoutubePublishing(true);
+    setYoutubeError(null);
+    try {
+      const res = await fetch("/api/youtube/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, videoUrl: result, title: youtubeTitle, description: youtubeDescription }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setYoutubeError(data.error ?? "Có lỗi xảy ra");
+        return;
+      }
+      setYoutubePublishedUrl(data.youtubeUrl);
+      setShowYoutubeForm(false);
+    } catch {
+      setYoutubeError("Không kết nối được tới server");
+    } finally {
+      setYoutubePublishing(false);
     }
   }
 
@@ -968,6 +1016,69 @@ export default function MiniAppDetailPage() {
                   Chạy lại với input khác
                 </button>
               </div>
+
+              {app.outputType === "video" && (
+                <div className="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-700">
+                  {youtubePublishedUrl ? (
+                    <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                      Đã đăng lên YouTube:{" "}
+                      <a href={youtubePublishedUrl} target="_blank" rel="noopener noreferrer" className="underline">
+                        {youtubePublishedUrl}
+                      </a>
+                    </p>
+                  ) : !youtubeStatus?.connected ? (
+                    <a
+                      href={`/api/youtube/authorize?userId=${user?.id ?? ""}`}
+                      className="inline-block rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                    >
+                      Kết nối YouTube để đăng video
+                    </a>
+                  ) : showYoutubeForm ? (
+                    <div className="space-y-2">
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                        Đăng lên kênh: <strong>{youtubeStatus.channelTitle ?? "YouTube"}</strong>
+                      </p>
+                      <input
+                        type="text"
+                        value={youtubeTitle}
+                        onChange={(e) => setYoutubeTitle(e.target.value)}
+                        placeholder="Tiêu đề video"
+                        className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                      />
+                      <textarea
+                        value={youtubeDescription}
+                        onChange={(e) => setYoutubeDescription(e.target.value)}
+                        placeholder="Mô tả (không bắt buộc)"
+                        rows={2}
+                        className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handlePublishYoutube}
+                          disabled={youtubePublishing || !youtubeTitle.trim()}
+                          className="rounded-full bg-red-600 px-3 py-1 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {youtubePublishing ? "Đang đăng..." : "Đăng lên YouTube"}
+                        </button>
+                        <button
+                          onClick={() => setShowYoutubeForm(false)}
+                          className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                        >
+                          Huỷ
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setShowYoutubeForm(true)}
+                      className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                    >
+                      Đăng lên YouTube ({youtubeStatus.channelTitle})
+                    </button>
+                  )}
+                  {youtubeError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{youtubeError}</p>}
+                </div>
+              )}
             </div>
           )}
         </section>
