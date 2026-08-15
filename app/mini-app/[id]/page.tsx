@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { CATEGORIES, MINI_APPS } from "@/lib/mock-mini-apps";
 import { BalanceBadge } from "@/components/BalanceBadge";
@@ -11,6 +11,7 @@ import { useAuth } from "@/lib/auth-context";
 
 export default function MiniAppDetailPage() {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const app = MINI_APPS.find((item) => item.id === params.id);
   const { user } = useAuth();
 
@@ -53,6 +54,15 @@ export default function MiniAppDetailPage() {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
   }, []);
+
+  // Đến từ nút "Tạo video từ ảnh này" ở app khác (vd outfit-swap) — ảnh đã là URL thật (fal.media/
+  // fashn CDN), Kling nhận thẳng URL nên không cần upload lại, chỉ cần điền sẵn vào state có sẵn.
+  useEffect(() => {
+    if (app?.inputType === "video-gen") {
+      const prefillUrl = searchParams.get("imageUrl");
+      if (prefillUrl) setImageDataUrl(prefillUrl);
+    }
+  }, [app?.inputType, searchParams]);
 
   useEffect(() => {
     if (params.id === "thay-trang-phuc") {
@@ -894,6 +904,13 @@ export default function MiniAppDetailPage() {
                       >
                         {retryingIndex === index ? "Đang chạy lại..." : "Chạy lại ảnh này"}
                       </button>
+                      <span className="text-zinc-300 dark:text-zinc-700">·</span>
+                      <Link
+                        href={`/mini-app/tao-video-quang-cao?imageUrl=${encodeURIComponent(url)}`}
+                        className="text-center text-xs font-medium text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
+                      >
+                        Tạo video từ ảnh này
+                      </Link>
                     </div>
                   </div>
                 ))}
