@@ -54,6 +54,20 @@ export default function MiniAppDetailPage() {
   const [musicAddError, setMusicAddError] = useState<string | null>(null);
   const [musicAddedSuccess, setMusicAddedSuccess] = useState(false);
 
+  // "Video đồng nhất nhân vật": 2 nhân vật, mỗi người 1 ảnh + 1 lời thoại riêng — upload ảnh thật
+  // lên Storage lúc bấm "Chạy ngay" (giống outfit-swap), không upload ngay lúc chọn file.
+  const [aCharImage, setACharImage] = useState<string | null>(null);
+  const [aCharError, setACharError] = useState<string | null>(null);
+  const [aLine, setALine] = useState("");
+  const [bCharImage, setBCharImage] = useState<string | null>(null);
+  const [bCharError, setBCharError] = useState<string | null>(null);
+  const [bLine, setBLine] = useState("");
+  const [dialogueRunning, setDialogueRunning] = useState(false);
+  const [dialogueStatusText, setDialogueStatusText] = useState<string | null>(null);
+  const [dialogueResult, setDialogueResult] = useState<string | null>(null);
+  const [dialogueError, setDialogueError] = useState<string | null>(null);
+  const dialoguePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // "Thay trang phục": imageDataUrl dùng chung làm ảnh người mẫu, garmentImages là danh sách trang phục
   // tham chiếu riêng (tối đa 10) — kết quả trả về nhiều ảnh nên dùng state riêng, không dùng chung `result`.
   const [garmentImages, setGarmentImages] = useState<string[]>([]);
@@ -78,6 +92,7 @@ export default function MiniAppDetailPage() {
   useEffect(() => {
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      if (dialoguePollRef.current) clearInterval(dialoguePollRef.current);
     };
   }, []);
 
@@ -308,6 +323,104 @@ export default function MiniAppDetailPage() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? "Không tải được ảnh lên");
     return data.url as string;
+  }
+
+  function handleCharFileChange(e: React.ChangeEvent<HTMLInputElement>, speaker: "a" | "b") {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    const setError = speaker === "a" ? setACharError : setBCharError;
+    const setImage = speaker === "a" ? setACharImage : setBCharImage;
+    setError(null);
+    if (!file.type.startsWith("image/")) {
+      setError("Chỉ nhận file ảnh (JPG, PNG, WEBP...)");
+      return;
+    }
+    if (file.size > 3 * 1024 * 1024) {
+      setError("Ảnh tối đa 3MB");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setImage(reader.result as string);
+    reader.readAsDataURL(file);
+  }
+
+  function pollDialogueVideoStatus(jobId: number) {
+    dialoguePollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/dialogue-video/status?jobId=${jobId}`);
+        const data = await res.json();
+
+        if (data.status === "done" && data.outputUrl) {
+          if (dialoguePollRef.current) clearInterval(dialoguePollRef.current);
+          setDialogueResult(data.outputUrl);
+          setDialogueRunning(false);
+          setDialogueStatusText(null);
+        } else if (data.status === "failed") {
+          if (dialoguePollRef.current) clearInterval(dialoguePollRef.current);
+          setDialogueError(data.errorMessage ?? "Tạo video thất bại, credit đã được hoàn");
+          setDialogueRunning(false);
+          setDialogueStatusText(null);
+        } else if (data.statusText) {
+          setDialogueStatusText(data.statusText);
+        }
+      } catch {
+        // bỏ qua lỗi mạng tạm thời, vòng poll tiếp theo sẽ thử lại
+      }
+    }, 4000);
+  }
+
+  async function handleRunDialogueVideo() {
+    if (!user || !aCharImage || !bCharImage || !aLine.trim() || !bLine.trim()) return;
+    setDialogueRunning(true);
+    setDialogueResult(null);
+    setDialogueError(null);
+    setDialogueStatusText("Đang tải ảnh lên...");
+
+    let aImageUrl: string;
+    let bImageUrl: string;
+    try {
+      [aImageUrl, bImageUrl] = await Promise.all([uploadOutfitSwapImage(aCharImage), uploadOutfitSwapImage(bCharImage)]);
+    } catch (err) {
+      setDialogueError(err instanceof Error ? err.message : "Không tải được ảnh lên, thử lại");
+      setDialogueRunning(false);
+      setDialogueStatusText(null);
+      return;
+    }
+
+    setDialogueStatusText("Đang gửi yêu cầu...");
+
+    try {
+      const res = await fetch("/api/dialogue-video/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: user.id,
+          miniAppId: app!.id,
+          aImageUrl,
+          aLine: aLine.trim(),
+          bImageUrl,
+          bLine: bLine.trim(),
+        }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setDialogueError(data.error ?? "Có lỗi xảy ra");
+        setDialogueRunning(false);
+        setDialogueStatusText(null);
+        return;
+      }
+
+      window.dispatchEvent(new Event("balance-updated"));
+      setDialogueStatusText("Đang tạo chuyển động cho 2 nhân vật, có thể mất vài phút — anh có thể rời trang, quay lại vẫn thấy kết quả...");
+      pollDialogueVideoStatus(data.jobId);
+    } catch {
+      setDialogueError("Không kết nối được tới server");
+      setDialogueRunning(false);
+      setDialogueStatusText(null);
+    }
   }
 
   async function handleRunOutfitSwap() {
@@ -671,7 +784,7 @@ export default function MiniAppDetailPage() {
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             Thử ngay
           </h2>
-          {app.inputType !== "outfit-swap" && (
+          {app.inputType !== "outfit-swap" && app.inputType !== "dialogue-video" && (
             <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               {app.inputLabel}
             </label>
@@ -930,6 +1043,102 @@ export default function MiniAppDetailPage() {
                 </>
               )}
             </div>
+          ) : app.inputType === "dialogue-video" ? (
+            <div className="mb-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Nhân vật A</p>
+                  {aCharImage ? (
+                    <div className="relative aspect-square w-full">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={aCharImage} alt="Nhân vật A" className="h-full w-full rounded-lg object-cover" />
+                      <button
+                        onClick={() => setACharImage(null)}
+                        className="absolute right-2 top-2 rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white hover:bg-black/80"
+                      >
+                        Xóa
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-4 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                      <span className="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">Bấm để tải ảnh</span>
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400">JPG, PNG, WEBP — tối đa 3MB</span>
+                      <input type="file" accept="image/*" onChange={(e) => handleCharFileChange(e, "a")} className="hidden" />
+                    </label>
+                  )}
+                  {aCharError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{aCharError}</p>}
+                  <textarea
+                    value={aLine}
+                    onChange={(e) => setALine(e.target.value)}
+                    placeholder="Lời thoại của nhân vật A..."
+                    rows={2}
+                    maxLength={400}
+                    className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                  />
+                </div>
+                <div>
+                  <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Nhân vật B</p>
+                  {bCharImage ? (
+                    <div className="relative aspect-square w-full">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={bCharImage} alt="Nhân vật B" className="h-full w-full rounded-lg object-cover" />
+                      <button
+                        onClick={() => setBCharImage(null)}
+                        className="absolute right-2 top-2 rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white hover:bg-black/80"
+                      >
+                        Xóa
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-4 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                      <span className="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">Bấm để tải ảnh</span>
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400">JPG, PNG, WEBP — tối đa 3MB</span>
+                      <input type="file" accept="image/*" onChange={(e) => handleCharFileChange(e, "b")} className="hidden" />
+                    </label>
+                  )}
+                  {bCharError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{bCharError}</p>}
+                  <textarea
+                    value={bLine}
+                    onChange={(e) => setBLine(e.target.value)}
+                    placeholder="Lời thoại của nhân vật B..."
+                    rows={2}
+                    maxLength={400}
+                    className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                  />
+                </div>
+              </div>
+
+              {dialogueStatusText && <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{dialogueStatusText}</p>}
+              {dialogueError && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{dialogueError}</p>}
+
+              {dialogueResult && (
+                <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800">
+                  <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Kết quả từ AI</p>
+                  <video src={dialogueResult} controls className="w-full max-w-md rounded-lg" />
+                  <div className="mt-3 flex gap-2">
+                    <a
+                      href={`/api/download?url=${encodeURIComponent(dialogueResult)}&filename=doi-thoai.mp4`}
+                      download
+                      className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                    >
+                      Tải xuống
+                    </a>
+                    <button
+                      onClick={() => {
+                        setDialogueResult(null);
+                        setACharImage(null);
+                        setBCharImage(null);
+                        setALine("");
+                        setBLine("");
+                      }}
+                      className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                    >
+                      Chạy lại với input khác
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           ) : (
             <div className="mb-4">
               <textarea
@@ -949,12 +1158,26 @@ export default function MiniAppDetailPage() {
             </div>
           )}
 
-          {app.inputType === "outfit-swap" && !user ? (
+          {(app.inputType === "outfit-swap" || app.inputType === "dialogue-video") && !user ? (
             <div className="flex items-center justify-between rounded-lg bg-zinc-50 p-3 dark:bg-zinc-800">
               <span className="text-sm text-zinc-600 dark:text-zinc-400">Cần đăng nhập để chạy Mini App</span>
               <Link href="/login" className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white dark:bg-zinc-50 dark:text-zinc-900">
                 Đăng nhập
               </Link>
+            </div>
+          ) : app.inputType === "dialogue-video" ? (
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                Thao tác này sẽ trừ{" "}
+                <strong className="text-zinc-900 dark:text-zinc-50">{liveCreditCost ?? app.creditCost} credit</strong>
+              </span>
+              <button
+                onClick={handleRunDialogueVideo}
+                disabled={dialogueRunning || !aCharImage || !bCharImage || !aLine.trim() || !bLine.trim()}
+                className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              >
+                {dialogueRunning ? "Đang xử lý..." : "Chạy ngay"}
+              </button>
             </div>
           ) : app.inputType === "outfit-swap" ? (
             <div className="flex items-center justify-between">

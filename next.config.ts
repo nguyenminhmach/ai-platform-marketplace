@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
   // khai báo rõ để chắc chắn binary được đóng gói vào serverless function khi deploy Vercel.
   outputFileTracingIncludes: {
     "/api/video/add-music": ["./node_modules/ffmpeg-static/**/*"],
+    "/api/dialogue-video/webhook": ["./node_modules/ffmpeg-static/**/*"],
   },
 };
 

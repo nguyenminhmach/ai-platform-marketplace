@@ -7,7 +7,7 @@ export type MiniApp = {
   creditCost: number;
   popular?: boolean;
   isNew?: boolean;
-  inputType: "text" | "image" | "image-gen" | "video-gen" | "outfit-swap";
+  inputType: "text" | "image" | "image-gen" | "video-gen" | "outfit-swap" | "dialogue-video";
   outputType?: "text" | "image" | "video";
   inputLabel: string;
   inputPlaceholder: string;
@@ -124,6 +124,23 @@ export const MINI_APPS: MiniApp[] = [
     inputPlaceholder: "Ví dụ: sản phẩm xoay tròn trên bàn, ánh sáng studio, chuyển động mượt",
     demoInput: "Chai nước hoa xoay tròn chậm trên nền đen, ánh sáng lung linh",
     demoOutput: "Video 4 giây, chai nước hoa xoay 360 độ mượt mà, ánh sáng phản chiếu đẹp.",
+    usageCount: 0,
+    rating: 5.0,
+  },
+  {
+    id: "video-doi-thoai-nhan-vat",
+    name: "Video đồng nhất nhân vật",
+    description: "Tải ảnh 2 nhân vật + viết lời thoại cho từng người, AI tạo video 2 người đối thoại bằng tiếng Việt, giữ đúng gương mặt từng người.",
+    category: "video",
+    icon: "film",
+    creditCost: 600,
+    isNew: true,
+    inputType: "dialogue-video",
+    outputType: "video",
+    inputLabel: "Lời thoại",
+    inputPlaceholder: "",
+    demoInput: "Nhân vật A: \"Bạn thấy chiếc váy này thế nào?\" — Nhân vật B: \"Mình thấy rất đẹp, màu này rất hợp với bạn.\"",
+    demoOutput: "Video 2 nhân vật đối thoại qua lại bằng tiếng Việt, giữ đúng gương mặt từng người.",
     usageCount: 0,
     rating: 5.0,
   },
