@@ -56,6 +56,8 @@ type Settings = {
   usdToVndRate: number;
 };
 
+type BackgroundMusicTrack = { id: number; name: string; file_url: string };
+
 type MiniAppPrice = {
   id: string;
   name: string;
@@ -141,6 +143,12 @@ export default function AdminPage() {
   const [savingChips, setSavingChips] = useState(false);
   const [chipsError, setChipsError] = useState<string | null>(null);
 
+  const [musicTracks, setMusicTracks] = useState<BackgroundMusicTrack[] | null>(null);
+  const [musicUploadName, setMusicUploadName] = useState("");
+  const [uploadingMusic, setUploadingMusic] = useState(false);
+  const [musicError, setMusicError] = useState<string | null>(null);
+  const [deletingMusicId, setDeletingMusicId] = useState<number | null>(null);
+
   async function loadStats() {
     const res = await fetch("/api/admin/stats");
     if (res.status === 401) {
@@ -181,13 +189,68 @@ export default function AdminPage() {
     setHomepageChips(data.chips ?? []);
   }
 
+  async function loadBackgroundMusic() {
+    const res = await fetch("/api/admin/background-music");
+    if (!res.ok) return;
+    const data = await res.json();
+    setMusicTracks(data.tracks ?? []);
+  }
+
   useEffect(() => {
     loadStats();
     loadSettings();
     loadMiniApps();
     loadDeveloperReview();
     loadHomepageChips();
+    loadBackgroundMusic();
   }, []);
+
+  // Nhạc nền do admin tự cung cấp (đã có bản quyền hợp lệ) — user chọn 1 bài trong danh sách này
+  // để ghép vào video AI tạo ra, không phải AI tự sinh nhạc.
+  async function handleUploadMusic(file: File) {
+    if (!musicUploadName.trim()) {
+      setMusicError("Nhập tên bài nhạc trước khi upload");
+      return;
+    }
+    if (!file.type.startsWith("audio/")) {
+      setMusicError("Chỉ nhận file nhạc (mp3/wav/m4a)");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setMusicError("File nhạc tối đa 10MB");
+      return;
+    }
+    setUploadingMusic(true);
+    setMusicError(null);
+
+    const dataUrl: string = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+    const res = await fetch("/api/admin/background-music", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: musicUploadName.trim(), dataUrl }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setUploadingMusic(false);
+    if (!res.ok) {
+      setMusicError(data.error ?? "Không upload được nhạc");
+      return;
+    }
+    setMusicUploadName("");
+    loadBackgroundMusic();
+  }
+
+  async function handleDeleteMusic(id: number) {
+    setDeletingMusicId(id);
+    await fetch(`/api/admin/background-music?id=${id}`, { method: "DELETE" });
+    setDeletingMusicId(null);
+    loadBackgroundMusic();
+  }
 
   async function saveHomepageChips(chips: HomepageChip[]) {
     setSavingChips(true);
@@ -940,6 +1003,66 @@ export default function AdminPage() {
                     </div>
                   ))}
                   {chipsError && <p className="text-sm text-red-600 dark:text-red-400">{chipsError}</p>}
+                </div>
+              )}
+            </section>
+
+            <section className="mb-10 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+              <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Nhạc nền cho video
+              </h2>
+              <p className="mb-4 text-xs text-zinc-400 dark:text-zinc-500">
+                Upload sẵn nhạc admin đã có bản quyền hợp lệ — user chọn 1 bài trong danh sách này để ghép vào video AI tạo ra
+                (Kling chỉ tạo video câm, không tự sinh nhạc).
+              </p>
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  value={musicUploadName}
+                  onChange={(e) => setMusicUploadName(e.target.value)}
+                  placeholder="Tên bài nhạc..."
+                  className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                />
+                <label className="cursor-pointer rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300">
+                  {uploadingMusic ? "Đang upload..." : "Chọn file nhạc (mp3/wav/m4a, tối đa 10MB)"}
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    disabled={uploadingMusic}
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleUploadMusic(file);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+              {musicError && <p className="mb-3 text-sm text-red-600 dark:text-red-400">{musicError}</p>}
+              {!musicTracks ? (
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">Đang tải...</p>
+              ) : musicTracks.length === 0 ? (
+                <p className="text-sm text-zinc-400 dark:text-zinc-500">Chưa có bài nhạc nào.</p>
+              ) : (
+                <div className="space-y-2">
+                  {musicTracks.map((track) => (
+                    <div
+                      key={track.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-100 px-3 py-2 dark:border-zinc-800"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm text-zinc-700 dark:text-zinc-300">{track.name}</span>
+                        <audio controls src={track.file_url} className="h-8" />
+                      </div>
+                      <button
+                        onClick={() => handleDeleteMusic(track.id)}
+                        disabled={deletingMusicId === track.id}
+                        className="rounded-full bg-red-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+                      >
+                        Xoá
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
             </section>

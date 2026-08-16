@@ -41,6 +41,14 @@ export default function MiniAppDetailPage() {
   const [youtubePublishedUrl, setYoutubePublishedUrl] = useState<string | null>(null);
   const [youtubeError, setYoutubeError] = useState<string | null>(null);
 
+  // Ghép nhạc nền vào video kết quả — thư viện nhạc do admin upload sẵn (đã có bản quyền hợp lệ),
+  // user chỉ chọn 1 bài trong danh sách này rồi gọi /api/video/add-music (dùng ffmpeg phía server).
+  const [currentVideoJobId, setCurrentVideoJobId] = useState<number | null>(null);
+  const [musicTracks, setMusicTracks] = useState<{ id: number; name: string; file_url: string }[]>([]);
+  const [selectedTrackId, setSelectedTrackId] = useState<number | null>(null);
+  const [addingMusic, setAddingMusic] = useState(false);
+  const [musicAddError, setMusicAddError] = useState<string | null>(null);
+
   // "Thay trang phục": imageDataUrl dùng chung làm ảnh người mẫu, garmentImages là danh sách trang phục
   // tham chiếu riêng (tối đa 10) — kết quả trả về nhiều ảnh nên dùng state riêng, không dùng chung `result`.
   const [garmentImages, setGarmentImages] = useState<string[]>([]);
@@ -90,6 +98,38 @@ export default function MiniAppDetailPage() {
     if (youtubeParam === "denied") setYoutubeError("Anh đã từ chối cấp quyền YouTube.");
     if (youtubeParam === "error") setYoutubeError("Kết nối YouTube thất bại, thử lại.");
   }, [app?.outputType, user, searchParams]);
+
+  // Danh sách nhạc nền (admin upload sẵn) để user chọn ghép vào video kết quả.
+  useEffect(() => {
+    if (app?.outputType !== "video") return;
+    fetch("/api/background-music")
+      .then((res) => res.json())
+      .then((data) => setMusicTracks(data.tracks ?? []))
+      .catch(() => {});
+  }, [app?.outputType]);
+
+  async function handleAddMusic() {
+    if (!user || !currentVideoJobId || !selectedTrackId) return;
+    setAddingMusic(true);
+    setMusicAddError(null);
+    try {
+      const res = await fetch("/api/video/add-music", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, jobId: currentVideoJobId, trackId: selectedTrackId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMusicAddError(data.error ?? "Không ghép được nhạc");
+        return;
+      }
+      setResult(data.url);
+    } catch {
+      setMusicAddError("Không kết nối được tới server");
+    } finally {
+      setAddingMusic(false);
+    }
+  }
 
   useEffect(() => {
     if (params.id === "thay-trang-phuc") {
@@ -486,6 +526,9 @@ export default function MiniAppDetailPage() {
 
       window.dispatchEvent(new Event("balance-updated"));
       setVideoStatusText("Đang xử lý video, có thể mất vài phút — anh có thể rời trang, quay lại vẫn thấy kết quả...");
+      setCurrentVideoJobId(data.jobId);
+      setSelectedTrackId(null);
+      setMusicAddError(null);
       pollVideoStatus(data.jobId);
     } catch {
       setRunError("Không kết nối được tới server");
@@ -1024,6 +1067,34 @@ export default function MiniAppDetailPage() {
                 </button>
               </div>
 
+              {app.outputType === "video" && currentVideoJobId && musicTracks.length > 0 && (
+                <div className="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-700">
+                  <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">Ghép nhạc nền</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={selectedTrackId ?? ""}
+                      onChange={(e) => setSelectedTrackId(e.target.value ? Number(e.target.value) : null)}
+                      className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                    >
+                      <option value="">Chọn bài nhạc...</option>
+                      {musicTracks.map((track) => (
+                        <option key={track.id} value={track.id}>
+                          {track.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={handleAddMusic}
+                      disabled={!selectedTrackId || addingMusic}
+                      className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-300"
+                    >
+                      {addingMusic ? "Đang ghép nhạc..." : "Ghép nhạc"}
+                    </button>
+                  </div>
+                  {musicAddError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{musicAddError}</p>}
+                </div>
+              )}
+
               {app.outputType === "video" && (
                 <div className="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-700">
                   {youtubePublishedUrl ? (
@@ -1140,6 +1211,12 @@ function CommunityMiniAppRunner({ miniAppId }: { miniAppId: string }) {
   const [runError, setRunError] = useState<string | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const [currentVideoJobId, setCurrentVideoJobId] = useState<number | null>(null);
+  const [musicTracks, setMusicTracks] = useState<{ id: number; name: string; file_url: string }[]>([]);
+  const [selectedTrackId, setSelectedTrackId] = useState<number | null>(null);
+  const [addingMusic, setAddingMusic] = useState(false);
+  const [musicAddError, setMusicAddError] = useState<string | null>(null);
+
   useEffect(() => {
     fetch(`/api/mini-apps/community/${miniAppId}`)
       .then((res) => res.json())
@@ -1152,6 +1229,37 @@ function CommunityMiniAppRunner({ miniAppId }: { miniAppId: string }) {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (appInfo?.outputType !== "video") return;
+    fetch("/api/background-music")
+      .then((res) => res.json())
+      .then((data) => setMusicTracks(data.tracks ?? []))
+      .catch(() => {});
+  }, [appInfo?.outputType]);
+
+  async function handleAddMusic() {
+    if (!user || !currentVideoJobId || !selectedTrackId) return;
+    setAddingMusic(true);
+    setMusicAddError(null);
+    try {
+      const res = await fetch("/api/video/add-music", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, jobId: currentVideoJobId, trackId: selectedTrackId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMusicAddError(data.error ?? "Không ghép được nhạc");
+        return;
+      }
+      setResult(data.url);
+    } catch {
+      setMusicAddError("Không kết nối được tới server");
+    } finally {
+      setAddingMusic(false);
+    }
+  }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -1273,6 +1381,9 @@ function CommunityMiniAppRunner({ miniAppId }: { miniAppId: string }) {
 
       window.dispatchEvent(new Event("balance-updated"));
       setVideoStatusText("Đang xử lý video, có thể mất vài phút — anh có thể rời trang, quay lại vẫn thấy kết quả...");
+      setCurrentVideoJobId(data.jobId);
+      setSelectedTrackId(null);
+      setMusicAddError(null);
       pollVideoStatus(data.jobId);
     } catch {
       setRunError("Không kết nối được tới server");
@@ -1494,6 +1605,34 @@ function CommunityMiniAppRunner({ miniAppId }: { miniAppId: string }) {
                   Chạy lại với input khác
                 </button>
               </div>
+
+              {appInfo.outputType === "video" && currentVideoJobId && musicTracks.length > 0 && (
+                <div className="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-700">
+                  <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">Ghép nhạc nền</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={selectedTrackId ?? ""}
+                      onChange={(e) => setSelectedTrackId(e.target.value ? Number(e.target.value) : null)}
+                      className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                    >
+                      <option value="">Chọn bài nhạc...</option>
+                      {musicTracks.map((track) => (
+                        <option key={track.id} value={track.id}>
+                          {track.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={handleAddMusic}
+                      disabled={!selectedTrackId || addingMusic}
+                      className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-300"
+                    >
+                      {addingMusic ? "Đang ghép nhạc..." : "Ghép nhạc"}
+                    </button>
+                  </div>
+                  {musicAddError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{musicAddError}</p>}
+                </div>
+              )}
             </div>
           )}
         </section>
