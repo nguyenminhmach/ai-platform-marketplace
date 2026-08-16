@@ -15,12 +15,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     return Response.json({ error: "Không tìm thấy Mini App" }, { status: 404 });
   }
 
+  // Prompt mặc định (nếu admin đã soạn) — tự điền vào ô mô tả cho app video-gen, khách vẫn sửa được.
+  const defaultPrompt: string | null = data.model_config?.default_prompt || null;
+
   const providerCostVnd = data.model_config?.provider_cost_vnd;
   if (!providerCostVnd) {
-    return Response.json({ creditCost: data.credit_cost, dynamic: false });
+    return Response.json({ creditCost: data.credit_cost, dynamic: false, defaultPrompt });
   }
 
   const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
   const creditCost = computeDynamicCreditCost(providerCostVnd, marginPercent, vndPerCredit);
-  return Response.json({ creditCost, dynamic: true });
+  return Response.json({ creditCost, dynamic: true, defaultPrompt });
 }

@@ -192,6 +192,8 @@ export default function MiniAppDetailPage() {
         .then((res) => res.json())
         .then((data) => {
           if (data.dynamic) setLiveCreditCost(data.creditCost);
+          // Prompt mặc định admin soạn sẵn (nếu có) — chỉ điền khi khách chưa tự gõ gì, vẫn sửa/xoá được.
+          if (data.defaultPrompt) setInput((prev) => prev || data.defaultPrompt);
         })
         .catch(() => {});
     }
@@ -742,41 +744,26 @@ export default function MiniAppDetailPage() {
             </div>
           ) : app.inputType === "video-gen" ? (
             <div className="mb-4">
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder={app.inputPlaceholder}
-                rows={3}
-                maxLength={VIDEO_PROMPT_MAX_LENGTH}
-                className="mb-1 w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-              />
-              <p
-                className={`mb-3 text-right text-xs ${
-                  input.length > VIDEO_PROMPT_MAX_LENGTH - 100 ? "text-amber-600 dark:text-amber-500" : "text-zinc-400 dark:text-zinc-500"
-                }`}
-              >
-                {input.length}/{VIDEO_PROMPT_MAX_LENGTH} ký tự — mô tả quá dài AI sẽ từ chối xử lý
-              </p>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
                     Ảnh khung hình đầu (không bắt buộc)
                   </p>
                   {imageDataUrl ? (
-                    <div className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800">
+                    <div className="relative aspect-square w-full">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={imageDataUrl} alt="Ảnh khung hình đầu" className="h-16 w-16 rounded-md object-cover" />
+                      <img src={imageDataUrl} alt="Ảnh khung hình đầu" className="h-full w-full rounded-lg object-cover" />
                       <button
                         onClick={() => setImageDataUrl(null)}
-                        className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                        className="absolute right-2 top-2 rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white hover:bg-black/80"
                       >
                         Xóa
                       </button>
                     </div>
                   ) : (
-                    <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 py-5 text-center dark:border-zinc-700 dark:bg-zinc-800">
-                      <span className="mb-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">Bấm để tải ảnh</span>
-                      <span className="text-xs text-zinc-500 dark:text-zinc-400">tối đa 4MB</span>
+                    <label className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-4 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                      <span className="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">Bấm để tải ảnh</span>
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400">JPG, PNG, WEBP — tối đa 4MB</span>
                       <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
                     </label>
                   )}
@@ -787,26 +774,43 @@ export default function MiniAppDetailPage() {
                     Ảnh khung hình cuối (không bắt buộc)
                   </p>
                   {endFrameDataUrl ? (
-                    <div className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800">
+                    <div className="relative aspect-square w-full">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={endFrameDataUrl} alt="Ảnh khung hình cuối" className="h-16 w-16 rounded-md object-cover" />
+                      <img src={endFrameDataUrl} alt="Ảnh khung hình cuối" className="h-full w-full rounded-lg object-cover" />
                       <button
                         onClick={() => setEndFrameDataUrl(null)}
-                        className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                        className="absolute right-2 top-2 rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white hover:bg-black/80"
                       >
                         Xóa
                       </button>
                     </div>
                   ) : (
-                    <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 py-5 text-center dark:border-zinc-700 dark:bg-zinc-800">
-                      <span className="mb-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">Bấm để tải ảnh</span>
-                      <span className="text-xs text-zinc-500 dark:text-zinc-400">tối đa 4MB</span>
+                    <label className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-4 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                      <span className="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">Bấm để tải ảnh</span>
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400">JPG, PNG, WEBP — tối đa 4MB</span>
                       <input type="file" accept="image/*" onChange={handleEndFrameFileChange} className="hidden" />
                     </label>
                   )}
                   {endFrameError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{endFrameError}</p>}
                 </div>
               </div>
+
+              <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Câu lệnh mô tả (có thể chỉnh sửa)</p>
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder={app.inputPlaceholder}
+                rows={3}
+                maxLength={VIDEO_PROMPT_MAX_LENGTH}
+                className="mb-1 w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+              />
+              <p
+                className={`text-right text-xs ${
+                  input.length > VIDEO_PROMPT_MAX_LENGTH - 100 ? "text-amber-600 dark:text-amber-500" : "text-zinc-400 dark:text-zinc-500"
+                }`}
+              >
+                {input.length}/{VIDEO_PROMPT_MAX_LENGTH} ký tự — mô tả quá dài AI sẽ từ chối xử lý
+              </p>
             </div>
           ) : app.inputType === "outfit-swap" ? (
             <div className="mb-4">

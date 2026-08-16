@@ -34,7 +34,13 @@ export async function GET(req: Request) {
 
   const apps = (data ?? []).map((app) => {
     const config = app.model_config as
-      | { provider_cost_vnd?: number; demo_image_urls?: string[]; models?: Record<string, { enabled: boolean }> }
+      | {
+          provider_cost_vnd?: number;
+          demo_image_urls?: string[];
+          models?: Record<string, { enabled: boolean }>;
+          output_type?: string;
+          default_prompt?: string;
+        }
       | null;
     return {
       id: app.id,
@@ -55,6 +61,9 @@ export async function GET(req: Request) {
             fashn_max: !!config.models.fashn_max?.enabled,
           }
         : null,
+      // Prompt mặc định tự điền cho khách ở app tạo video — chỉ áp dụng cho app output video
+      isVideoApp: config?.output_type === "video",
+      defaultPrompt: config?.default_prompt ?? "",
     };
   });
 
@@ -65,11 +74,17 @@ export async function PATCH(req: Request) {
   const token = getCookie(req, ADMIN_COOKIE_NAME);
   if (!verifyAdminToken(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
 
-  const { id, creditCost, isActive, demoImageUrls, outfitSwapModels } = await req.json();
+  const { id, creditCost, isActive, demoImageUrls, outfitSwapModels, defaultPrompt } = await req.json();
   if (typeof id !== "string" || !id) {
     return Response.json({ error: "Thiếu id" }, { status: 400 });
   }
-  if (creditCost === undefined && isActive === undefined && demoImageUrls === undefined && outfitSwapModels === undefined) {
+  if (
+    creditCost === undefined &&
+    isActive === undefined &&
+    demoImageUrls === undefined &&
+    outfitSwapModels === undefined &&
+    defaultPrompt === undefined
+  ) {
     return Response.json({ error: "Không có gì để cập nhật" }, { status: 400 });
   }
 
@@ -116,6 +131,14 @@ export async function PATCH(req: Request) {
       return Response.json({ error: "Phải bật ít nhất 1 model" }, { status: 400 });
     }
     update.model_config = { ...currentConfig, models: nextModels };
+  }
+  if (defaultPrompt !== undefined) {
+    if (typeof defaultPrompt !== "string") {
+      return Response.json({ error: "defaultPrompt phải là chuỗi" }, { status: 400 });
+    }
+    // Gộp vào model_config hiện có, không ghi đè model/output_type/provider_cost_vnd...
+    const { data: current } = await supabase.from("mini_apps").select("model_config").eq("id", id).single();
+    update.model_config = { ...((current?.model_config as object) ?? {}), default_prompt: defaultPrompt };
   }
 
   const { error } = await supabase.from("mini_apps").update(update).eq("id", id);

@@ -67,6 +67,8 @@ type MiniAppPrice = {
   ownApp: boolean;
   demoImageUrls: string[];
   outfitSwapModels: { generic: boolean; fashn: boolean; fashn_max: boolean } | null;
+  isVideoApp: boolean;
+  defaultPrompt: string;
 };
 
 // 3 ảnh minh hoạ trên card trang chủ: trước → trang phục → sau (kiểu "A + B = C") thay vì 2 ảnh rời rạc,
@@ -121,6 +123,9 @@ export default function AdminPage() {
   const [appPriceError, setAppPriceError] = useState<string | null>(null);
   const [togglingAppId, setTogglingAppId] = useState<string | null>(null);
   const [uploadingDemoImage, setUploadingDemoImage] = useState<string | null>(null);
+  const [promptDrafts, setPromptDrafts] = useState<Record<string, string>>({});
+  const [savingPromptId, setSavingPromptId] = useState<string | null>(null);
+  const [savedPromptId, setSavedPromptId] = useState<string | null>(null);
 
   const [showNewAppForm, setShowNewAppForm] = useState(false);
   const [newAppType, setNewAppType] = useState<"text" | "image" | "video">("text");
@@ -376,6 +381,27 @@ export default function AdminPage() {
       setAppPriceError(saveData.error ?? "Không lưu được ảnh");
       return;
     }
+    loadMiniApps();
+  }
+
+  // Prompt mặc định tự điền cho khách khi mở app tạo video — admin sửa được ngay từ đây, không cần deploy code.
+  async function handleSaveDefaultPrompt(app: MiniAppPrice) {
+    const value = promptDrafts[app.id] ?? app.defaultPrompt;
+    setSavingPromptId(app.id);
+    setAppPriceError(null);
+    const res = await fetch("/api/admin/mini-apps", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: app.id, defaultPrompt: value }),
+    });
+    setSavingPromptId(null);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setAppPriceError(data.error ?? "Không lưu được prompt mặc định");
+      return;
+    }
+    setSavedPromptId(app.id);
+    setTimeout(() => setSavedPromptId(null), 2000);
     loadMiniApps();
   }
 
@@ -941,6 +967,26 @@ export default function AdminPage() {
                           />
                           FASHN Max
                         </label>
+                      </div>
+                    )}
+                    {app.isVideoApp && (
+                      <div className="border-t border-zinc-100 pt-2 dark:border-zinc-800">
+                        <p className="mb-1 text-xs text-zinc-500 dark:text-zinc-400">
+                          Prompt mặc định (tự điền cho khách, khách vẫn sửa được)
+                        </p>
+                        <textarea
+                          value={promptDrafts[app.id] ?? app.defaultPrompt}
+                          onChange={(e) => setPromptDrafts((prev) => ({ ...prev, [app.id]: e.target.value }))}
+                          rows={2}
+                          className="mb-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                        />
+                        <button
+                          onClick={() => handleSaveDefaultPrompt(app)}
+                          disabled={savingPromptId === app.id}
+                          className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-300"
+                        >
+                          {savingPromptId === app.id ? "Đang lưu..." : savedPromptId === app.id ? "Đã lưu ✓" : "Lưu prompt"}
+                        </button>
                       </div>
                     )}
                   </div>
