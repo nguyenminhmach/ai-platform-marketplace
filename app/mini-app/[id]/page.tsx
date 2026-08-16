@@ -113,6 +113,29 @@ export default function MiniAppDetailPage() {
       .catch(() => {});
   }, [app?.outputType]);
 
+  // Tự khôi phục job video gần nhất khi khách quay lại trang (đóng tab/tắt máy giữa chừng rồi mở
+  // lại) — tránh mất kết quả đã tạo xong hoặc phải chờ lại từ đầu nếu vẫn đang xử lý. Bỏ qua nếu
+  // đến từ nút "Tạo video từ ảnh này" (?imageUrl=) vì đó là ý định tạo video MỚI, không phải tiếp tục.
+  useEffect(() => {
+    if (app?.outputType !== "video" || !user || !app) return;
+    if (searchParams.get("imageUrl")) return;
+    fetch(`/api/video/latest?userId=${user.id}&miniAppId=${app.id}`)
+      .then((res) => res.json())
+      .then((data) => {
+        const job = data.job;
+        if (!job) return;
+        setCurrentVideoJobId(job.id);
+        if (job.status === "done" && job.outputUrl) {
+          setResult(job.outputUrl);
+        } else if (job.status === "pending" || job.status === "processing") {
+          setIsRunning(true);
+          setVideoStatusText("Đang xử lý video, có thể mất vài phút — anh có thể rời trang, quay lại vẫn thấy kết quả...");
+          pollVideoStatus(job.id);
+        }
+      })
+      .catch(() => {});
+  }, [app, user, searchParams]);
+
   async function handleAddMusic() {
     if (!user || !currentVideoJobId) return;
     if (musicMode === "library" && !selectedTrackId) return;
@@ -1336,6 +1359,26 @@ function CommunityMiniAppRunner({ miniAppId }: { miniAppId: string }) {
       .then((data) => setMusicTracks(data.tracks ?? []))
       .catch(() => {});
   }, [appInfo?.outputType]);
+
+  // Tự khôi phục job video gần nhất khi khách quay lại trang (đóng tab/tắt máy giữa chừng rồi mở lại).
+  useEffect(() => {
+    if (appInfo?.outputType !== "video" || !user) return;
+    fetch(`/api/video/latest?userId=${user.id}&miniAppId=${miniAppId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        const job = data.job;
+        if (!job) return;
+        setCurrentVideoJobId(job.id);
+        if (job.status === "done" && job.outputUrl) {
+          setResult(job.outputUrl);
+        } else if (job.status === "pending" || job.status === "processing") {
+          setIsRunning(true);
+          setVideoStatusText("Đang xử lý video, có thể mất vài phút — anh có thể rời trang, quay lại vẫn thấy kết quả...");
+          pollVideoStatus(job.id);
+        }
+      })
+      .catch(() => {});
+  }, [appInfo?.outputType, user, miniAppId]);
 
   async function handleAddMusic() {
     if (!user || !currentVideoJobId) return;
