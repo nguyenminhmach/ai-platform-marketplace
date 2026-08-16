@@ -1620,6 +1620,21 @@ export default function MiniAppDetailPage() {
                           <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
                             Nhạc do anh tự chọn — anh tự chịu trách nhiệm về bản quyền file này.
                           </p>
+                          <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+                            Chưa có nhạc?{" "}
+                            <a href="https://www.youtube.com/audiolibrary" target="_blank" rel="noopener noreferrer" className="underline hover:text-zinc-700 dark:hover:text-zinc-300">
+                              YouTube Audio Library
+                            </a>
+                            ,{" "}
+                            <a href="https://pixabay.com/music/" target="_blank" rel="noopener noreferrer" className="underline hover:text-zinc-700 dark:hover:text-zinc-300">
+                              Pixabay Music
+                            </a>{" "}
+                            hoặc{" "}
+                            <a href="https://mixkit.co/free-stock-music/" target="_blank" rel="noopener noreferrer" className="underline hover:text-zinc-700 dark:hover:text-zinc-300">
+                              Mixkit
+                            </a>{" "}
+                            có nhạc miễn phí dùng thương mại được, tải về rồi upload lại đây.
+                          </p>
                         </div>
                       )}
 
@@ -2244,6 +2259,21 @@ function CommunityMiniAppRunner({ miniAppId }: { miniAppId: string }) {
                           {customAudioError && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{customAudioError}</p>}
                           <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
                             Nhạc do anh tự chọn — anh tự chịu trách nhiệm về bản quyền file này.
+                          </p>
+                          <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+                            Chưa có nhạc?{" "}
+                            <a href="https://www.youtube.com/audiolibrary" target="_blank" rel="noopener noreferrer" className="underline hover:text-zinc-700 dark:hover:text-zinc-300">
+                              YouTube Audio Library
+                            </a>
+                            ,{" "}
+                            <a href="https://pixabay.com/music/" target="_blank" rel="noopener noreferrer" className="underline hover:text-zinc-700 dark:hover:text-zinc-300">
+                              Pixabay Music
+                            </a>{" "}
+                            hoặc{" "}
+                            <a href="https://mixkit.co/free-stock-music/" target="_blank" rel="noopener noreferrer" className="underline hover:text-zinc-700 dark:hover:text-zinc-300">
+                              Mixkit
+                            </a>{" "}
+                            có nhạc miễn phí dùng thương mại được, tải về rồi upload lại đây.
                           </p>
                         </div>
                       )}
