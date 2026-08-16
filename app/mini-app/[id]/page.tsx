@@ -8,6 +8,7 @@ import { BalanceBadge } from "@/components/BalanceBadge";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Footer } from "@/components/Footer";
 import { useAuth } from "@/lib/auth-context";
+import { supabaseBrowser } from "@/lib/supabase-browser";
 
 // Kling (model tạo video đang dùng) từ chối xử lý (lỗi 422) nếu prompt quá dài — giữ dưới ngưỡng an toàn.
 const VIDEO_PROMPT_MAX_LENGTH = 2000;
@@ -23,6 +24,10 @@ export default function MiniAppDetailPage() {
   const [imageError, setImageError] = useState<string | null>(null);
   const [endFrameDataUrl, setEndFrameDataUrl] = useState<string | null>(null);
   const [endFrameError, setEndFrameError] = useState<string | null>(null);
+  // "Nhảy theo video mẫu": endFrameDataUrl tái dùng để chứa URL video mẫu (không phải base64) vì
+  // video có thể tới 15MB — upload thẳng lên Supabase Storage từ trình duyệt, không qua API route
+  // (vượt giới hạn ~4.5MB request body của Vercel).
+  const [uploadingReferenceVideo, setUploadingReferenceVideo] = useState(false);
   const [textFileError, setTextFileError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
@@ -716,6 +721,95 @@ export default function MiniAppDetailPage() {
     }
   }
 
+  async function handleReferenceVideoFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !user) return;
+
+    setEndFrameError(null);
+    if (!file.type.startsWith("video/")) {
+      setEndFrameError("Chỉ nhận file video (MP4, MOV...)");
+      return;
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      setEndFrameError("Video mẫu tối đa 15MB, anh chọn clip ngắn hơn giúp em nhé");
+      return;
+    }
+
+    setUploadingReferenceVideo(true);
+    try {
+      const ext = file.name.split(".").pop() || "mp4";
+      const filePath = `${user.id}/${crypto.randomUUID()}.${ext}`;
+      const { error: uploadError } = await supabaseBrowser.storage
+        .from("motion-transfer-uploads")
+        .upload(filePath, file, { contentType: file.type, upsert: true });
+      if (uploadError) {
+        setEndFrameError(uploadError.message);
+        return;
+      }
+      const { data } = supabaseBrowser.storage.from("motion-transfer-uploads").getPublicUrl(filePath);
+      setEndFrameDataUrl(data.publicUrl);
+    } catch {
+      setEndFrameError("Không tải được video lên, thử lại giúp em");
+    } finally {
+      setUploadingReferenceVideo(false);
+    }
+  }
+
+  async function handleRunMotionTransfer() {
+    if (!user || !app) return;
+    if (!imageDataUrl) {
+      setImageError("Anh tải ảnh nhân vật lên giúp em");
+      return;
+    }
+    if (!endFrameDataUrl) {
+      setEndFrameError("Anh tải video mẫu chuyển động lên giúp em");
+      return;
+    }
+
+    setIsRunning(true);
+    setResult(null);
+    setRunError(null);
+    setVideoStatusText("Đang gửi yêu cầu tạo video...");
+
+    try {
+      const res = await fetch("/api/video/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          miniAppId: app.id,
+          userId: user.id,
+          prompt: "Nhảy theo video mẫu",
+          startFrameDataUrl: imageDataUrl,
+          endFrameDataUrl,
+        }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setRunError(data.error ?? "Có lỗi xảy ra");
+        setIsRunning(false);
+        setVideoStatusText(null);
+        return;
+      }
+
+      window.dispatchEvent(new Event("balance-updated"));
+      setVideoStatusText("Đang xử lý video, có thể mất vài phút — anh có thể rời trang, quay lại vẫn thấy kết quả...");
+      setCurrentVideoJobId(data.jobId);
+      setShowMusicPicker(false);
+      setSelectedTrackId(null);
+      setCustomAudioDataUrl(null);
+      setCustomAudioError(null);
+      setMusicAddError(null);
+      setMusicAddedSuccess(false);
+      pollVideoStatus(data.jobId);
+    } catch {
+      setRunError("Không kết nối được tới server");
+      setIsRunning(false);
+      setVideoStatusText(null);
+    }
+  }
+
   async function handlePublishYoutube() {
     if (!user || !result || !youtubeTitle.trim()) return;
     setYoutubePublishing(true);
@@ -782,7 +876,7 @@ export default function MiniAppDetailPage() {
             Bỏ riêng cho "thay-trang-phuc" — card trang chủ đã có ảnh minh hoạ trực quan hơn rồi, mục
             text ở đây thành thừa/rối cho app này (các app khác vẫn giữ). "video-gen" cũng bỏ theo
             yêu cầu — giao diện app video giờ đã đủ rõ ràng, phần ví dụ text làm rối thêm. */}
-        {app.inputType !== "outfit-swap" && app.inputType !== "video-gen" && (
+        {app.inputType !== "outfit-swap" && app.inputType !== "video-gen" && app.inputType !== "motion-transfer" && (
           <section className="mb-8 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
               Ví dụ minh hoạ
@@ -948,6 +1042,58 @@ export default function MiniAppDetailPage() {
               >
                 {input.length}/{VIDEO_PROMPT_MAX_LENGTH} ký tự — mô tả quá dài AI sẽ từ chối xử lý
               </p>
+            </div>
+          ) : app.inputType === "motion-transfer" ? (
+            <div className="mb-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Ảnh nhân vật</p>
+                  {imageDataUrl ? (
+                    <div className="relative aspect-square w-full">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={imageDataUrl} alt="Ảnh nhân vật" className="h-full w-full rounded-lg object-cover" />
+                      <button
+                        onClick={() => setImageDataUrl(null)}
+                        className="absolute right-2 top-2 rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white hover:bg-black/80"
+                      >
+                        Xóa
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-4 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                      <span className="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">Bấm để tải ảnh</span>
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400">JPG, PNG, WEBP — tối đa 4MB</span>
+                      <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+                    </label>
+                  )}
+                  {imageError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{imageError}</p>}
+                </div>
+                <div>
+                  <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Video mẫu chuyển động</p>
+                  {uploadingReferenceVideo ? (
+                    <div className="flex aspect-square w-full flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-4 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                      <span className="text-sm text-zinc-500 dark:text-zinc-400">Đang tải video lên...</span>
+                    </div>
+                  ) : endFrameDataUrl ? (
+                    <div className="relative aspect-square w-full">
+                      <video src={endFrameDataUrl} controls className="h-full w-full rounded-lg object-cover" />
+                      <button
+                        onClick={() => setEndFrameDataUrl(null)}
+                        className="absolute right-2 top-2 rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white hover:bg-black/80"
+                      >
+                        Xóa
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-4 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                      <span className="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">Bấm để tải video</span>
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400">MP4, MOV — tối đa 15MB</span>
+                      <input type="file" accept="video/*" onChange={handleReferenceVideoFileChange} className="hidden" />
+                    </label>
+                  )}
+                  {endFrameError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{endFrameError}</p>}
+                </div>
+              </div>
             </div>
           ) : app.inputType === "outfit-swap" ? (
             <div className="mb-4">
@@ -1240,8 +1386,21 @@ export default function MiniAppDetailPage() {
                 </strong>
               </span>
               <button
-                onClick={app.inputType === "video-gen" ? handleRunVideo : handleRun}
-                disabled={isRunning || (app.inputType === "image" ? !imageDataUrl : input.trim() === "")}
+                onClick={
+                  app.inputType === "video-gen"
+                    ? handleRunVideo
+                    : app.inputType === "motion-transfer"
+                    ? handleRunMotionTransfer
+                    : handleRun
+                }
+                disabled={
+                  isRunning ||
+                  (app.inputType === "image"
+                    ? !imageDataUrl
+                    : app.inputType === "motion-transfer"
+                    ? !imageDataUrl || !endFrameDataUrl || uploadingReferenceVideo
+                    : input.trim() === "")
+                }
                 className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
                 {isRunning ? "Đang xử lý..." : "Chạy ngay"}

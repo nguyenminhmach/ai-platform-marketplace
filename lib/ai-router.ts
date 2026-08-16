@@ -16,6 +16,9 @@ type MiniAppRow = {
     endpoint_url?: string;
     api_key?: string;
     system_prompt?: string;
+    // "motion-control": app "Nhảy theo video mẫu" — Kling nhận ảnh nhân vật + video mẫu chuyển
+    // động (không phải prompt chữ), body Fal.ai khác hẳn image-to-video thường.
+    input_mode?: "motion-control";
   };
 };
 
@@ -312,9 +315,21 @@ export async function submitVideoJob(
 
     const model = miniApp.model_config.model; // vd "fal-ai/kling-video/v1.6/standard/image-to-video"
     const webhookUrl = `${SITE_URL}/api/video/webhook?jobId=${job.id}`;
-    const body: Record<string, unknown> = { prompt };
-    if (startFrameDataUrl) body.image_url = startFrameDataUrl;
-    if (endFrameDataUrl) body.tail_image_url = endFrameDataUrl;
+
+    let body: Record<string, unknown>;
+    if (miniApp.model_config.input_mode === "motion-control") {
+      // "Nhảy theo video mẫu": startFrameDataUrl = ảnh nhân vật, endFrameDataUrl (tái dùng slot có
+      // sẵn) = video mẫu chuyển động — Kling Motion Control không dùng prompt chữ.
+      body = {
+        image_url: startFrameDataUrl,
+        video_url: endFrameDataUrl,
+        character_orientation: "video",
+      };
+    } else {
+      body = { prompt };
+      if (startFrameDataUrl) body.image_url = startFrameDataUrl;
+      if (endFrameDataUrl) body.tail_image_url = endFrameDataUrl;
+    }
 
     const response = await fetch(`https://queue.fal.run/${model}?fal_webhook=${encodeURIComponent(webhookUrl)}`, {
       method: "POST",

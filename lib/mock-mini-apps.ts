@@ -7,7 +7,7 @@ export type MiniApp = {
   creditCost: number;
   popular?: boolean;
   isNew?: boolean;
-  inputType: "text" | "image" | "image-gen" | "video-gen" | "outfit-swap" | "dialogue-video";
+  inputType: "text" | "image" | "image-gen" | "video-gen" | "outfit-swap" | "dialogue-video" | "motion-transfer";
   outputType?: "text" | "image" | "video";
   inputLabel: string;
   inputPlaceholder: string;
@@ -124,6 +124,23 @@ export const MINI_APPS: MiniApp[] = [
     inputPlaceholder: "Ví dụ: sản phẩm xoay tròn trên bàn, ánh sáng studio, chuyển động mượt",
     demoInput: "Chai nước hoa xoay tròn chậm trên nền đen, ánh sáng lung linh",
     demoOutput: "Video 4 giây, chai nước hoa xoay 360 độ mượt mà, ánh sáng phản chiếu đẹp.",
+    usageCount: 0,
+    rating: 5.0,
+  },
+  {
+    id: "nhay-theo-video-mau",
+    name: "Nhảy theo video mẫu",
+    description: "Tải 1 ảnh nhân vật + 1 video mẫu chuyển động (tối đa 10 giây), AI cho nhân vật nhảy/chuyển động theo đúng video mẫu.",
+    category: "video",
+    icon: "film",
+    creditCost: 56,
+    isNew: true,
+    inputType: "motion-transfer",
+    outputType: "video",
+    inputLabel: "Ảnh nhân vật + video mẫu chuyển động",
+    inputPlaceholder: "",
+    demoInput: "Ảnh cô gái đứng thẳng + video mẫu 1 người đang nhảy",
+    demoOutput: "Video cô gái trong ảnh nhảy đúng theo chuyển động của video mẫu.",
     usageCount: 0,
     rating: 5.0,
   },
