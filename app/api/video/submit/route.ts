@@ -11,6 +11,9 @@ export async function POST(req: Request) {
   if (typeof prompt !== "string" || prompt.trim() === "") {
     return Response.json({ error: "Thiếu mô tả video" }, { status: 400 });
   }
+  if (prompt.length > 2000) {
+    return Response.json({ error: "Mô tả video quá dài (tối đa 2000 ký tự) — AI sẽ từ chối xử lý, vui lòng rút ngắn lại" }, { status: 400 });
+  }
 
   try {
     const result = await submitVideoJob(

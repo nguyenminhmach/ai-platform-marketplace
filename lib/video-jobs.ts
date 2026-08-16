@@ -36,10 +36,11 @@ export async function applyFalResult(job: VideoJobRow, falPayload: Record<string
 
   const isError = falPayload.status === "ERROR" || !!falPayload.error;
   if (isError) {
-    await supabase
-      .from("video_jobs")
-      .update({ status: "failed", error_message: falPayload.error ? String(falPayload.error) : "Fal.ai báo lỗi" })
-      .eq("id", job.id);
+    const rawError = falPayload.error ? String(falPayload.error) : "Fal.ai báo lỗi";
+    const errorMessage = rawError.includes("422")
+      ? "AI từ chối xử lý yêu cầu này (lỗi 422) — thường do mô tả quá dài hoặc ảnh tham chiếu không hợp lệ. Vui lòng rút ngắn mô tả và thử lại."
+      : rawError;
+    await supabase.from("video_jobs").update({ status: "failed", error_message: errorMessage }).eq("id", job.id);
     if (job.credit_tx_id) await refundCredit(job.credit_tx_id);
     return "failed";
   }

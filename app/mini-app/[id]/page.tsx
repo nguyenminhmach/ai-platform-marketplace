@@ -9,6 +9,9 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Footer } from "@/components/Footer";
 import { useAuth } from "@/lib/auth-context";
 
+// Kling (model tạo video đang dùng) từ chối xử lý (lỗi 422) nếu prompt quá dài — giữ dưới ngưỡng an toàn.
+const VIDEO_PROMPT_MAX_LENGTH = 2000;
+
 export default function MiniAppDetailPage() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
@@ -660,8 +663,16 @@ export default function MiniAppDetailPage() {
                 onChange={(e) => setInput(e.target.value)}
                 placeholder={app.inputPlaceholder}
                 rows={3}
-                className="mb-3 w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                maxLength={VIDEO_PROMPT_MAX_LENGTH}
+                className="mb-1 w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
               />
+              <p
+                className={`mb-3 text-right text-xs ${
+                  input.length > VIDEO_PROMPT_MAX_LENGTH - 100 ? "text-amber-600 dark:text-amber-500" : "text-zinc-400 dark:text-zinc-500"
+                }`}
+              >
+                {input.length}/{VIDEO_PROMPT_MAX_LENGTH} ký tự — mô tả quá dài AI sẽ từ chối xử lý
+              </p>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
@@ -1326,8 +1337,20 @@ function CommunityMiniAppRunner({ miniAppId }: { miniAppId: string }) {
               onChange={(e) => setInput(e.target.value)}
               placeholder={appInfo.outputType === "text" ? "Nhập nội dung..." : "Mô tả bối cảnh/nội dung muốn tạo..."}
               rows={appInfo.outputType === "text" ? 4 : 3}
-              className="mb-3 w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+              maxLength={appInfo.outputType === "video" ? VIDEO_PROMPT_MAX_LENGTH : undefined}
+              className={`w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50 ${
+                appInfo.outputType === "video" ? "mb-1" : "mb-3"
+              }`}
             />
+            {appInfo.outputType === "video" && (
+              <p
+                className={`mb-3 text-right text-xs ${
+                  input.length > VIDEO_PROMPT_MAX_LENGTH - 100 ? "text-amber-600 dark:text-amber-500" : "text-zinc-400 dark:text-zinc-500"
+                }`}
+              >
+                {input.length}/{VIDEO_PROMPT_MAX_LENGTH} ký tự — mô tả quá dài AI sẽ từ chối xử lý
+              </p>
+            )}
 
             {appInfo.outputType === "image" && (
               <>
