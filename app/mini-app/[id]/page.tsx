@@ -644,8 +644,9 @@ export default function MiniAppDetailPage() {
 
         {/* Demo input/output mẫu — Tập 5 mục 1.2: cần thấy ví dụ thật trước khi bỏ credit ra thử.
             Bỏ riêng cho "thay-trang-phuc" — card trang chủ đã có ảnh minh hoạ trực quan hơn rồi, mục
-            text ở đây thành thừa/rối cho app này (các app khác vẫn giữ). */}
-        {app.inputType !== "outfit-swap" && (
+            text ở đây thành thừa/rối cho app này (các app khác vẫn giữ). "video-gen" cũng bỏ theo
+            yêu cầu — giao diện app video giờ đã đủ rõ ràng, phần ví dụ text làm rối thêm. */}
+        {app.inputType !== "outfit-swap" && app.inputType !== "video-gen" && (
           <section className="mb-8 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
               Ví dụ minh hoạ
