@@ -935,10 +935,8 @@ export default function MiniAppDetailPage() {
                     <img src={url} alt={`Kết quả ${index + 1}`} className="aspect-square w-full rounded-lg object-cover" />
                     <div className="mt-1 flex items-center justify-center gap-2">
                       <a
-                        href={url}
+                        href={`/api/download?url=${encodeURIComponent(url)}&filename=ket-qua-${index + 1}.jpg`}
                         download
-                        target="_blank"
-                        rel="noopener noreferrer"
                         className="text-center text-xs font-medium text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
                       >
                         Tải xuống
@@ -990,10 +988,8 @@ export default function MiniAppDetailPage() {
               <div className="mt-3 flex gap-2">
                 {app.outputType === "image" || app.outputType === "video" ? (
                   <a
-                    href={result}
+                    href={`/api/download?url=${encodeURIComponent(result)}&filename=ket-qua.${app.outputType === "video" ? "mp4" : "jpg"}`}
                     download
-                    target="_blank"
-                    rel="noopener noreferrer"
                     className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
                   >
                     Tải xuống
@@ -1451,10 +1447,8 @@ function CommunityMiniAppRunner({ miniAppId }: { miniAppId: string }) {
               <div className="mt-3 flex gap-2">
                 {appInfo.outputType === "image" || appInfo.outputType === "video" ? (
                   <a
-                    href={result}
+                    href={`/api/download?url=${encodeURIComponent(result)}&filename=ket-qua.${appInfo.outputType === "video" ? "mp4" : "jpg"}`}
                     download
-                    target="_blank"
-                    rel="noopener noreferrer"
                     className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
                   >
                     Tải xuống
