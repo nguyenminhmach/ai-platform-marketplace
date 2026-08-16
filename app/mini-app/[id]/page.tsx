@@ -45,9 +45,14 @@ export default function MiniAppDetailPage() {
   // user chỉ chọn 1 bài trong danh sách này rồi gọi /api/video/add-music (dùng ffmpeg phía server).
   const [currentVideoJobId, setCurrentVideoJobId] = useState<number | null>(null);
   const [musicTracks, setMusicTracks] = useState<{ id: number; name: string; file_url: string }[]>([]);
+  const [showMusicPicker, setShowMusicPicker] = useState(false);
+  const [musicMode, setMusicMode] = useState<"library" | "upload">("library");
   const [selectedTrackId, setSelectedTrackId] = useState<number | null>(null);
+  const [customAudioDataUrl, setCustomAudioDataUrl] = useState<string | null>(null);
+  const [customAudioError, setCustomAudioError] = useState<string | null>(null);
   const [addingMusic, setAddingMusic] = useState(false);
   const [musicAddError, setMusicAddError] = useState<string | null>(null);
+  const [musicAddedSuccess, setMusicAddedSuccess] = useState(false);
 
   // "Thay trang phục": imageDataUrl dùng chung làm ảnh người mẫu, garmentImages là danh sách trang phục
   // tham chiếu riêng (tối đa 10) — kết quả trả về nhiều ảnh nên dùng state riêng, không dùng chung `result`.
@@ -109,14 +114,22 @@ export default function MiniAppDetailPage() {
   }, [app?.outputType]);
 
   async function handleAddMusic() {
-    if (!user || !currentVideoJobId || !selectedTrackId) return;
+    if (!user || !currentVideoJobId) return;
+    if (musicMode === "library" && !selectedTrackId) return;
+    if (musicMode === "upload" && !customAudioDataUrl) return;
     setAddingMusic(true);
     setMusicAddError(null);
+    setMusicAddedSuccess(false);
     try {
       const res = await fetch("/api/video/add-music", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user.id, jobId: currentVideoJobId, trackId: selectedTrackId }),
+        body: JSON.stringify({
+          userId: user.id,
+          jobId: currentVideoJobId,
+          trackId: musicMode === "library" ? selectedTrackId : undefined,
+          customAudioDataUrl: musicMode === "upload" ? customAudioDataUrl : undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -124,6 +137,7 @@ export default function MiniAppDetailPage() {
         return;
       }
       setResult(data.url);
+      setMusicAddedSuccess(true);
     } catch {
       setMusicAddError("Không kết nối được tới server");
     } finally {
@@ -527,8 +541,12 @@ export default function MiniAppDetailPage() {
       window.dispatchEvent(new Event("balance-updated"));
       setVideoStatusText("Đang xử lý video, có thể mất vài phút — anh có thể rời trang, quay lại vẫn thấy kết quả...");
       setCurrentVideoJobId(data.jobId);
+      setShowMusicPicker(false);
       setSelectedTrackId(null);
+      setCustomAudioDataUrl(null);
+      setCustomAudioError(null);
       setMusicAddError(null);
+      setMusicAddedSuccess(false);
       pollVideoStatus(data.jobId);
     } catch {
       setRunError("Không kết nối được tới server");
@@ -1067,52 +1085,135 @@ export default function MiniAppDetailPage() {
                 </button>
               </div>
 
-              {app.outputType === "video" && currentVideoJobId && musicTracks.length > 0 && (
-                <div className="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-700">
-                  <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">Ghép nhạc nền</p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <select
-                      value={selectedTrackId ?? ""}
-                      onChange={(e) => setSelectedTrackId(e.target.value ? Number(e.target.value) : null)}
-                      className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-                    >
-                      <option value="">Chọn bài nhạc...</option>
-                      {musicTracks.map((track) => (
-                        <option key={track.id} value={track.id}>
-                          {track.name}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={handleAddMusic}
-                      disabled={!selectedTrackId || addingMusic}
-                      className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-300"
-                    >
-                      {addingMusic ? "Đang ghép nhạc..." : "Ghép nhạc"}
-                    </button>
-                  </div>
-                  {musicAddError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{musicAddError}</p>}
-                </div>
-              )}
-
               {app.outputType === "video" && (
                 <div className="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-700">
-                  {youtubePublishedUrl ? (
-                    <p className="text-xs text-emerald-700 dark:text-emerald-400">
-                      Đã đăng lên YouTube:{" "}
-                      <a href={youtubePublishedUrl} target="_blank" rel="noopener noreferrer" className="underline">
-                        {youtubePublishedUrl}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    {currentVideoJobId ? (
+                      <button
+                        onClick={() => setShowMusicPicker((v) => !v)}
+                        className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                      >
+                        Tạo nhạc nền
+                      </button>
+                    ) : (
+                      <span />
+                    )}
+                    {youtubePublishedUrl ? (
+                      <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                        Đã đăng lên YouTube:{" "}
+                        <a href={youtubePublishedUrl} target="_blank" rel="noopener noreferrer" className="underline">
+                          {youtubePublishedUrl}
+                        </a>
+                      </p>
+                    ) : !youtubeStatus?.connected ? (
+                      <a
+                        href={`/api/youtube/authorize?userId=${user?.id ?? ""}`}
+                        className="inline-block rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                      >
+                        Kết nối YouTube để đăng video
                       </a>
-                    </p>
-                  ) : !youtubeStatus?.connected ? (
-                    <a
-                      href={`/api/youtube/authorize?userId=${user?.id ?? ""}`}
-                      className="inline-block rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
-                    >
-                      Kết nối YouTube để đăng video
-                    </a>
-                  ) : showYoutubeForm ? (
-                    <div className="space-y-2">
+                    ) : (
+                      <button
+                        onClick={() => setShowYoutubeForm((v) => !v)}
+                        className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                      >
+                        Đăng lên YouTube ({youtubeStatus.channelTitle})
+                      </button>
+                    )}
+                  </div>
+
+                  {showMusicPicker && currentVideoJobId && (
+                    <div className="mt-3 space-y-2 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => setMusicMode("library")}
+                          className={`rounded-full px-3 py-1 text-xs font-medium ${
+                            musicMode === "library"
+                              ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                              : "border border-zinc-300 text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                          }`}
+                        >
+                          Từ thư viện
+                        </button>
+                        <button
+                          onClick={() => setMusicMode("upload")}
+                          className={`rounded-full px-3 py-1 text-xs font-medium ${
+                            musicMode === "upload"
+                              ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                              : "border border-zinc-300 text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                          }`}
+                        >
+                          Tải nhạc từ máy
+                        </button>
+                      </div>
+
+                      {musicMode === "library" ? (
+                        musicTracks.length === 0 ? (
+                          <p className="text-xs text-zinc-400 dark:text-zinc-500">Thư viện chưa có bài nhạc nào.</p>
+                        ) : (
+                          <select
+                            value={selectedTrackId ?? ""}
+                            onChange={(e) => setSelectedTrackId(e.target.value ? Number(e.target.value) : null)}
+                            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                          >
+                            <option value="">Chọn bài nhạc...</option>
+                            {musicTracks.map((track) => (
+                              <option key={track.id} value={track.id}>
+                                {track.name}
+                              </option>
+                            ))}
+                          </select>
+                        )
+                      ) : (
+                        <div>
+                          <label className="inline-block cursor-pointer rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300">
+                            {customAudioDataUrl ? "Đã chọn file — bấm để đổi" : "Chọn file nhạc (mp3/wav/m4a, tối đa 10MB)"}
+                            <input
+                              type="file"
+                              accept="audio/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                e.target.value = "";
+                                if (!file) return;
+                                setCustomAudioError(null);
+                                if (!file.type.startsWith("audio/")) {
+                                  setCustomAudioError("Chỉ nhận file nhạc (mp3/wav/m4a)");
+                                  return;
+                                }
+                                if (file.size > 10 * 1024 * 1024) {
+                                  setCustomAudioError("File nhạc tối đa 10MB");
+                                  return;
+                                }
+                                const reader = new FileReader();
+                                reader.onload = () => setCustomAudioDataUrl(reader.result as string);
+                                reader.readAsDataURL(file);
+                              }}
+                            />
+                          </label>
+                          {customAudioError && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{customAudioError}</p>}
+                          <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+                            Nhạc do anh tự chọn — anh tự chịu trách nhiệm về bản quyền file này.
+                          </p>
+                        </div>
+                      )}
+
+                      <button
+                        onClick={handleAddMusic}
+                        disabled={(musicMode === "library" ? !selectedTrackId : !customAudioDataUrl) || addingMusic}
+                        className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-300"
+                      >
+                        {addingMusic ? "Đang ghép nhạc..." : "Ghép nhạc"}
+                      </button>
+                      {musicAddError && <p className="text-xs text-red-600 dark:text-red-400">{musicAddError}</p>}
+                      {musicAddedSuccess && (
+                        <p className="text-xs text-emerald-700 dark:text-emerald-400">✓ Đã ghép nhạc thành công — xem thử video ở trên trước khi đăng.</p>
+                      )}
+                    </div>
+                  )}
+
+                  {showYoutubeForm && youtubeStatus?.connected && !youtubePublishedUrl && (
+                    <div className="mt-3 space-y-2 border-t border-zinc-100 pt-3 dark:border-zinc-800">
                       <p className="text-xs text-zinc-500 dark:text-zinc-400">
                         Đăng lên kênh: <strong>{youtubeStatus.channelTitle ?? "YouTube"}</strong>
                       </p>
@@ -1146,13 +1247,6 @@ export default function MiniAppDetailPage() {
                         </button>
                       </div>
                     </div>
-                  ) : (
-                    <button
-                      onClick={() => setShowYoutubeForm(true)}
-                      className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
-                    >
-                      Đăng lên YouTube ({youtubeStatus.channelTitle})
-                    </button>
                   )}
                   {youtubeError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{youtubeError}</p>}
                 </div>
@@ -1213,9 +1307,14 @@ function CommunityMiniAppRunner({ miniAppId }: { miniAppId: string }) {
 
   const [currentVideoJobId, setCurrentVideoJobId] = useState<number | null>(null);
   const [musicTracks, setMusicTracks] = useState<{ id: number; name: string; file_url: string }[]>([]);
+  const [showMusicPicker, setShowMusicPicker] = useState(false);
+  const [musicMode, setMusicMode] = useState<"library" | "upload">("library");
   const [selectedTrackId, setSelectedTrackId] = useState<number | null>(null);
+  const [customAudioDataUrl, setCustomAudioDataUrl] = useState<string | null>(null);
+  const [customAudioError, setCustomAudioError] = useState<string | null>(null);
   const [addingMusic, setAddingMusic] = useState(false);
   const [musicAddError, setMusicAddError] = useState<string | null>(null);
+  const [musicAddedSuccess, setMusicAddedSuccess] = useState(false);
 
   useEffect(() => {
     fetch(`/api/mini-apps/community/${miniAppId}`)
@@ -1239,14 +1338,22 @@ function CommunityMiniAppRunner({ miniAppId }: { miniAppId: string }) {
   }, [appInfo?.outputType]);
 
   async function handleAddMusic() {
-    if (!user || !currentVideoJobId || !selectedTrackId) return;
+    if (!user || !currentVideoJobId) return;
+    if (musicMode === "library" && !selectedTrackId) return;
+    if (musicMode === "upload" && !customAudioDataUrl) return;
     setAddingMusic(true);
     setMusicAddError(null);
+    setMusicAddedSuccess(false);
     try {
       const res = await fetch("/api/video/add-music", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user.id, jobId: currentVideoJobId, trackId: selectedTrackId }),
+        body: JSON.stringify({
+          userId: user.id,
+          jobId: currentVideoJobId,
+          trackId: musicMode === "library" ? selectedTrackId : undefined,
+          customAudioDataUrl: musicMode === "upload" ? customAudioDataUrl : undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -1254,6 +1361,7 @@ function CommunityMiniAppRunner({ miniAppId }: { miniAppId: string }) {
         return;
       }
       setResult(data.url);
+      setMusicAddedSuccess(true);
     } catch {
       setMusicAddError("Không kết nối được tới server");
     } finally {
@@ -1382,8 +1490,12 @@ function CommunityMiniAppRunner({ miniAppId }: { miniAppId: string }) {
       window.dispatchEvent(new Event("balance-updated"));
       setVideoStatusText("Đang xử lý video, có thể mất vài phút — anh có thể rời trang, quay lại vẫn thấy kết quả...");
       setCurrentVideoJobId(data.jobId);
+      setShowMusicPicker(false);
       setSelectedTrackId(null);
+      setCustomAudioDataUrl(null);
+      setCustomAudioError(null);
       setMusicAddError(null);
+      setMusicAddedSuccess(false);
       pollVideoStatus(data.jobId);
     } catch {
       setRunError("Không kết nối được tới server");
@@ -1606,31 +1718,104 @@ function CommunityMiniAppRunner({ miniAppId }: { miniAppId: string }) {
                 </button>
               </div>
 
-              {appInfo.outputType === "video" && currentVideoJobId && musicTracks.length > 0 && (
+              {appInfo.outputType === "video" && currentVideoJobId && (
                 <div className="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-700">
-                  <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">Ghép nhạc nền</p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <select
-                      value={selectedTrackId ?? ""}
-                      onChange={(e) => setSelectedTrackId(e.target.value ? Number(e.target.value) : null)}
-                      className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-                    >
-                      <option value="">Chọn bài nhạc...</option>
-                      {musicTracks.map((track) => (
-                        <option key={track.id} value={track.id}>
-                          {track.name}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={handleAddMusic}
-                      disabled={!selectedTrackId || addingMusic}
-                      className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-300"
-                    >
-                      {addingMusic ? "Đang ghép nhạc..." : "Ghép nhạc"}
-                    </button>
-                  </div>
-                  {musicAddError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{musicAddError}</p>}
+                  <button
+                    onClick={() => setShowMusicPicker((v) => !v)}
+                    className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                  >
+                    Tạo nhạc nền
+                  </button>
+
+                  {showMusicPicker && (
+                    <div className="mt-3 space-y-2 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => setMusicMode("library")}
+                          className={`rounded-full px-3 py-1 text-xs font-medium ${
+                            musicMode === "library"
+                              ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                              : "border border-zinc-300 text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                          }`}
+                        >
+                          Từ thư viện
+                        </button>
+                        <button
+                          onClick={() => setMusicMode("upload")}
+                          className={`rounded-full px-3 py-1 text-xs font-medium ${
+                            musicMode === "upload"
+                              ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                              : "border border-zinc-300 text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                          }`}
+                        >
+                          Tải nhạc từ máy
+                        </button>
+                      </div>
+
+                      {musicMode === "library" ? (
+                        musicTracks.length === 0 ? (
+                          <p className="text-xs text-zinc-400 dark:text-zinc-500">Thư viện chưa có bài nhạc nào.</p>
+                        ) : (
+                          <select
+                            value={selectedTrackId ?? ""}
+                            onChange={(e) => setSelectedTrackId(e.target.value ? Number(e.target.value) : null)}
+                            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                          >
+                            <option value="">Chọn bài nhạc...</option>
+                            {musicTracks.map((track) => (
+                              <option key={track.id} value={track.id}>
+                                {track.name}
+                              </option>
+                            ))}
+                          </select>
+                        )
+                      ) : (
+                        <div>
+                          <label className="inline-block cursor-pointer rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300">
+                            {customAudioDataUrl ? "Đã chọn file — bấm để đổi" : "Chọn file nhạc (mp3/wav/m4a, tối đa 10MB)"}
+                            <input
+                              type="file"
+                              accept="audio/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                e.target.value = "";
+                                if (!file) return;
+                                setCustomAudioError(null);
+                                if (!file.type.startsWith("audio/")) {
+                                  setCustomAudioError("Chỉ nhận file nhạc (mp3/wav/m4a)");
+                                  return;
+                                }
+                                if (file.size > 10 * 1024 * 1024) {
+                                  setCustomAudioError("File nhạc tối đa 10MB");
+                                  return;
+                                }
+                                const reader = new FileReader();
+                                reader.onload = () => setCustomAudioDataUrl(reader.result as string);
+                                reader.readAsDataURL(file);
+                              }}
+                            />
+                          </label>
+                          {customAudioError && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{customAudioError}</p>}
+                          <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+                            Nhạc do anh tự chọn — anh tự chịu trách nhiệm về bản quyền file này.
+                          </p>
+                        </div>
+                      )}
+
+                      <button
+                        onClick={handleAddMusic}
+                        disabled={(musicMode === "library" ? !selectedTrackId : !customAudioDataUrl) || addingMusic}
+                        className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-300"
+                      >
+                        {addingMusic ? "Đang ghép nhạc..." : "Ghép nhạc"}
+                      </button>
+                      {musicAddError && <p className="text-xs text-red-600 dark:text-red-400">{musicAddError}</p>}
+                      {musicAddedSuccess && (
+                        <p className="text-xs text-emerald-700 dark:text-emerald-400">✓ Đã ghép nhạc thành công — xem thử video ở trên trước khi đăng.</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
