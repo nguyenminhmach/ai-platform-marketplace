@@ -54,14 +54,16 @@ export default function MiniAppDetailPage() {
   const [musicAddError, setMusicAddError] = useState<string | null>(null);
   const [musicAddedSuccess, setMusicAddedSuccess] = useState(false);
 
-  // "Video đồng nhất nhân vật": 2 nhân vật, mỗi người 1 ảnh + 1 lời thoại riêng — upload ảnh thật
+  // "Video đồng nhất nhân vật": 2-4 nhân vật, mỗi người 1 ảnh + 1 lời thoại riêng — upload ảnh thật
   // lên Storage lúc bấm "Chạy ngay" (giống outfit-swap), không upload ngay lúc chọn file.
-  const [aCharImage, setACharImage] = useState<string | null>(null);
-  const [aCharError, setACharError] = useState<string | null>(null);
-  const [aLine, setALine] = useState("");
-  const [bCharImage, setBCharImage] = useState<string | null>(null);
-  const [bCharError, setBCharError] = useState<string | null>(null);
-  const [bLine, setBLine] = useState("");
+  const DIALOGUE_MIN_CHARACTERS = 2;
+  const DIALOGUE_MAX_CHARACTERS = 4;
+  type DialogueCharacter = { image: string | null; error: string | null; line: string };
+  const [dialogueCharacters, setDialogueCharacters] = useState<DialogueCharacter[]>([
+    { image: null, error: null, line: "" },
+    { image: null, error: null, line: "" },
+  ]);
+  const [dialogueCreditCost, setDialogueCreditCost] = useState<number | null>(null);
   const [dialogueRunning, setDialogueRunning] = useState(false);
   const [dialogueStatusText, setDialogueStatusText] = useState<string | null>(null);
   const [dialogueResult, setDialogueResult] = useState<string | null>(null);
@@ -200,6 +202,17 @@ export default function MiniAppDetailPage() {
     }
   }, [params.id]);
 
+  // "Video đồng nhất nhân vật": giá tăng theo số nhân vật (2-4 người) — tính lại mỗi khi thêm/bớt.
+  useEffect(() => {
+    if (params.id !== "video-doi-thoai-nhan-vat") return;
+    fetch(`/api/dialogue-video/price?miniAppId=${params.id}&characterCount=${dialogueCharacters.length}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (typeof data.creditCost === "number") setDialogueCreditCost(data.creditCost);
+      })
+      .catch(() => {});
+  }, [params.id, dialogueCharacters.length]);
+
   // Ảnh/video có giá tính động theo chi phí thật + biên lợi nhuận, khác app text (giá cố định)
   useEffect(() => {
     if (params.id) {
@@ -325,25 +338,37 @@ export default function MiniAppDetailPage() {
     return data.url as string;
   }
 
-  function handleCharFileChange(e: React.ChangeEvent<HTMLInputElement>, speaker: "a" | "b") {
+  function handleCharFileChange(e: React.ChangeEvent<HTMLInputElement>, index: number) {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
 
-    const setError = speaker === "a" ? setACharError : setBCharError;
-    const setImage = speaker === "a" ? setACharImage : setBCharImage;
-    setError(null);
     if (!file.type.startsWith("image/")) {
-      setError("Chỉ nhận file ảnh (JPG, PNG, WEBP...)");
+      setDialogueCharacters((prev) => prev.map((c, i) => (i === index ? { ...c, error: "Chỉ nhận file ảnh (JPG, PNG, WEBP...)" } : c)));
       return;
     }
     if (file.size > 3 * 1024 * 1024) {
-      setError("Ảnh tối đa 3MB");
+      setDialogueCharacters((prev) => prev.map((c, i) => (i === index ? { ...c, error: "Ảnh tối đa 3MB" } : c)));
       return;
     }
     const reader = new FileReader();
-    reader.onload = () => setImage(reader.result as string);
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setDialogueCharacters((prev) => prev.map((c, i) => (i === index ? { ...c, image: dataUrl, error: null } : c)));
+    };
     reader.readAsDataURL(file);
+  }
+
+  function addDialogueCharacter() {
+    setDialogueCharacters((prev) => (prev.length >= DIALOGUE_MAX_CHARACTERS ? prev : [...prev, { image: null, error: null, line: "" }]));
+  }
+
+  function removeDialogueCharacter(index: number) {
+    setDialogueCharacters((prev) => (prev.length <= DIALOGUE_MIN_CHARACTERS ? prev : prev.filter((_, i) => i !== index)));
+  }
+
+  function setDialogueLine(index: number, line: string) {
+    setDialogueCharacters((prev) => prev.map((c, i) => (i === index ? { ...c, line } : c)));
   }
 
   function pollDialogueVideoStatus(jobId: number) {
@@ -372,16 +397,15 @@ export default function MiniAppDetailPage() {
   }
 
   async function handleRunDialogueVideo() {
-    if (!user || !aCharImage || !bCharImage || !aLine.trim() || !bLine.trim()) return;
+    if (!user || dialogueCharacters.some((c) => !c.image || !c.line.trim())) return;
     setDialogueRunning(true);
     setDialogueResult(null);
     setDialogueError(null);
     setDialogueStatusText("Đang tải ảnh lên...");
 
-    let aImageUrl: string;
-    let bImageUrl: string;
+    let imageUrls: string[];
     try {
-      [aImageUrl, bImageUrl] = await Promise.all([uploadOutfitSwapImage(aCharImage), uploadOutfitSwapImage(bCharImage)]);
+      imageUrls = await Promise.all(dialogueCharacters.map((c) => uploadOutfitSwapImage(c.image!)));
     } catch (err) {
       setDialogueError(err instanceof Error ? err.message : "Không tải được ảnh lên, thử lại");
       setDialogueRunning(false);
@@ -398,10 +422,7 @@ export default function MiniAppDetailPage() {
         body: JSON.stringify({
           userId: user.id,
           miniAppId: app!.id,
-          aImageUrl,
-          aLine: aLine.trim(),
-          bImageUrl,
-          bLine: bLine.trim(),
+          characters: dialogueCharacters.map((c, index) => ({ imageUrl: imageUrls[index], line: c.line.trim() })),
         }),
       });
       const data = await res.json();
@@ -414,7 +435,9 @@ export default function MiniAppDetailPage() {
       }
 
       window.dispatchEvent(new Event("balance-updated"));
-      setDialogueStatusText("Đang tạo chuyển động cho 2 nhân vật, có thể mất vài phút — anh có thể rời trang, quay lại vẫn thấy kết quả...");
+      setDialogueStatusText(
+        `Đang tạo chuyển động cho ${dialogueCharacters.length} nhân vật, có thể mất vài phút — anh có thể rời trang, quay lại vẫn thấy kết quả...`
+      );
       pollDialogueVideoStatus(data.jobId);
     } catch {
       setDialogueError("Không kết nối được tới server");
@@ -1046,67 +1069,64 @@ export default function MiniAppDetailPage() {
           ) : app.inputType === "dialogue-video" ? (
             <div className="mb-4">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Nhân vật A</p>
-                  {aCharImage ? (
-                    <div className="relative aspect-square w-full">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={aCharImage} alt="Nhân vật A" className="h-full w-full rounded-lg object-cover" />
-                      <button
-                        onClick={() => setACharImage(null)}
-                        className="absolute right-2 top-2 rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white hover:bg-black/80"
-                      >
-                        Xóa
-                      </button>
+                {dialogueCharacters.map((character, index) => (
+                  <div key={index}>
+                    <div className="mb-1 flex items-center justify-between">
+                      <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Nhân vật {String.fromCharCode(65 + index)}</p>
+                      {dialogueCharacters.length > DIALOGUE_MIN_CHARACTERS && (
+                        <button
+                          onClick={() => removeDialogueCharacter(index)}
+                          className="text-xs text-zinc-400 underline hover:text-red-600 dark:text-zinc-500 dark:hover:text-red-400"
+                        >
+                          Xoá nhân vật
+                        </button>
+                      )}
                     </div>
-                  ) : (
-                    <label className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-4 text-center dark:border-zinc-700 dark:bg-zinc-800">
-                      <span className="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">Bấm để tải ảnh</span>
-                      <span className="text-xs text-zinc-500 dark:text-zinc-400">JPG, PNG, WEBP — tối đa 3MB</span>
-                      <input type="file" accept="image/*" onChange={(e) => handleCharFileChange(e, "a")} className="hidden" />
-                    </label>
-                  )}
-                  {aCharError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{aCharError}</p>}
-                  <textarea
-                    value={aLine}
-                    onChange={(e) => setALine(e.target.value)}
-                    placeholder="Lời thoại của nhân vật A..."
-                    rows={2}
-                    maxLength={400}
-                    className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-                  />
-                </div>
-                <div>
-                  <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Nhân vật B</p>
-                  {bCharImage ? (
-                    <div className="relative aspect-square w-full">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={bCharImage} alt="Nhân vật B" className="h-full w-full rounded-lg object-cover" />
-                      <button
-                        onClick={() => setBCharImage(null)}
-                        className="absolute right-2 top-2 rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white hover:bg-black/80"
-                      >
-                        Xóa
-                      </button>
-                    </div>
-                  ) : (
-                    <label className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-4 text-center dark:border-zinc-700 dark:bg-zinc-800">
-                      <span className="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">Bấm để tải ảnh</span>
-                      <span className="text-xs text-zinc-500 dark:text-zinc-400">JPG, PNG, WEBP — tối đa 3MB</span>
-                      <input type="file" accept="image/*" onChange={(e) => handleCharFileChange(e, "b")} className="hidden" />
-                    </label>
-                  )}
-                  {bCharError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{bCharError}</p>}
-                  <textarea
-                    value={bLine}
-                    onChange={(e) => setBLine(e.target.value)}
-                    placeholder="Lời thoại của nhân vật B..."
-                    rows={2}
-                    maxLength={400}
-                    className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-                  />
-                </div>
+                    {character.image ? (
+                      <div className="relative aspect-square w-full">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={character.image}
+                          alt={`Nhân vật ${String.fromCharCode(65 + index)}`}
+                          className="h-full w-full rounded-lg object-cover"
+                        />
+                        <button
+                          onClick={() =>
+                            setDialogueCharacters((prev) => prev.map((c, i) => (i === index ? { ...c, image: null } : c)))
+                          }
+                          className="absolute right-2 top-2 rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white hover:bg-black/80"
+                        >
+                          Xóa
+                        </button>
+                      </div>
+                    ) : (
+                      <label className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-4 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                        <span className="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">Bấm để tải ảnh</span>
+                        <span className="text-xs text-zinc-500 dark:text-zinc-400">JPG, PNG, WEBP — tối đa 3MB</span>
+                        <input type="file" accept="image/*" onChange={(e) => handleCharFileChange(e, index)} className="hidden" />
+                      </label>
+                    )}
+                    {character.error && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{character.error}</p>}
+                    <textarea
+                      value={character.line}
+                      onChange={(e) => setDialogueLine(index, e.target.value)}
+                      placeholder={`Lời thoại của nhân vật ${String.fromCharCode(65 + index)}...`}
+                      rows={2}
+                      maxLength={400}
+                      className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                    />
+                  </div>
+                ))}
               </div>
+
+              {dialogueCharacters.length < DIALOGUE_MAX_CHARACTERS && (
+                <button
+                  onClick={addDialogueCharacter}
+                  className="mt-3 rounded-full border border-dashed border-zinc-300 px-4 py-1.5 text-xs font-medium text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400"
+                >
+                  + Thêm nhân vật (tối đa {DIALOGUE_MAX_CHARACTERS})
+                </button>
+              )}
 
               {dialogueStatusText && <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{dialogueStatusText}</p>}
               {dialogueError && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{dialogueError}</p>}
@@ -1126,10 +1146,10 @@ export default function MiniAppDetailPage() {
                     <button
                       onClick={() => {
                         setDialogueResult(null);
-                        setACharImage(null);
-                        setBCharImage(null);
-                        setALine("");
-                        setBLine("");
+                        setDialogueCharacters([
+                          { image: null, error: null, line: "" },
+                          { image: null, error: null, line: "" },
+                        ]);
                       }}
                       className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
                     >
@@ -1169,11 +1189,12 @@ export default function MiniAppDetailPage() {
             <div className="flex items-center justify-between">
               <span className="text-sm text-zinc-600 dark:text-zinc-400">
                 Thao tác này sẽ trừ{" "}
-                <strong className="text-zinc-900 dark:text-zinc-50">{liveCreditCost ?? app.creditCost} credit</strong>
+                <strong className="text-zinc-900 dark:text-zinc-50">{dialogueCreditCost ?? app.creditCost} credit</strong>{" "}
+                ({dialogueCharacters.length} nhân vật)
               </span>
               <button
                 onClick={handleRunDialogueVideo}
-                disabled={dialogueRunning || !aCharImage || !bCharImage || !aLine.trim() || !bLine.trim()}
+                disabled={dialogueRunning || dialogueCharacters.some((c) => !c.image || !c.line.trim())}
                 className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
                 {dialogueRunning ? "Đang xử lý..." : "Chạy ngay"}

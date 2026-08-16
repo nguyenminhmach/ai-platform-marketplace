@@ -1,30 +1,34 @@
 import { randomUUID } from "crypto";
-import { submitDialogueVideoJob } from "@/lib/dialogue-video";
+import { submitDialogueVideoJob, MIN_CHARACTERS, MAX_CHARACTERS } from "@/lib/dialogue-video";
 import { InsufficientCreditError } from "@/lib/credit-system";
 
 const LINE_MAX_LENGTH = 400;
 
 export async function POST(req: Request) {
-  const { userId, miniAppId, aImageUrl, aLine, bImageUrl, bLine } = await req.json();
+  const { userId, miniAppId, characters } = await req.json();
 
   if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   if (typeof miniAppId !== "string" || !miniAppId) return Response.json({ error: "Thiếu miniAppId" }, { status: 400 });
-  if (typeof aImageUrl !== "string" || !aImageUrl) return Response.json({ error: "Thiếu ảnh nhân vật A" }, { status: 400 });
-  if (typeof bImageUrl !== "string" || !bImageUrl) return Response.json({ error: "Thiếu ảnh nhân vật B" }, { status: 400 });
-  if (typeof aLine !== "string" || !aLine.trim()) return Response.json({ error: "Thiếu lời thoại nhân vật A" }, { status: 400 });
-  if (typeof bLine !== "string" || !bLine.trim()) return Response.json({ error: "Thiếu lời thoại nhân vật B" }, { status: 400 });
-  if (aLine.length > LINE_MAX_LENGTH || bLine.length > LINE_MAX_LENGTH) {
-    return Response.json({ error: `Lời thoại tối đa ${LINE_MAX_LENGTH} ký tự mỗi người` }, { status: 400 });
+  if (!Array.isArray(characters) || characters.length < MIN_CHARACTERS || characters.length > MAX_CHARACTERS) {
+    return Response.json({ error: `Cần từ ${MIN_CHARACTERS} đến ${MAX_CHARACTERS} nhân vật` }, { status: 400 });
+  }
+  for (const c of characters) {
+    if (typeof c?.imageUrl !== "string" || !c.imageUrl) {
+      return Response.json({ error: "Thiếu ảnh cho 1 nhân vật" }, { status: 400 });
+    }
+    if (typeof c?.line !== "string" || !c.line.trim()) {
+      return Response.json({ error: "Thiếu lời thoại cho 1 nhân vật" }, { status: 400 });
+    }
+    if (c.line.length > LINE_MAX_LENGTH) {
+      return Response.json({ error: `Lời thoại tối đa ${LINE_MAX_LENGTH} ký tự mỗi người` }, { status: 400 });
+    }
   }
 
   try {
     const result = await submitDialogueVideoJob(
       userId,
       miniAppId,
-      aImageUrl,
-      aLine.trim(),
-      bImageUrl,
-      bLine.trim(),
+      characters.map((c: { imageUrl: string; line: string }) => ({ imageUrl: c.imageUrl, line: c.line.trim() })),
       randomUUID()
     );
     return Response.json({ success: true, jobId: result.jobId, newBalance: result.newBalance });
