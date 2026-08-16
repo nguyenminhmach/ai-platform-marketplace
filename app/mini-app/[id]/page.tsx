@@ -815,9 +815,6 @@ export default function MiniAppDetailPage() {
                   <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
                     Ảnh trang phục tham chiếu (tối đa 10)
                   </p>
-                  <p className="mb-1 text-xs text-amber-600 dark:text-amber-500">
-                    Chọn đúng "Áo" hay "Cả bộ" cho từng ảnh bên dưới — chọn sai loại dễ khiến AI ra kết quả không khớp.
-                  </p>
                   {garmentImages.length > 0 && (
                     <div className="mb-2 grid grid-cols-3 gap-2">
                       {garmentImages.map((url, index) => (
@@ -874,9 +871,6 @@ export default function MiniAppDetailPage() {
                 </div>
                 <div>
                   <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Ảnh người mẫu</p>
-                  <p className="mb-1 text-xs text-amber-600 dark:text-amber-500">
-                    Nên chọn ảnh mặc áo + quần/váy RỜI (không phải váy liền thân) để kết quả chính xác hơn khi chỉ đổi áo.
-                  </p>
                   {imageDataUrl ? (
                     <div className="relative aspect-square w-full">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
