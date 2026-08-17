@@ -22,3 +22,23 @@ set model_config = (model_config || '{
   }
 }'::jsonb) - 'provider_cost_vnd'
 where id = 'tao-video-quang-cao';
+
+-- Áp dụng y hệt cho "Video trước/sau" — Kling v2.1 Pro cũng nhận tail_image_url (ảnh sau) nên tái
+-- dùng đúng 2 tier trên, không cần giá riêng khác.
+update mini_apps
+set model_config = (model_config || '{
+  "models": {
+    "basic": {
+      "model": "fal-ai/kling-video/v1.6/standard/image-to-video",
+      "provider_cost_vnd": 7300,
+      "enabled": true
+    },
+    "premium": {
+      "model": "fal-ai/kling-video/v2.1/pro/image-to-video",
+      "provider_cost_vnd_5s": 12740,
+      "provider_cost_vnd_10s": 23400,
+      "enabled": true
+    }
+  }
+}'::jsonb) - 'provider_cost_vnd'
+where id = 'video-truoc-sau';

@@ -869,6 +869,8 @@ export default function MiniAppDetailPage() {
           prompt: input.trim() || "Chuyển cảnh mượt mà từ ảnh đầu sang ảnh cuối, ánh sáng giữ nguyên tự nhiên.",
           startFrameDataUrl: imageDataUrl,
           endFrameDataUrl,
+          modelChoice: videoTiers.length > 0 ? selectedVideoTier : undefined,
+          duration: videoTiers.length > 0 ? selectedVideoDuration : undefined,
         }),
       });
       const data = await res.json();
@@ -1196,6 +1198,50 @@ export default function MiniAppDetailPage() {
                   {endFrameError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{endFrameError}</p>}
                 </div>
               </div>
+
+              {videoTiers.length > 0 && (
+                <div className="mb-4">
+                  <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Chất lượng video</p>
+                  <div className="flex flex-wrap gap-2">
+                    {videoTiers.map((tier) => (
+                      <button
+                        key={tier.key}
+                        onClick={() => setSelectedVideoTier(tier.key)}
+                        className={`rounded-full px-3 py-1.5 text-xs font-medium ${
+                          selectedVideoTier === tier.key
+                            ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                            : "border border-zinc-300 text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                        }`}
+                      >
+                        {tier.label} —{" "}
+                        {tier.creditCost ?? tier.creditCostByDuration?.[selectedVideoDuration] ?? "?"} credit
+                      </button>
+                    ))}
+                  </div>
+                  {(() => {
+                    const tier = videoTiers.find((t) => t.key === selectedVideoTier);
+                    if (!tier?.creditCostByDuration) return null;
+                    return (
+                      <div className="mt-2 flex items-center gap-2">
+                        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Độ dài video:</p>
+                        {(["5", "10"] as const).map((d) => (
+                          <button
+                            key={d}
+                            onClick={() => setSelectedVideoDuration(d)}
+                            className={`rounded-full px-3 py-1 text-xs font-medium ${
+                              selectedVideoDuration === d
+                                ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                                : "border border-zinc-300 text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                            }`}
+                          >
+                            {d} giây — {tier.creditCostByDuration![d]} credit
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
 
               <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Câu lệnh mô tả (không bắt buộc)</p>
               <textarea
