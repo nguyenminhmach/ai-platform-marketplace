@@ -2,6 +2,16 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { deductCredit, refundCredit, InsufficientCreditError } from "@/lib/credit-system";
 import { computeDynamicCreditCost, getMediaPricingSettings, getUsdToVndRate } from "@/lib/pricing";
 
+// Tier chất lượng cho app video có nhiều mức (hiện chỉ "Tạo video quảng cáo ngắn") — "basic" giá cố
+// định 1 mức, "premium" giá khác nhau theo duration (Kling v2.1 Pro tính theo giây thật).
+type VideoTierEntry = {
+  model: string;
+  enabled: boolean;
+  provider_cost_vnd?: number; // dùng cho tier giá cố định (basic)
+  provider_cost_vnd_5s?: number; // dùng cho tier tính theo duration (premium)
+  provider_cost_vnd_10s?: number;
+};
+
 type MiniAppRow = {
   id: string;
   name: string;
@@ -19,6 +29,7 @@ type MiniAppRow = {
     // "motion-control": app "Nhảy theo video mẫu" — Kling nhận ảnh nhân vật + video mẫu chuyển
     // động (không phải prompt chữ), body Fal.ai khác hẳn image-to-video thường.
     input_mode?: "motion-control";
+    models?: { basic?: VideoTierEntry; premium?: VideoTierEntry };
   };
 };
 
@@ -61,6 +72,58 @@ async function getMiniAppConfig(miniAppId: string): Promise<MiniAppRow> {
   }
 
   return row;
+}
+
+const VIDEO_TIER_LABELS: Record<"basic" | "premium", string> = {
+  basic: "Cơ bản",
+  premium: "Cao cấp",
+};
+
+// Danh sách tier chất lượng đang bật + giá credit cho từng lựa chọn — trang chi tiết app video gọi
+// hàm này để build nút chọn tier (giống hệt pattern getEnabledOutfitSwapModels() bên outfit-swap).
+// App không có model_config.models (Video trước/sau, Nhảy theo video mẫu...) trả về mảng rỗng.
+export async function getVideoQualityTiers(miniAppId: string): Promise<
+  {
+    key: "basic" | "premium";
+    label: string;
+    creditCost?: number; // tier giá cố định
+    creditCostByDuration?: { "5": number; "10": number }; // tier tính theo duration
+  }[]
+> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("mini_apps")
+    .select("model_config")
+    .eq("id", miniAppId)
+    .eq("is_active", true)
+    .single();
+
+  if (error || !data) throw new Error("Không tìm thấy Mini App");
+  const models = (data.model_config as MiniAppRow["model_config"]).models;
+  if (!models) return [];
+
+  const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
+  const result: Awaited<ReturnType<typeof getVideoQualityTiers>> = [];
+
+  if (models.basic?.enabled && models.basic.provider_cost_vnd) {
+    result.push({
+      key: "basic",
+      label: VIDEO_TIER_LABELS.basic,
+      creditCost: computeDynamicCreditCost(models.basic.provider_cost_vnd, marginPercent, vndPerCredit),
+    });
+  }
+  if (models.premium?.enabled && models.premium.provider_cost_vnd_5s && models.premium.provider_cost_vnd_10s) {
+    result.push({
+      key: "premium",
+      label: VIDEO_TIER_LABELS.premium,
+      creditCostByDuration: {
+        "5": computeDynamicCreditCost(models.premium.provider_cost_vnd_5s, marginPercent, vndPerCredit),
+        "10": computeDynamicCreditCost(models.premium.provider_cost_vnd_10s, marginPercent, vndPerCredit),
+      },
+    });
+  }
+
+  return result;
 }
 
 // usage.include=true là extension riêng của OpenRouter — trả kèm chi phí USD thật họ đã tính,
@@ -282,10 +345,37 @@ export async function submitVideoJob(
   prompt: string,
   idempotencyKey: string,
   startFrameDataUrl?: string,
-  endFrameDataUrl?: string
+  endFrameDataUrl?: string,
+  modelChoice?: "basic" | "premium",
+  duration?: "5" | "10"
 ): Promise<{ jobId: number; newBalance: number }> {
   const miniApp = await getMiniAppConfig(miniAppId);
   const supabase = getSupabaseAdmin();
+
+  // App có nhiều tier chất lượng (model_config.models, hiện chỉ "Tạo video quảng cáo ngắn") — model +
+  // giá phụ thuộc tier đã chọn, ghi đè giá tính sẵn ở getMiniAppConfig() (dựa theo provider_cost_vnd
+  // đơn, không biết tier). App không có tier (Video trước/sau, Nhảy theo video mẫu...) bỏ qua nhánh này.
+  let modelToCall = miniApp.model_config.model;
+  let resolvedTier: "basic" | "premium" | null = null;
+  if (miniApp.model_config.models) {
+    const tierKey: "basic" | "premium" =
+      modelChoice && miniApp.model_config.models[modelChoice]?.enabled ? modelChoice : "basic";
+    const tier = miniApp.model_config.models[tierKey];
+    if (!tier) throw new Error("Không tìm thấy tier chất lượng video hợp lệ");
+    resolvedTier = tierKey;
+    modelToCall = tier.model;
+
+    const providerCostVnd =
+      tierKey === "premium"
+        ? duration === "10"
+          ? tier.provider_cost_vnd_10s
+          : tier.provider_cost_vnd_5s
+        : tier.provider_cost_vnd;
+    if (!providerCostVnd) throw new Error("Thiếu cấu hình giá cho tier chất lượng video này");
+
+    const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
+    miniApp.credit_cost = computeDynamicCreditCost(providerCostVnd, marginPercent, vndPerCredit);
+  }
 
   const deduction = await deductCredit(userId, miniApp.credit_cost, miniAppId, idempotencyKey);
   if (!deduction.success) throw new InsufficientCreditError();
@@ -313,7 +403,7 @@ export async function submitVideoJob(
     const apiKey = process.env.FAL_KEY;
     if (!apiKey) throw new Error("Chưa cấu hình FAL_KEY trong .env.local");
 
-    const model = miniApp.model_config.model; // vd "fal-ai/kling-video/v1.6/standard/image-to-video"
+    const model = modelToCall; // vd "fal-ai/kling-video/v1.6/standard/image-to-video"
     const webhookUrl = `${SITE_URL}/api/video/webhook?jobId=${job.id}`;
 
     let body: Record<string, unknown>;
@@ -329,6 +419,9 @@ export async function submitVideoJob(
       body = { prompt };
       if (startFrameDataUrl) body.image_url = startFrameDataUrl;
       if (endFrameDataUrl) body.tail_image_url = endFrameDataUrl;
+      // Tier "premium" (Kling v2.1 Pro) tính phí theo duration thật, cần gửi rõ "5"/"10" — tier
+      // "basic" (v1.6) không nhận tham số này, độ dài video cố định ~5s.
+      if (resolvedTier === "premium") body.duration = duration === "10" ? "10" : "5";
     }
 
     const response = await fetch(`https://queue.fal.run/${model}?fal_webhook=${encodeURIComponent(webhookUrl)}`, {

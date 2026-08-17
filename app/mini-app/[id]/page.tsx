@@ -34,6 +34,13 @@ export default function MiniAppDetailPage() {
   const [videoStatusText, setVideoStatusText] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [liveCreditCost, setLiveCreditCost] = useState<number | null>(null);
+  // Tier chất lượng video ("Tạo video quảng cáo ngắn" — Cơ bản/Cao cấp) — app không có tier trả
+  // mảng rỗng nên UI chọn tier chỉ hiện khi videoTiers.length > 0.
+  const [videoTiers, setVideoTiers] = useState<
+    { key: "basic" | "premium"; label: string; creditCost?: number; creditCostByDuration?: { "5": number; "10": number } }[]
+  >([]);
+  const [selectedVideoTier, setSelectedVideoTier] = useState<"basic" | "premium">("basic");
+  const [selectedVideoDuration, setSelectedVideoDuration] = useState<"5" | "10">("5");
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Đăng video kết quả thẳng lên kênh YouTube của user (OAuth qua Google) — chỉ áp dụng cho app
@@ -236,6 +243,18 @@ export default function MiniAppDetailPage() {
           if (data.dynamic) setLiveCreditCost(data.creditCost);
           // Prompt mặc định admin soạn sẵn (nếu có) — chỉ điền khi khách chưa tự gõ gì, vẫn sửa/xoá được.
           if (data.defaultPrompt) setInput((prev) => prev || data.defaultPrompt);
+        })
+        .catch(() => {});
+    }
+  }, [params.id]);
+
+  // App có nhiều tier chất lượng (hiện chỉ "Tạo video quảng cáo ngắn") — app khác trả mảng rỗng.
+  useEffect(() => {
+    if (params.id) {
+      fetch(`/api/video/tiers?miniAppId=${params.id}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data.tiers)) setVideoTiers(data.tiers);
         })
         .catch(() => {});
     }
@@ -703,6 +722,8 @@ export default function MiniAppDetailPage() {
           prompt: input,
           startFrameDataUrl: imageDataUrl,
           endFrameDataUrl,
+          modelChoice: videoTiers.length > 0 ? selectedVideoTier : undefined,
+          duration: videoTiers.length > 0 ? selectedVideoDuration : undefined,
         }),
       });
       const data = await res.json();
@@ -1066,6 +1087,50 @@ export default function MiniAppDetailPage() {
                 )}
                 {imageError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{imageError}</p>}
               </div>
+
+              {videoTiers.length > 0 && (
+                <div className="mb-4">
+                  <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Chất lượng video</p>
+                  <div className="flex flex-wrap gap-2">
+                    {videoTiers.map((tier) => (
+                      <button
+                        key={tier.key}
+                        onClick={() => setSelectedVideoTier(tier.key)}
+                        className={`rounded-full px-3 py-1.5 text-xs font-medium ${
+                          selectedVideoTier === tier.key
+                            ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                            : "border border-zinc-300 text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                        }`}
+                      >
+                        {tier.label} —{" "}
+                        {tier.creditCost ?? tier.creditCostByDuration?.[selectedVideoDuration] ?? "?"} credit
+                      </button>
+                    ))}
+                  </div>
+                  {(() => {
+                    const tier = videoTiers.find((t) => t.key === selectedVideoTier);
+                    if (!tier?.creditCostByDuration) return null;
+                    return (
+                      <div className="mt-2 flex items-center gap-2">
+                        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Độ dài video:</p>
+                        {(["5", "10"] as const).map((d) => (
+                          <button
+                            key={d}
+                            onClick={() => setSelectedVideoDuration(d)}
+                            className={`rounded-full px-3 py-1 text-xs font-medium ${
+                              selectedVideoDuration === d
+                                ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                                : "border border-zinc-300 text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                            }`}
+                          >
+                            {d} giây — {tier.creditCostByDuration![d]} credit
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
 
               <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Câu lệnh mô tả (có thể chỉnh sửa)</p>
               <textarea
@@ -1488,7 +1553,14 @@ export default function MiniAppDetailPage() {
               <span className="text-sm text-zinc-600 dark:text-zinc-400">
                 Thao tác này sẽ trừ{" "}
                 <strong className="text-zinc-900 dark:text-zinc-50">
-                  {liveCreditCost ?? app.creditCost} credit
+                  {(() => {
+                    if (videoTiers.length > 0) {
+                      const tier = videoTiers.find((t) => t.key === selectedVideoTier);
+                      return tier?.creditCost ?? tier?.creditCostByDuration?.[selectedVideoDuration] ?? app.creditCost;
+                    }
+                    return liveCreditCost ?? app.creditCost;
+                  })()}{" "}
+                  credit
                 </strong>
               </span>
               <button

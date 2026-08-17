@@ -3,7 +3,7 @@ import { submitVideoJob } from "@/lib/ai-router";
 import { InsufficientCreditError } from "@/lib/credit-system";
 
 export async function POST(req: Request) {
-  const { miniAppId, userId, prompt, startFrameDataUrl, endFrameDataUrl } = await req.json();
+  const { miniAppId, userId, prompt, startFrameDataUrl, endFrameDataUrl, modelChoice, duration } = await req.json();
 
   if (!userId) {
     return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
@@ -22,7 +22,9 @@ export async function POST(req: Request) {
       prompt,
       randomUUID(),
       startFrameDataUrl,
-      endFrameDataUrl
+      endFrameDataUrl,
+      modelChoice === "basic" || modelChoice === "premium" ? modelChoice : undefined,
+      duration === "5" || duration === "10" ? duration : undefined
     );
     return Response.json({ success: true, jobId: result.jobId, newBalance: result.newBalance });
   } catch (err) {

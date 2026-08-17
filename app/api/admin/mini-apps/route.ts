@@ -54,13 +54,21 @@ export async function GET(req: Request) {
       dynamic: !!config?.provider_cost_vnd || !!config?.models,
       // Ảnh minh hoạ hiện trên card trang chủ thay cho icon — admin tự đổi được, không cần sửa code
       demoImageUrls: config?.demo_image_urls ?? [],
-      // Riêng "Thay trang phục": bật/tắt từng model AI (đa năng/FASHN/FASHN Max) — null nếu app không có nhiều model
-      outfitSwapModels: config?.models
-        ? {
-            generic: !!config.models.generic?.enabled,
-            fashn: !!config.models.fashn?.enabled,
-            fashn_max: !!config.models.fashn_max?.enabled,
-          }
+      // Riêng "Thay trang phục": bật/tắt từng model AI (đa năng/FASHN/FASHN Max) — null nếu app không
+      // có nhiều model HOẶC có models nhưng không phải 3 key này (vd tier "basic"/"premium" ở app
+      // video khác) — tránh hiện nhầm 3 checkbox generic/fashn/fashn_max cho app không liên quan.
+      outfitSwapModels:
+        config?.models && ("generic" in config.models || "fashn" in config.models || "fashn_max" in config.models)
+          ? {
+              generic: !!config.models.generic?.enabled,
+              fashn: !!config.models.fashn?.enabled,
+              fashn_max: !!config.models.fashn_max?.enabled,
+            }
+          : null,
+      // Tổng quát hơn outfitSwapModels ở trên — trả đúng key thật có trong model_config.models (vd
+      // "basic"/"premium" ở app video nhiều tier), không hardcode tên cụ thể. null nếu app không có.
+      modelTiers: config?.models
+        ? Object.fromEntries(Object.entries(config.models).map(([key, entry]) => [key, !!entry.enabled]))
         : null,
       // Prompt mặc định tự điền cho khách ở app tạo video — chỉ áp dụng cho app output video
       isVideoApp: config?.output_type === "video",
@@ -78,7 +86,12 @@ export async function PATCH(req: Request) {
   const token = getCookie(req, ADMIN_COOKIE_NAME);
   if (!verifyAdminToken(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
 
-  const { id, creditCost, isActive, demoImageUrls, outfitSwapModels, defaultPrompt, defaultPromptVisible } = await req.json();
+  const { id, creditCost, isActive, demoImageUrls, outfitSwapModels, modelTiers, defaultPrompt, defaultPromptVisible } =
+    await req.json();
+  // modelTiers là alias tổng quát của outfitSwapModels — cùng 1 cơ chế bật/tắt entry trong
+  // model_config.models, chỉ khác tên gọi cho rõ nghĩa khi dùng ở app không phải "Thay trang phục"
+  // (vd tier chất lượng video "basic"/"premium"). Không cho gửi cả 2 cùng lúc để tránh mơ hồ.
+  const modelToggles = outfitSwapModels ?? modelTiers;
   if (typeof id !== "string" || !id) {
     return Response.json({ error: "Thiếu id" }, { status: 400 });
   }
@@ -86,7 +99,7 @@ export async function PATCH(req: Request) {
     creditCost === undefined &&
     isActive === undefined &&
     demoImageUrls === undefined &&
-    outfitSwapModels === undefined &&
+    modelToggles === undefined &&
     defaultPrompt === undefined &&
     defaultPromptVisible === undefined
   ) {
@@ -113,7 +126,7 @@ export async function PATCH(req: Request) {
   // tránh trường hợp gửi nhiều field model_config trong cùng 1 request mà field sau ghi đè mất field trước.
   if (
     demoImageUrls !== undefined ||
-    outfitSwapModels !== undefined ||
+    modelToggles !== undefined ||
     defaultPrompt !== undefined ||
     defaultPromptVisible !== undefined
   ) {
@@ -127,21 +140,21 @@ export async function PATCH(req: Request) {
       }
       nextConfig.demo_image_urls = demoImageUrls;
     }
-    if (outfitSwapModels !== undefined) {
-      if (typeof outfitSwapModels !== "object" || outfitSwapModels === null) {
-        return Response.json({ error: "outfitSwapModels không hợp lệ" }, { status: 400 });
+    if (modelToggles !== undefined) {
+      if (typeof modelToggles !== "object" || modelToggles === null) {
+        return Response.json({ error: "Dữ liệu bật/tắt model không hợp lệ" }, { status: 400 });
       }
       const existingModels = (currentConfig.models as Record<string, { enabled: boolean }> | undefined) ?? undefined;
       if (!existingModels) {
         return Response.json({ error: "App này không có nhiều model để bật/tắt" }, { status: 400 });
       }
       const nextModels = { ...existingModels };
-      for (const key of Object.keys(outfitSwapModels)) {
-        if (nextModels[key] && typeof outfitSwapModels[key] === "boolean") {
-          nextModels[key] = { ...nextModels[key], enabled: outfitSwapModels[key] };
+      for (const key of Object.keys(modelToggles)) {
+        if (nextModels[key] && typeof modelToggles[key] === "boolean") {
+          nextModels[key] = { ...nextModels[key], enabled: modelToggles[key] };
         }
       }
-      // Không cho tắt hết cả 2 — người dùng sẽ không chạy được app này nữa
+      // Không cho tắt hết — người dùng sẽ không chạy được app này nữa
       if (!Object.values(nextModels).some((m) => m.enabled)) {
         return Response.json({ error: "Phải bật ít nhất 1 model" }, { status: 400 });
       }

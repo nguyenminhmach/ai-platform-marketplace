@@ -67,6 +67,7 @@ type MiniAppPrice = {
   ownApp: boolean;
   demoImageUrls: string[];
   outfitSwapModels: { generic: boolean; fashn: boolean; fashn_max: boolean } | null;
+  modelTiers: Record<string, boolean> | null;
   isVideoApp: boolean;
   defaultPrompt: string;
   defaultPromptVisible: boolean;
@@ -75,6 +76,10 @@ type MiniAppPrice = {
 // 3 ảnh minh hoạ trên card trang chủ: trước → trang phục → sau (kiểu "A + B = C") thay vì 2 ảnh rời rạc,
 // để minh hoạ rõ tính năng thay đồ như card tham khảo admin gửi.
 const DEMO_IMAGE_SLOT_LABELS = ["Trước", "Trang phục", "Sau"];
+
+// Nhãn hiển thị cho các key trong model_config.models — dùng cho khối "Tier chất lượng" tổng quát
+// (app.modelTiers), không phải khối "Model AI" riêng của Thay trang phục.
+const MODEL_TIER_LABELS: Record<string, string> = { basic: "Cơ bản", premium: "Cao cấp" };
 
 const MODEL_OPTIONS = [
   { value: "google/gemini-3-flash-preview", label: "Gemini Flash (rẻ, nhanh)" },
@@ -440,6 +445,26 @@ export default function AdminPage() {
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       setAppPriceError(data.error ?? "Không cập nhật được model");
+      return;
+    }
+    loadMiniApps();
+  }
+
+  // Tổng quát cho mọi app có model_config.models ngoài "Thay trang phục" (vd tier chất lượng video
+  // "basic"/"premium") — cùng cơ chế PATCH, chỉ khác tên field gửi lên (modelTiers thay vì
+  // outfitSwapModels) cho rõ nghĩa, xem app/api/admin/mini-apps/route.ts.
+  async function handleToggleModelTier(app: MiniAppPrice, key: string, enabled: boolean) {
+    setSavingAppId(app.id);
+    setAppPriceError(null);
+    const res = await fetch("/api/admin/mini-apps", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: app.id, modelTiers: { [key]: enabled } }),
+    });
+    setSavingAppId(null);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setAppPriceError(data.error ?? "Không cập nhật được tier");
       return;
     }
     loadMiniApps();
@@ -971,6 +996,21 @@ export default function AdminPage() {
                           />
                           FASHN Max
                         </label>
+                      </div>
+                    )}
+                    {app.modelTiers && !app.outfitSwapModels && (
+                      <div className="flex items-center gap-4 border-t border-zinc-100 pt-2 text-xs text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+                        <span>Tier chất lượng:</span>
+                        {Object.entries(app.modelTiers).map(([key, enabled]) => (
+                          <label key={key} className="flex items-center gap-1.5">
+                            <input
+                              type="checkbox"
+                              checked={enabled}
+                              onChange={(e) => handleToggleModelTier(app, key, e.target.checked)}
+                            />
+                            {MODEL_TIER_LABELS[key] ?? key}
+                          </label>
+                        ))}
                       </div>
                     )}
                     {app.isVideoApp && (
