@@ -126,6 +126,9 @@ export async function getVideoQualityTiers(miniAppId: string): Promise<
       creditCost: computeDynamicCreditCost(models.basic.provider_cost_vnd, marginPercent, vndPerCredit),
     });
   }
+  // "premium" không mặc định là tính theo duration — quyết định bằng dữ liệu thật có
+  // provider_cost_vnd_5s hay không (vd "Nhảy theo video mẫu" dùng premium giá cố định vì độ dài
+  // video phụ thuộc video mẫu khách upload, không phải lựa chọn 5s/10s).
   if (models.premium?.enabled && models.premium.provider_cost_vnd_5s && models.premium.provider_cost_vnd_10s) {
     result.push({
       key: "premium",
@@ -134,6 +137,12 @@ export async function getVideoQualityTiers(miniAppId: string): Promise<
         "5": computeDynamicCreditCost(models.premium.provider_cost_vnd_5s, marginPercent, vndPerCredit),
         "10": computeDynamicCreditCost(models.premium.provider_cost_vnd_10s, marginPercent, vndPerCredit),
       },
+    });
+  } else if (models.premium?.enabled && models.premium.provider_cost_vnd) {
+    result.push({
+      key: "premium",
+      label: VIDEO_TIER_LABELS.premium,
+      creditCost: computeDynamicCreditCost(models.premium.provider_cost_vnd, marginPercent, vndPerCredit),
     });
   }
 
@@ -368,10 +377,11 @@ export async function submitVideoJob(
 
   // App có nhiều tier chất lượng (model_config.models) — model + giá phụ thuộc tier đã chọn, ghi đè
   // giá tính sẵn ở getMiniAppConfig() (dựa theo provider_cost_vnd đơn, không biết tier). App không
-  // có tier (Nhảy theo video mẫu...) bỏ qua nhánh này.
+  // có tier (video-doi-thoai-nhan-vat dùng lib/dialogue-video.ts riêng...) bỏ qua nhánh này.
   let modelToCall = miniApp.model_config.model;
   let resolvedTier: VideoTierKey | null = null;
   let resolvedParamStyle: "ltx" | undefined;
+  let resolvedHasDurationPricing = false;
   if (miniApp.model_config.models) {
     const tierKey: VideoTierKey =
       modelChoice && miniApp.model_config.models[modelChoice]?.enabled ? modelChoice : "basic";
@@ -380,13 +390,16 @@ export async function submitVideoJob(
     resolvedTier = tierKey;
     modelToCall = tier.model;
     resolvedParamStyle = tier.param_style;
+    // Quyết định bằng dữ liệu thật (có provider_cost_vnd_5s không), KHÔNG dựa vào tên tier — "premium"
+    // không mặc định là tính theo duration (vd "Nhảy theo video mẫu" dùng premium giá cố định vì độ
+    // dài video phụ thuộc video mẫu khách upload, không phải lựa chọn 5s/10s).
+    resolvedHasDurationPricing = tier.provider_cost_vnd_5s !== undefined;
 
-    const providerCostVnd =
-      tierKey === "premium"
-        ? duration === "10"
-          ? tier.provider_cost_vnd_10s
-          : tier.provider_cost_vnd_5s
-        : tier.provider_cost_vnd;
+    const providerCostVnd = resolvedHasDurationPricing
+      ? duration === "10"
+        ? tier.provider_cost_vnd_10s
+        : tier.provider_cost_vnd_5s
+      : tier.provider_cost_vnd;
     if (!providerCostVnd) throw new Error("Thiếu cấu hình giá cho tier chất lượng video này");
 
     const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
@@ -441,9 +454,9 @@ export async function submitVideoJob(
       body = { prompt };
       if (startFrameDataUrl) body.image_url = startFrameDataUrl;
       if (endFrameDataUrl) body.tail_image_url = endFrameDataUrl;
-      // Tier "premium" (Kling v2.1 Pro) tính phí theo duration thật, cần gửi rõ "5"/"10" — tier
-      // "basic" (v1.6) không nhận tham số này, độ dài video cố định ~5s.
-      if (resolvedTier === "premium") body.duration = duration === "10" ? "10" : "5";
+      // Tier tính giá theo duration thật (vd Kling v2.1 Pro) cần gửi rõ "5"/"10" cho Fal — tier giá
+      // cố định (v1.6, hay "Cao cấp" của Nhảy theo video mẫu) không nhận tham số này.
+      if (resolvedHasDurationPricing) body.duration = duration === "10" ? "10" : "5";
     }
 
     const response = await fetch(`https://queue.fal.run/${model}?fal_webhook=${encodeURIComponent(webhookUrl)}`, {

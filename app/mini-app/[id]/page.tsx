@@ -818,6 +818,7 @@ export default function MiniAppDetailPage() {
           prompt: "Nhảy theo video mẫu",
           startFrameDataUrl: imageDataUrl,
           endFrameDataUrl,
+          modelChoice: videoTiers.length > 0 ? selectedVideoTier : undefined,
         }),
       });
       const data = await res.json();
@@ -1316,6 +1317,27 @@ export default function MiniAppDetailPage() {
                   {endFrameError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{endFrameError}</p>}
                 </div>
               </div>
+
+              {videoTiers.length > 0 && (
+                <div className="mt-4">
+                  <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Chất lượng video</p>
+                  <div className="flex flex-wrap gap-2">
+                    {videoTiers.map((tier) => (
+                      <button
+                        key={tier.key}
+                        onClick={() => setSelectedVideoTier(tier.key)}
+                        className={`rounded-full px-3 py-1.5 text-xs font-medium ${
+                          selectedVideoTier === tier.key
+                            ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                            : "border border-zinc-300 text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                        }`}
+                      >
+                        {tier.label} — {tier.creditCost ?? tier.creditCostByDuration?.[selectedVideoDuration] ?? "?"} credit
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           ) : app.inputType === "outfit-swap" ? (
             <div className="mb-4">
