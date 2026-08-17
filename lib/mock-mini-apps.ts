@@ -7,7 +7,7 @@ export type MiniApp = {
   creditCost: number;
   popular?: boolean;
   isNew?: boolean;
-  inputType: "text" | "image" | "image-gen" | "video-gen" | "outfit-swap" | "dialogue-video" | "motion-transfer";
+  inputType: "text" | "image" | "image-gen" | "video-gen" | "outfit-swap" | "dialogue-video" | "motion-transfer" | "video-transform";
   outputType?: "text" | "image" | "video";
   inputLabel: string;
   inputPlaceholder: string;
@@ -113,7 +113,7 @@ export const MINI_APPS: MiniApp[] = [
   {
     id: "tao-video-quang-cao",
     name: "Tạo video quảng cáo ngắn",
-    description: "Mô tả cảnh muốn tạo, có thể thêm ảnh khung hình đầu/cuối, AI tạo video ngắn 4-5 giây.",
+    description: "Tải 1 ảnh nhân vật (không bắt buộc), mô tả chuyển động muốn tạo, AI tạo video ngắn 4-5 giây.",
     category: "video",
     icon: "film",
     creditCost: 400,
@@ -124,6 +124,23 @@ export const MINI_APPS: MiniApp[] = [
     inputPlaceholder: "Ví dụ: sản phẩm xoay tròn trên bàn, ánh sáng studio, chuyển động mượt",
     demoInput: "Chai nước hoa xoay tròn chậm trên nền đen, ánh sáng lung linh",
     demoOutput: "Video 4 giây, chai nước hoa xoay 360 độ mượt mà, ánh sáng phản chiếu đẹp.",
+    usageCount: 0,
+    rating: 5.0,
+  },
+  {
+    id: "video-truoc-sau",
+    name: "Video trước/sau",
+    description: "Tải ảnh \"trước\" + ảnh \"sau\", AI tạo video chuyển cảnh mượt mà từ trạng thái này sang trạng thái kia — phù hợp mỹ phẩm/làm đẹp, đổi trang phục, unboxing sản phẩm.",
+    category: "video",
+    icon: "film",
+    creditCost: 23,
+    isNew: true,
+    inputType: "video-transform",
+    outputType: "video",
+    inputLabel: "Ảnh trước và ảnh sau",
+    inputPlaceholder: "",
+    demoInput: "Ảnh da mặt xỉn màu (trước) + ảnh da mặt sáng mịn (sau)",
+    demoOutput: "Video chuyển cảnh mượt từ ảnh trước sang ảnh sau trong 4-5 giây.",
     usageCount: 0,
     rating: 5.0,
   },
