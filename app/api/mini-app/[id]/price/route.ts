@@ -15,8 +15,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     return Response.json({ error: "Không tìm thấy Mini App" }, { status: 404 });
   }
 
-  // Prompt mặc định (nếu admin đã soạn) — tự điền vào ô mô tả cho app video-gen, khách vẫn sửa được.
-  const defaultPrompt: string | null = data.model_config?.default_prompt || null;
+  // Prompt mặc định (nếu admin đã soạn VÀ đang bật hiện) — tự điền vào ô mô tả cho app video-gen,
+  // khách vẫn sửa được. default_prompt_visible mặc định true (chưa set = chưa từng tắt).
+  const defaultPromptVisible = data.model_config?.default_prompt_visible ?? true;
+  const defaultPrompt: string | null = defaultPromptVisible ? data.model_config?.default_prompt || null : null;
 
   const providerCostVnd = data.model_config?.provider_cost_vnd;
   if (!providerCostVnd) {

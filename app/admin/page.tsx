@@ -69,6 +69,7 @@ type MiniAppPrice = {
   outfitSwapModels: { generic: boolean; fashn: boolean; fashn_max: boolean } | null;
   isVideoApp: boolean;
   defaultPrompt: string;
+  defaultPromptVisible: boolean;
 };
 
 // 3 ảnh minh hoạ trên card trang chủ: trước → trang phục → sau (kiểu "A + B = C") thay vì 2 ảnh rời rạc,
@@ -124,6 +125,7 @@ export default function AdminPage() {
   const [togglingAppId, setTogglingAppId] = useState<string | null>(null);
   const [uploadingDemoImage, setUploadingDemoImage] = useState<string | null>(null);
   const [promptDrafts, setPromptDrafts] = useState<Record<string, string>>({});
+  const [promptVisibleDrafts, setPromptVisibleDrafts] = useState<Record<string, boolean>>({});
   const [savingPromptId, setSavingPromptId] = useState<string | null>(null);
   const [savedPromptId, setSavedPromptId] = useState<string | null>(null);
 
@@ -385,14 +387,16 @@ export default function AdminPage() {
   }
 
   // Prompt mặc định tự điền cho khách khi mở app tạo video — admin sửa được ngay từ đây, không cần deploy code.
+  // Công tắc ẩn/hiện tách riêng khỏi nội dung: tắt không xoá bản đã soạn, chỉ ngưng tự điền cho khách.
   async function handleSaveDefaultPrompt(app: MiniAppPrice) {
     const value = promptDrafts[app.id] ?? app.defaultPrompt;
+    const visible = promptVisibleDrafts[app.id] ?? app.defaultPromptVisible;
     setSavingPromptId(app.id);
     setAppPriceError(null);
     const res = await fetch("/api/admin/mini-apps", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: app.id, defaultPrompt: value }),
+      body: JSON.stringify({ id: app.id, defaultPrompt: value, defaultPromptVisible: visible }),
     });
     setSavingPromptId(null);
     if (!res.ok) {
@@ -980,13 +984,23 @@ export default function AdminPage() {
                           rows={2}
                           className="mb-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                         />
-                        <button
-                          onClick={() => handleSaveDefaultPrompt(app)}
-                          disabled={savingPromptId === app.id}
-                          className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-300"
-                        >
-                          {savingPromptId === app.id ? "Đang lưu..." : savedPromptId === app.id ? "Đã lưu ✓" : "Lưu prompt"}
-                        </button>
+                        <div className="mb-1 flex items-center justify-between">
+                          <label className="flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+                            <input
+                              type="checkbox"
+                              checked={promptVisibleDrafts[app.id] ?? app.defaultPromptVisible}
+                              onChange={(e) => setPromptVisibleDrafts((prev) => ({ ...prev, [app.id]: e.target.checked }))}
+                            />
+                            Hiện prompt này cho khách (tắt vẫn giữ bản đã soạn)
+                          </label>
+                          <button
+                            onClick={() => handleSaveDefaultPrompt(app)}
+                            disabled={savingPromptId === app.id}
+                            className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-300"
+                          >
+                            {savingPromptId === app.id ? "Đang lưu..." : savedPromptId === app.id ? "Đã lưu ✓" : "Lưu prompt"}
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>

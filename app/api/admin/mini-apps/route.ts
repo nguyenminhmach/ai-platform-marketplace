@@ -40,6 +40,7 @@ export async function GET(req: Request) {
           models?: Record<string, { enabled: boolean }>;
           output_type?: string;
           default_prompt?: string;
+          default_prompt_visible?: boolean;
         }
       | null;
     return {
@@ -64,6 +65,9 @@ export async function GET(req: Request) {
       // Prompt mặc định tự điền cho khách ở app tạo video — chỉ áp dụng cho app output video
       isVideoApp: config?.output_type === "video",
       defaultPrompt: config?.default_prompt ?? "",
+      // Công tắc ẩn/hiện riêng, độc lập với nội dung đã lưu — admin tắt mà không mất bản đã soạn.
+      // Mặc định true để không đổi hành vi các app đã có sẵn default_prompt từ trước.
+      defaultPromptVisible: config?.default_prompt_visible ?? true,
     };
   });
 
@@ -74,7 +78,7 @@ export async function PATCH(req: Request) {
   const token = getCookie(req, ADMIN_COOKIE_NAME);
   if (!verifyAdminToken(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
 
-  const { id, creditCost, isActive, demoImageUrls, outfitSwapModels, defaultPrompt } = await req.json();
+  const { id, creditCost, isActive, demoImageUrls, outfitSwapModels, defaultPrompt, defaultPromptVisible } = await req.json();
   if (typeof id !== "string" || !id) {
     return Response.json({ error: "Thiếu id" }, { status: 400 });
   }
@@ -83,7 +87,8 @@ export async function PATCH(req: Request) {
     isActive === undefined &&
     demoImageUrls === undefined &&
     outfitSwapModels === undefined &&
-    defaultPrompt === undefined
+    defaultPrompt === undefined &&
+    defaultPromptVisible === undefined
   ) {
     return Response.json({ error: "Không có gì để cập nhật" }, { status: 400 });
   }
@@ -103,42 +108,59 @@ export async function PATCH(req: Request) {
     }
     update.is_active = isActive;
   }
-  if (demoImageUrls !== undefined) {
-    if (!Array.isArray(demoImageUrls) || !demoImageUrls.every((u) => typeof u === "string")) {
-      return Response.json({ error: "demoImageUrls phải là mảng chuỗi" }, { status: 400 });
-    }
-    // Gộp vào model_config hiện có thay vì ghi đè — model_config còn chứa model/output_type/provider_cost_vnd...
+
+  // Các field dưới đây đều sống trong model_config — đọc 1 lần rồi gộp hết thay đổi vào cùng 1 object,
+  // tránh trường hợp gửi nhiều field model_config trong cùng 1 request mà field sau ghi đè mất field trước.
+  if (
+    demoImageUrls !== undefined ||
+    outfitSwapModels !== undefined ||
+    defaultPrompt !== undefined ||
+    defaultPromptVisible !== undefined
+  ) {
     const { data: current } = await supabase.from("mini_apps").select("model_config").eq("id", id).single();
-    update.model_config = { ...((current?.model_config as object) ?? {}), demo_image_urls: demoImageUrls };
-  }
-  if (outfitSwapModels !== undefined) {
-    if (typeof outfitSwapModels !== "object" || outfitSwapModels === null) {
-      return Response.json({ error: "outfitSwapModels không hợp lệ" }, { status: 400 });
-    }
-    const { data: current } = await supabase.from("mini_apps").select("model_config").eq("id", id).single();
-    const currentConfig = (current?.model_config as { models?: Record<string, { enabled: boolean }> }) ?? {};
-    if (!currentConfig.models) {
-      return Response.json({ error: "App này không có nhiều model để bật/tắt" }, { status: 400 });
-    }
-    const nextModels = { ...currentConfig.models };
-    for (const key of Object.keys(outfitSwapModels)) {
-      if (nextModels[key] && typeof outfitSwapModels[key] === "boolean") {
-        nextModels[key] = { ...nextModels[key], enabled: outfitSwapModels[key] };
+    const currentConfig = (current?.model_config as Record<string, unknown>) ?? {};
+    const nextConfig: Record<string, unknown> = { ...currentConfig };
+
+    if (demoImageUrls !== undefined) {
+      if (!Array.isArray(demoImageUrls) || !demoImageUrls.every((u) => typeof u === "string")) {
+        return Response.json({ error: "demoImageUrls phải là mảng chuỗi" }, { status: 400 });
       }
+      nextConfig.demo_image_urls = demoImageUrls;
     }
-    // Không cho tắt hết cả 2 — người dùng sẽ không chạy được app này nữa
-    if (!Object.values(nextModels).some((m) => m.enabled)) {
-      return Response.json({ error: "Phải bật ít nhất 1 model" }, { status: 400 });
+    if (outfitSwapModels !== undefined) {
+      if (typeof outfitSwapModels !== "object" || outfitSwapModels === null) {
+        return Response.json({ error: "outfitSwapModels không hợp lệ" }, { status: 400 });
+      }
+      const existingModels = (currentConfig.models as Record<string, { enabled: boolean }> | undefined) ?? undefined;
+      if (!existingModels) {
+        return Response.json({ error: "App này không có nhiều model để bật/tắt" }, { status: 400 });
+      }
+      const nextModels = { ...existingModels };
+      for (const key of Object.keys(outfitSwapModels)) {
+        if (nextModels[key] && typeof outfitSwapModels[key] === "boolean") {
+          nextModels[key] = { ...nextModels[key], enabled: outfitSwapModels[key] };
+        }
+      }
+      // Không cho tắt hết cả 2 — người dùng sẽ không chạy được app này nữa
+      if (!Object.values(nextModels).some((m) => m.enabled)) {
+        return Response.json({ error: "Phải bật ít nhất 1 model" }, { status: 400 });
+      }
+      nextConfig.models = nextModels;
     }
-    update.model_config = { ...currentConfig, models: nextModels };
-  }
-  if (defaultPrompt !== undefined) {
-    if (typeof defaultPrompt !== "string") {
-      return Response.json({ error: "defaultPrompt phải là chuỗi" }, { status: 400 });
+    if (defaultPrompt !== undefined) {
+      if (typeof defaultPrompt !== "string") {
+        return Response.json({ error: "defaultPrompt phải là chuỗi" }, { status: 400 });
+      }
+      nextConfig.default_prompt = defaultPrompt;
     }
-    // Gộp vào model_config hiện có, không ghi đè model/output_type/provider_cost_vnd...
-    const { data: current } = await supabase.from("mini_apps").select("model_config").eq("id", id).single();
-    update.model_config = { ...((current?.model_config as object) ?? {}), default_prompt: defaultPrompt };
+    if (defaultPromptVisible !== undefined) {
+      if (typeof defaultPromptVisible !== "boolean") {
+        return Response.json({ error: "defaultPromptVisible phải là true/false" }, { status: 400 });
+      }
+      nextConfig.default_prompt_visible = defaultPromptVisible;
+    }
+
+    update.model_config = nextConfig;
   }
 
   const { error } = await supabase.from("mini_apps").update(update).eq("id", id);
