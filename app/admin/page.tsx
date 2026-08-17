@@ -54,6 +54,7 @@ type Settings = {
   mediaMarginPercent: number;
   vndPerCredit: number;
   usdToVndRate: number;
+  freeTrialDailyCap: number;
 };
 
 type BackgroundMusicTrack = { id: number; name: string; file_url: string };
@@ -727,6 +728,22 @@ export default function AdminPage() {
                     />
                     <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
                       Dùng để quy đổi chi phí AI (actual_cost_usd) dev báo cáo, khi tính hoa hồng.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                      Trần lượt dùng thử miễn phí/ngày (/thu-mien-phi)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={settings.freeTrialDailyCap}
+                      onChange={(e) => setSettings({ ...settings, freeTrialDailyCap: Number(e.target.value) })}
+                      className="w-32 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                    />
+                    <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+                      Tổng số lượt xoá nền miễn phí toàn hệ thống mỗi ngày (không phân biệt người dùng) — chặn tự động khi
+                      vượt, tránh phát sinh chi phí Fal.ai ngoài kiểm soát.
                     </p>
                   </div>
 

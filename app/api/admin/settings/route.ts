@@ -16,7 +16,7 @@ export async function GET(req: Request) {
   const { data, error } = await supabase
     .from("site_settings")
     .select(
-      "signup_bonus_credits, promo_banner_enabled, subscription_enabled, subscription_price_vnd, subscription_duration_days, media_margin_percent, vnd_per_credit, usd_to_vnd_rate"
+      "signup_bonus_credits, promo_banner_enabled, subscription_enabled, subscription_price_vnd, subscription_duration_days, media_margin_percent, vnd_per_credit, usd_to_vnd_rate, free_trial_daily_cap"
     )
     .eq("id", 1)
     .single();
@@ -31,6 +31,7 @@ export async function GET(req: Request) {
       mediaMarginPercent: 50,
       vndPerCredit: 490,
       usdToVndRate: 26000,
+      freeTrialDailyCap: 50,
     });
   }
 
@@ -43,6 +44,7 @@ export async function GET(req: Request) {
     mediaMarginPercent: data.media_margin_percent,
     vndPerCredit: data.vnd_per_credit,
     usdToVndRate: data.usd_to_vnd_rate,
+    freeTrialDailyCap: data.free_trial_daily_cap ?? 50,
   });
 }
 
@@ -59,6 +61,7 @@ export async function PATCH(req: Request) {
     mediaMarginPercent,
     vndPerCredit,
     usdToVndRate,
+    freeTrialDailyCap,
   } = await req.json();
 
   if (typeof signupBonusCredits !== "number" || signupBonusCredits < 0) {
@@ -85,6 +88,9 @@ export async function PATCH(req: Request) {
   if (typeof usdToVndRate !== "number" || usdToVndRate <= 0) {
     return Response.json({ error: "usdToVndRate phải là số dương" }, { status: 400 });
   }
+  if (typeof freeTrialDailyCap !== "number" || freeTrialDailyCap < 0 || !Number.isInteger(freeTrialDailyCap)) {
+    return Response.json({ error: "freeTrialDailyCap phải là số nguyên không âm" }, { status: 400 });
+  }
 
   const supabase = getSupabaseAdmin();
   const { error } = await supabase
@@ -98,6 +104,7 @@ export async function PATCH(req: Request) {
       media_margin_percent: mediaMarginPercent,
       vnd_per_credit: vndPerCredit,
       usd_to_vnd_rate: usdToVndRate,
+      free_trial_daily_cap: freeTrialDailyCap,
       updated_at: new Date().toISOString(),
     })
     .eq("id", 1);
