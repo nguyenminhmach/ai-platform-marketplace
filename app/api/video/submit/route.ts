@@ -23,7 +23,7 @@ export async function POST(req: Request) {
       randomUUID(),
       startFrameDataUrl,
       endFrameDataUrl,
-      modelChoice === "basic" || modelChoice === "premium" ? modelChoice : undefined,
+      modelChoice === "basic" || modelChoice === "premium" || modelChoice === "budget" ? modelChoice : undefined,
       duration === "5" || duration === "10" ? duration : undefined
     );
     return Response.json({ success: true, jobId: result.jobId, newBalance: result.newBalance });

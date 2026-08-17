@@ -79,7 +79,7 @@ const DEMO_IMAGE_SLOT_LABELS = ["Trước", "Trang phục", "Sau"];
 
 // Nhãn hiển thị cho các key trong model_config.models — dùng cho khối "Tier chất lượng" tổng quát
 // (app.modelTiers), không phải khối "Model AI" riêng của Thay trang phục.
-const MODEL_TIER_LABELS: Record<string, string> = { basic: "Cơ bản", premium: "Cao cấp" };
+const MODEL_TIER_LABELS: Record<string, string> = { budget: "Tiết kiệm", basic: "Cơ bản", premium: "Cao cấp" };
 
 const MODEL_OPTIONS = [
   { value: "google/gemini-3-flash-preview", label: "Gemini Flash (rẻ, nhanh)" },

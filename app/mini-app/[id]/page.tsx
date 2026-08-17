@@ -34,12 +34,17 @@ export default function MiniAppDetailPage() {
   const [videoStatusText, setVideoStatusText] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [liveCreditCost, setLiveCreditCost] = useState<number | null>(null);
-  // Tier chất lượng video ("Tạo video quảng cáo ngắn" — Cơ bản/Cao cấp) — app không có tier trả
-  // mảng rỗng nên UI chọn tier chỉ hiện khi videoTiers.length > 0.
+  // Tier chất lượng video (Tiết kiệm/Cơ bản/Cao cấp) — app không có tier trả mảng rỗng nên UI chọn
+  // tier chỉ hiện khi videoTiers.length > 0.
   const [videoTiers, setVideoTiers] = useState<
-    { key: "basic" | "premium"; label: string; creditCost?: number; creditCostByDuration?: { "5": number; "10": number } }[]
+    {
+      key: "basic" | "premium" | "budget";
+      label: string;
+      creditCost?: number;
+      creditCostByDuration?: { "5": number; "10": number };
+    }[]
   >([]);
-  const [selectedVideoTier, setSelectedVideoTier] = useState<"basic" | "premium">("basic");
+  const [selectedVideoTier, setSelectedVideoTier] = useState<"basic" | "premium" | "budget">("basic");
   const [selectedVideoDuration, setSelectedVideoDuration] = useState<"5" | "10">("5");
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 

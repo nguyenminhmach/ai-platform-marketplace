@@ -2,14 +2,19 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { deductCredit, refundCredit, InsufficientCreditError } from "@/lib/credit-system";
 import { computeDynamicCreditCost, getMediaPricingSettings, getUsdToVndRate } from "@/lib/pricing";
 
-// Tier chất lượng cho app video có nhiều mức (hiện chỉ "Tạo video quảng cáo ngắn") — "basic" giá cố
-// định 1 mức, "premium" giá khác nhau theo duration (Kling v2.1 Pro tính theo giây thật).
+// Tier chất lượng cho app video có nhiều mức — "basic"/"budget" giá cố định 1 mức, "premium" giá
+// khác nhau theo duration (Kling v2.1 Pro tính theo giây thật).
+type VideoTierKey = "basic" | "premium" | "budget";
+
 type VideoTierEntry = {
   model: string;
   enabled: boolean;
-  provider_cost_vnd?: number; // dùng cho tier giá cố định (basic)
+  provider_cost_vnd?: number; // dùng cho tier giá cố định (basic, budget)
   provider_cost_vnd_5s?: number; // dùng cho tier tính theo duration (premium)
   provider_cost_vnd_10s?: number;
+  // "ltx": model LTX-2.3 nhận start_image_url/end_image_url — khác hẳn tên tham số image_url/
+  // tail_image_url của Kling. Không set = mặc định kiểu Kling (mọi tier khác hiện có).
+  param_style?: "ltx";
 };
 
 type MiniAppRow = {
@@ -29,7 +34,7 @@ type MiniAppRow = {
     // "motion-control": app "Nhảy theo video mẫu" — Kling nhận ảnh nhân vật + video mẫu chuyển
     // động (không phải prompt chữ), body Fal.ai khác hẳn image-to-video thường.
     input_mode?: "motion-control";
-    models?: { basic?: VideoTierEntry; premium?: VideoTierEntry };
+    models?: Partial<Record<VideoTierKey, VideoTierEntry>>;
   };
 };
 
@@ -74,17 +79,19 @@ async function getMiniAppConfig(miniAppId: string): Promise<MiniAppRow> {
   return row;
 }
 
-const VIDEO_TIER_LABELS: Record<"basic" | "premium", string> = {
+const VIDEO_TIER_LABELS: Record<VideoTierKey, string> = {
+  budget: "Tiết kiệm",
   basic: "Cơ bản",
   premium: "Cao cấp",
 };
 
 // Danh sách tier chất lượng đang bật + giá credit cho từng lựa chọn — trang chi tiết app video gọi
 // hàm này để build nút chọn tier (giống hệt pattern getEnabledOutfitSwapModels() bên outfit-swap).
-// App không có model_config.models (Video trước/sau, Nhảy theo video mẫu...) trả về mảng rỗng.
+// App không có model_config.models (Nhảy theo video mẫu...) trả về mảng rỗng. Thứ tự trả về là
+// thứ tự hiển thị nút — xếp theo giá tăng dần (budget rẻ nhất trước basic dù tên gọi ngược lại).
 export async function getVideoQualityTiers(miniAppId: string): Promise<
   {
-    key: "basic" | "premium";
+    key: VideoTierKey;
     label: string;
     creditCost?: number; // tier giá cố định
     creditCostByDuration?: { "5": number; "10": number }; // tier tính theo duration
@@ -105,6 +112,13 @@ export async function getVideoQualityTiers(miniAppId: string): Promise<
   const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
   const result: Awaited<ReturnType<typeof getVideoQualityTiers>> = [];
 
+  if (models.budget?.enabled && models.budget.provider_cost_vnd) {
+    result.push({
+      key: "budget",
+      label: VIDEO_TIER_LABELS.budget,
+      creditCost: computeDynamicCreditCost(models.budget.provider_cost_vnd, marginPercent, vndPerCredit),
+    });
+  }
   if (models.basic?.enabled && models.basic.provider_cost_vnd) {
     result.push({
       key: "basic",
@@ -346,24 +360,26 @@ export async function submitVideoJob(
   idempotencyKey: string,
   startFrameDataUrl?: string,
   endFrameDataUrl?: string,
-  modelChoice?: "basic" | "premium",
+  modelChoice?: VideoTierKey,
   duration?: "5" | "10"
 ): Promise<{ jobId: number; newBalance: number }> {
   const miniApp = await getMiniAppConfig(miniAppId);
   const supabase = getSupabaseAdmin();
 
-  // App có nhiều tier chất lượng (model_config.models, hiện chỉ "Tạo video quảng cáo ngắn") — model +
-  // giá phụ thuộc tier đã chọn, ghi đè giá tính sẵn ở getMiniAppConfig() (dựa theo provider_cost_vnd
-  // đơn, không biết tier). App không có tier (Video trước/sau, Nhảy theo video mẫu...) bỏ qua nhánh này.
+  // App có nhiều tier chất lượng (model_config.models) — model + giá phụ thuộc tier đã chọn, ghi đè
+  // giá tính sẵn ở getMiniAppConfig() (dựa theo provider_cost_vnd đơn, không biết tier). App không
+  // có tier (Nhảy theo video mẫu...) bỏ qua nhánh này.
   let modelToCall = miniApp.model_config.model;
-  let resolvedTier: "basic" | "premium" | null = null;
+  let resolvedTier: VideoTierKey | null = null;
+  let resolvedParamStyle: "ltx" | undefined;
   if (miniApp.model_config.models) {
-    const tierKey: "basic" | "premium" =
+    const tierKey: VideoTierKey =
       modelChoice && miniApp.model_config.models[modelChoice]?.enabled ? modelChoice : "basic";
     const tier = miniApp.model_config.models[tierKey];
     if (!tier) throw new Error("Không tìm thấy tier chất lượng video hợp lệ");
     resolvedTier = tierKey;
     modelToCall = tier.model;
+    resolvedParamStyle = tier.param_style;
 
     const providerCostVnd =
       tierKey === "premium"
@@ -415,6 +431,12 @@ export async function submitVideoJob(
         video_url: endFrameDataUrl,
         character_orientation: "video",
       };
+    } else if (resolvedParamStyle === "ltx") {
+      // Tier "budget" (LTX-2.3 Fast) đặt tên tham số khác Kling: start_image_url/end_image_url
+      // thay vì image_url/tail_image_url — độ dài video dùng mặc định của model (không cho chọn).
+      body = { prompt };
+      if (startFrameDataUrl) body.start_image_url = startFrameDataUrl;
+      if (endFrameDataUrl) body.end_image_url = endFrameDataUrl;
     } else {
       body = { prompt };
       if (startFrameDataUrl) body.image_url = startFrameDataUrl;
