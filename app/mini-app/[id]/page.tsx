@@ -1753,9 +1753,17 @@ export default function MiniAppDetailPage() {
               <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Kết quả từ AI</p>
               {app.outputType === "image" ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={result} alt="Ảnh do AI tạo" className="w-full max-w-md rounded-lg" />
+                <img
+                  src={result}
+                  alt="Ảnh do AI tạo"
+                  className={`w-full max-w-md rounded-lg ${app.inputType === "video-gen" ? "max-h-[50vh] object-contain" : ""}`}
+                />
               ) : app.outputType === "video" ? (
-                <video src={result} controls className="w-full max-w-md rounded-lg" />
+                <video
+                  src={result}
+                  controls
+                  className={`w-full max-w-md rounded-lg ${app.inputType === "video-gen" ? "max-h-[50vh] object-contain" : ""}`}
+                />
               ) : (
                 <p className="text-sm text-zinc-800 dark:text-zinc-200">{result}</p>
               )}
