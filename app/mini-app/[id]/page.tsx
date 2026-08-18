@@ -1731,6 +1731,17 @@ export default function MiniAppDetailPage() {
           </div>
           <div>
 
+          {isVideoPilotLayout && !result && !outfitSwapResults && (
+            <div className="flex min-h-[320px] flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-800">
+              <p className="text-sm font-medium text-zinc-400 dark:text-zinc-500">
+                {isRunning ? "Đang xử lý..." : "Kết quả sẽ hiển thị ở đây"}
+              </p>
+              {!isRunning && (
+                <p className="text-xs text-zinc-400 dark:text-zinc-600">Bấm &quot;Chạy ngay&quot; để bắt đầu</p>
+              )}
+            </div>
+          )}
+
           {outfitSwapResults && (
             <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800">
               <p className="mb-3 text-xs font-medium text-zinc-500 dark:text-zinc-400">
