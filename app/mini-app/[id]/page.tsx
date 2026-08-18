@@ -1834,11 +1834,18 @@ export default function MiniAppDetailPage() {
           )}
 
           {outfitSwapResults && (
-            <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800">
+            <div
+              className={`mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800 ${
+                isTwoColumnLayout ? "flex flex-1 flex-col" : ""
+              }`}
+            >
               <p className="mb-3 text-xs font-medium text-zinc-500 dark:text-zinc-400">
                 Kết quả từ AI ({outfitSwapResults.length} ảnh)
               </p>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <div
+                className="grid gap-3"
+                style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
+              >
                 {outfitSwapResults.map((url, index) => (
                   <div key={index}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1879,7 +1886,9 @@ export default function MiniAppDetailPage() {
                   setGarmentImages([]);
                   setImageDataUrl(null);
                 }}
-                className="mt-3 rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                className={`rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300 ${
+                  isTwoColumnLayout ? "mt-auto pt-3" : "mt-3"
+                }`}
               >
                 Chạy lại với ảnh khác
               </button>
