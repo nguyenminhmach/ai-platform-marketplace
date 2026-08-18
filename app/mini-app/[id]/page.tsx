@@ -988,19 +988,20 @@ export default function MiniAppDetailPage() {
   }
 
   // Bố cục 2 cột (input trái/kết quả phải, tên app trên header) — thí điểm ở "Tạo video từ ảnh",
-  // giờ áp dụng thêm cho 2 app video còn lại có input đơn giản tương tự (ảnh + mô tả/tier). Không
-  // áp dụng "Video đồng nhất nhân vật" — UI của app đó là danh sách nhân vật động, khác cấu trúc.
-  const isVideoPilotLayout = ["video-gen", "video-transform", "motion-transfer"].includes(app.inputType);
+  // giờ áp dụng thêm cho 2 app video khác có input đơn giản tương tự (ảnh + mô tả/tier), và
+  // "Thay trang phục" (nhiều ảnh trang phục + 1 ảnh người mẫu, kết quả nhiều ảnh — outfitSwapResults).
+  // Không áp dụng "Video đồng nhất nhân vật" — UI app đó là danh sách nhân vật động, khác cấu trúc.
+  const isTwoColumnLayout = ["video-gen", "video-transform", "motion-transfer", "outfit-swap"].includes(app.inputType);
 
   return (
     <div className="min-h-full bg-zinc-50 dark:bg-black">
       <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-black/80">
-        <div className={`mx-auto flex items-center justify-between px-6 py-4 ${isVideoPilotLayout ? "max-w-6xl" : "max-w-3xl"}`}>
+        <div className={`mx-auto flex items-center justify-between px-6 py-4 ${isTwoColumnLayout ? "max-w-6xl" : "max-w-3xl"}`}>
           <div className="flex items-center gap-4">
             <Link href="/" className="text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50">
               ← Quay lại Danh mục
             </Link>
-            {isVideoPilotLayout && (
+            {isTwoColumnLayout && (
               <span className="hidden text-base font-semibold text-zinc-900 dark:text-zinc-50 sm:inline">
                 {app.name}
               </span>
@@ -1015,12 +1016,12 @@ export default function MiniAppDetailPage() {
 
       <main
         className={`mx-auto px-6 ${
-          isVideoPilotLayout ? "max-w-6xl pt-4 pb-10" : "max-w-3xl py-10"
+          isTwoColumnLayout ? "max-w-6xl pt-4 pb-10" : "max-w-3xl py-10"
         }`}
       >
         {/* Header Mini App — bỏ badge Danh mục/Hot/Mới riêng cho các app video dùng bố cục 2 cột, tên
             app đã chuyển lên thanh Header phía trên rồi nên không cần lặp lại gì ở đây nữa. */}
-        {!isVideoPilotLayout && (
+        {!isTwoColumnLayout && (
           <div className="mb-2 flex items-center gap-2">
             <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
               {CATEGORIES[app.category]}
@@ -1037,7 +1038,7 @@ export default function MiniAppDetailPage() {
             )}
           </div>
         )}
-        {!isVideoPilotLayout && (
+        {!isTwoColumnLayout && (
           <>
             <h1 className="mb-2 text-2xl font-semibold text-zinc-900 dark:text-zinc-50">{app.name}</h1>
             <p className="mb-4 text-zinc-600 dark:text-zinc-400">{app.description}</p>
@@ -1083,8 +1084,8 @@ export default function MiniAppDetailPage() {
           {/* Bố cục 2 cột (trái = input, phải = kết quả) cho các app video đơn giản (ảnh + mô tả/tier)
               — app khác vẫn giữ nguyên 1 cột như trước, 2 div dưới đây chỉ là wrapper vô hại khi
               không phải grid. */}
-          <div className={isVideoPilotLayout ? "grid grid-cols-1 gap-6 lg:grid-cols-2" : undefined}>
-          <div className={isVideoPilotLayout ? "flex h-full flex-col" : undefined}>
+          <div className={isTwoColumnLayout ? "grid grid-cols-1 gap-6 lg:grid-cols-2" : undefined}>
+          <div className={isTwoColumnLayout ? "flex h-full flex-col" : undefined}>
           {app.inputType !== "outfit-swap" && app.inputType !== "dialogue-video" && (
             <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               {app.inputLabel}
@@ -1719,8 +1720,8 @@ export default function MiniAppDetailPage() {
               </button>
             </div>
           ) : app.inputType === "outfit-swap" ? (
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-zinc-600 dark:text-zinc-400">
+            <div className={`flex items-center justify-between ${isTwoColumnLayout ? "mt-auto pt-4" : ""}`}>
+              <span className={isTwoColumnLayout ? "text-base text-zinc-600 dark:text-zinc-400" : "text-sm text-zinc-600 dark:text-zinc-400"}>
                 {(() => {
                   const pricePerImage = outfitSwapModels.find((m) => m.key === outfitSwapModelChoice)?.pricePerImage ?? 0;
                   return (
@@ -1737,7 +1738,11 @@ export default function MiniAppDetailPage() {
               <button
                 onClick={handleRunOutfitSwap}
                 disabled={isRunning || garmentImages.length === 0 || !imageDataUrl || !outfitSwapModelChoice}
-                className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                className={
+                  isTwoColumnLayout
+                    ? "rounded-full bg-zinc-900 px-5 py-2 text-base font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                    : "rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                }
               >
                 {isRunning ? "Đang xử lý..." : "Chạy ngay"}
               </button>
@@ -1751,11 +1756,11 @@ export default function MiniAppDetailPage() {
             </div>
           ) : (
             <div
-              className={`flex items-center justify-between ${isVideoPilotLayout ? "mt-auto pt-4" : ""}`}
+              className={`flex items-center justify-between ${isTwoColumnLayout ? "mt-auto pt-4" : ""}`}
             >
               <span
                 className={
-                  isVideoPilotLayout
+                  isTwoColumnLayout
                     ? "text-base text-zinc-600 dark:text-zinc-400"
                     : "text-sm text-zinc-600 dark:text-zinc-400"
                 }
@@ -1793,7 +1798,7 @@ export default function MiniAppDetailPage() {
                     : input.trim() === "")
                 }
                 className={
-                  isVideoPilotLayout
+                  isTwoColumnLayout
                     ? "rounded-full bg-zinc-900 px-5 py-2 text-base font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
                     : "rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
                 }
@@ -1815,9 +1820,9 @@ export default function MiniAppDetailPage() {
             <p className="mt-3 text-sm text-red-600 dark:text-red-400">{runError}</p>
           )}
           </div>
-          <div className={isVideoPilotLayout ? "flex h-full flex-col" : undefined}>
+          <div className={isTwoColumnLayout ? "flex h-full flex-col" : undefined}>
 
-          {isVideoPilotLayout && !result && !outfitSwapResults && (
+          {isTwoColumnLayout && !result && !outfitSwapResults && (
             <div className="flex flex-1 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-800">
               <p className="text-sm font-medium text-zinc-400 dark:text-zinc-500">
                 {isRunning ? "Đang xử lý..." : "Kết quả sẽ hiển thị ở đây"}
@@ -1889,13 +1894,13 @@ export default function MiniAppDetailPage() {
                 <img
                   src={result}
                   alt="Ảnh do AI tạo"
-                  className={`w-full max-w-md rounded-lg ${isVideoPilotLayout ? "max-h-[50vh] object-contain" : ""}`}
+                  className={`w-full max-w-md rounded-lg ${isTwoColumnLayout ? "max-h-[50vh] object-contain" : ""}`}
                 />
               ) : app.outputType === "video" ? (
                 <video
                   src={result}
                   controls
-                  className={`w-full max-w-md rounded-lg ${isVideoPilotLayout ? "max-h-[50vh] object-contain" : ""}`}
+                  className={`w-full max-w-md rounded-lg ${isTwoColumnLayout ? "max-h-[50vh] object-contain" : ""}`}
                 />
               ) : (
                 <p className="text-sm text-zinc-800 dark:text-zinc-200">{result}</p>
