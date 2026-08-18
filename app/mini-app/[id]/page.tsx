@@ -1843,13 +1843,27 @@ export default function MiniAppDetailPage() {
                 Kết quả từ AI ({outfitSwapResults.length} ảnh)
               </p>
               <div
-                className="grid gap-3"
-                style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
+                className={
+                  outfitSwapResults.length === 1
+                    ? isTwoColumnLayout
+                      ? "flex flex-1 flex-col items-center justify-center"
+                      : "flex justify-center"
+                    : "grid gap-3"
+                }
+                style={outfitSwapResults.length === 1 ? undefined : { gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
               >
                 {outfitSwapResults.map((url, index) => (
-                  <div key={index}>
+                  <div key={index} className={outfitSwapResults.length === 1 ? "w-full max-w-md" : undefined}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={url} alt={`Kết quả ${index + 1}`} className="aspect-square w-full rounded-lg object-cover" />
+                    <img
+                      src={url}
+                      alt={`Kết quả ${index + 1}`}
+                      className={
+                        outfitSwapResults.length === 1
+                          ? `w-full rounded-lg object-contain ${isTwoColumnLayout ? "max-h-[55vh]" : ""}`
+                          : "aspect-square w-full rounded-lg object-cover"
+                      }
+                    />
                     <div className="mt-1 flex items-center justify-center gap-2">
                       <a
                         href={`/api/download?url=${encodeURIComponent(url)}&filename=ket-qua-${index + 1}.jpg`}
