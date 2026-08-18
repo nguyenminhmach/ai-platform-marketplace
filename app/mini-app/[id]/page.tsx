@@ -13,6 +13,18 @@ import { supabaseBrowser } from "@/lib/supabase-browser";
 // Kling (model tạo video đang dùng) từ chối xử lý (lỗi 422) nếu prompt quá dài — giữ dưới ngưỡng an toàn.
 const VIDEO_PROMPT_MAX_LENGTH = 2000;
 
+// Giá hiện trên nút chọn tier — tier tính theo duration hiện giá rẻ nhất ("từ X credit") thay vì
+// tra theo selectedVideoDuration hiện tại, vì mỗi tier/model có bộ giây hợp lệ khác nhau (Kling
+// 5/10, LTX-2.3 6/8/10/12/...) nên số giây đang chọn ở tier khác có thể không tồn tại ở tier này.
+function tierDisplayCost(tier: { creditCost?: number; creditCostByDuration?: Record<string, number> }): number | undefined {
+  if (tier.creditCost !== undefined) return tier.creditCost;
+  if (tier.creditCostByDuration) {
+    const values = Object.values(tier.creditCostByDuration);
+    return values.length ? Math.min(...values) : undefined;
+  }
+  return undefined;
+}
+
 export default function MiniAppDetailPage() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
@@ -41,11 +53,11 @@ export default function MiniAppDetailPage() {
       key: "basic" | "premium" | "budget";
       label: string;
       creditCost?: number;
-      creditCostByDuration?: { "5": number; "10": number };
+      creditCostByDuration?: Record<string, number>; // key là số giây — mỗi tier/model có bộ giây riêng
     }[]
   >([]);
   const [selectedVideoTier, setSelectedVideoTier] = useState<"basic" | "premium" | "budget">("basic");
-  const [selectedVideoDuration, setSelectedVideoDuration] = useState<"5" | "10">("5");
+  const [selectedVideoDuration, setSelectedVideoDuration] = useState<string>("5");
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // "AI viết giúp mô tả" — khách gõ 1 gợi ý ngắn tiếng Việt, gọi OpenRouter (có nhìn ảnh nhân vật
@@ -1177,7 +1189,12 @@ export default function MiniAppDetailPage() {
                     {videoTiers.map((tier) => (
                       <button
                         key={tier.key}
-                        onClick={() => setSelectedVideoTier(tier.key)}
+                        onClick={() => {
+                          setSelectedVideoTier(tier.key);
+                          if (tier.creditCostByDuration) {
+                            setSelectedVideoDuration(Object.keys(tier.creditCostByDuration)[0]);
+                          }
+                        }}
                         className={`rounded-full px-3 py-1.5 text-xs font-medium ${
                           selectedVideoTier === tier.key
                             ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
@@ -1185,7 +1202,8 @@ export default function MiniAppDetailPage() {
                         }`}
                       >
                         {tier.label} —{" "}
-                        {tier.creditCost ?? tier.creditCostByDuration?.[selectedVideoDuration] ?? "?"} credit
+                        {tier.creditCostByDuration ? "từ " : ""}
+                        {tierDisplayCost(tier) ?? "?"} credit
                       </button>
                     ))}
                   </div>
@@ -1193,9 +1211,9 @@ export default function MiniAppDetailPage() {
                     const tier = videoTiers.find((t) => t.key === selectedVideoTier);
                     if (!tier?.creditCostByDuration) return null;
                     return (
-                      <div className="mt-2 flex items-center gap-2">
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
                         <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Độ dài video:</p>
-                        {(["5", "10"] as const).map((d) => (
+                        {Object.keys(tier.creditCostByDuration).map((d) => (
                           <button
                             key={d}
                             onClick={() => setSelectedVideoDuration(d)}
@@ -1310,7 +1328,12 @@ export default function MiniAppDetailPage() {
                     {videoTiers.map((tier) => (
                       <button
                         key={tier.key}
-                        onClick={() => setSelectedVideoTier(tier.key)}
+                        onClick={() => {
+                          setSelectedVideoTier(tier.key);
+                          if (tier.creditCostByDuration) {
+                            setSelectedVideoDuration(Object.keys(tier.creditCostByDuration)[0]);
+                          }
+                        }}
                         className={`rounded-full px-3 py-1.5 text-xs font-medium ${
                           selectedVideoTier === tier.key
                             ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
@@ -1318,7 +1341,8 @@ export default function MiniAppDetailPage() {
                         }`}
                       >
                         {tier.label} —{" "}
-                        {tier.creditCost ?? tier.creditCostByDuration?.[selectedVideoDuration] ?? "?"} credit
+                        {tier.creditCostByDuration ? "từ " : ""}
+                        {tierDisplayCost(tier) ?? "?"} credit
                       </button>
                     ))}
                   </div>
@@ -1326,9 +1350,9 @@ export default function MiniAppDetailPage() {
                     const tier = videoTiers.find((t) => t.key === selectedVideoTier);
                     if (!tier?.creditCostByDuration) return null;
                     return (
-                      <div className="mt-2 flex items-center gap-2">
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
                         <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Độ dài video:</p>
-                        {(["5", "10"] as const).map((d) => (
+                        {Object.keys(tier.creditCostByDuration).map((d) => (
                           <button
                             key={d}
                             onClick={() => setSelectedVideoDuration(d)}
@@ -1423,14 +1447,20 @@ export default function MiniAppDetailPage() {
                     {videoTiers.map((tier) => (
                       <button
                         key={tier.key}
-                        onClick={() => setSelectedVideoTier(tier.key)}
+                        onClick={() => {
+                          setSelectedVideoTier(tier.key);
+                          if (tier.creditCostByDuration) {
+                            setSelectedVideoDuration(Object.keys(tier.creditCostByDuration)[0]);
+                          }
+                        }}
                         className={`rounded-full px-3 py-1.5 text-xs font-medium ${
                           selectedVideoTier === tier.key
                             ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
                             : "border border-zinc-300 text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
                         }`}
                       >
-                        {tier.label} — {tier.creditCost ?? tier.creditCostByDuration?.[selectedVideoDuration] ?? "?"} credit
+                        {tier.label} — {tier.creditCostByDuration ? "từ " : ""}
+                        {tierDisplayCost(tier) ?? "?"} credit
                       </button>
                     ))}
                   </div>

@@ -24,7 +24,9 @@ export async function POST(req: Request) {
       startFrameDataUrl,
       endFrameDataUrl,
       modelChoice === "basic" || modelChoice === "premium" || modelChoice === "budget" ? modelChoice : undefined,
-      duration === "5" || duration === "10" ? duration : undefined
+      // Số giây hợp lệ cho mỗi tier/model khác nhau (Kling 5/10, LTX-2.3 6/8/10/12/...) — chỉ chặn
+      // format ở đây (chuỗi số nguyên dương ngắn), đối chiếu đúng mức tier hỗ trợ nằm ở submitVideoJob.
+      typeof duration === "string" && /^[0-9]{1,3}$/.test(duration) ? duration : undefined
     );
     return Response.json({ success: true, jobId: result.jobId, newBalance: result.newBalance });
   } catch (err) {
