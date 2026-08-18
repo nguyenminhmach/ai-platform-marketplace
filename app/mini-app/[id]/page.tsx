@@ -48,6 +48,38 @@ export default function MiniAppDetailPage() {
   const [selectedVideoDuration, setSelectedVideoDuration] = useState<"5" | "10">("5");
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // "AI viết giúp mô tả" — khách gõ 1 gợi ý ngắn tiếng Việt, gọi OpenRouter (có nhìn ảnh nhân vật
+  // nếu đã tải) để tự viết prompt tiếng Anh chuẩn cho Kling, điền thẳng vào ô "Câu lệnh mô tả".
+  const [promptHint, setPromptHint] = useState("");
+  const [generatingPrompt, setGeneratingPrompt] = useState(false);
+  const [promptGenError, setPromptGenError] = useState<string | null>(null);
+
+  async function handleGeneratePrompt() {
+    if (!promptHint.trim()) {
+      setPromptGenError("Nhập gợi ý trước đã");
+      return;
+    }
+    setGeneratingPrompt(true);
+    setPromptGenError(null);
+    try {
+      const res = await fetch("/api/video/generate-prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ miniAppId: params.id, hint: promptHint.trim(), imageDataUrl: imageDataUrl ?? undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPromptGenError(data.error ?? "Không tạo được prompt");
+        return;
+      }
+      setInput(data.prompt);
+    } catch {
+      setPromptGenError("Không kết nối được tới server");
+    } finally {
+      setGeneratingPrompt(false);
+    }
+  }
+
   // Đăng video kết quả thẳng lên kênh YouTube của user (OAuth qua Google) — chỉ áp dụng cho app
   // outputType "video". youtubeStatus null = chưa kiểm tra xong.
   const [youtubeStatus, setYoutubeStatus] = useState<{ connected: boolean; channelTitle: string | null } | null>(null);
@@ -1181,6 +1213,30 @@ export default function MiniAppDetailPage() {
                   })()}
                 </div>
               )}
+
+              <div className="mb-3 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800">
+                <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                  Không biết viết mô tả? Gõ gợi ý ngắn, để AI viết giúp
+                </p>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input
+                    type="text"
+                    value={promptHint}
+                    onChange={(e) => setPromptHint(e.target.value)}
+                    placeholder="Ví dụ: video selfie tự nhiên, đang chải tóc"
+                    maxLength={300}
+                    className="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                  />
+                  <button
+                    onClick={handleGeneratePrompt}
+                    disabled={generatingPrompt || !promptHint.trim()}
+                    className="shrink-0 rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-300"
+                  >
+                    {generatingPrompt ? "Đang viết..." : "✨ AI viết giúp mô tả"}
+                  </button>
+                </div>
+                {promptGenError && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{promptGenError}</p>}
+              </div>
 
               <p className="mb-1 text-sm font-semibold text-zinc-700 dark:text-zinc-300">Câu lệnh mô tả (có thể chỉnh sửa)</p>
               <textarea

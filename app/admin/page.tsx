@@ -72,6 +72,7 @@ type MiniAppPrice = {
   isVideoApp: boolean;
   defaultPrompt: string;
   defaultPromptVisible: boolean;
+  promptHelperInstructions: string;
 };
 
 // 3 ảnh minh hoạ trên card trang chủ: trước → trang phục → sau (kiểu "A + B = C") thay vì 2 ảnh rời rạc,
@@ -134,6 +135,9 @@ export default function AdminPage() {
   const [promptVisibleDrafts, setPromptVisibleDrafts] = useState<Record<string, boolean>>({});
   const [savingPromptId, setSavingPromptId] = useState<string | null>(null);
   const [savedPromptId, setSavedPromptId] = useState<string | null>(null);
+  const [helperInstructionsDrafts, setHelperInstructionsDrafts] = useState<Record<string, string>>({});
+  const [savingHelperId, setSavingHelperId] = useState<string | null>(null);
+  const [savedHelperId, setSavedHelperId] = useState<string | null>(null);
 
   const [showNewAppForm, setShowNewAppForm] = useState(false);
   const [newAppType, setNewAppType] = useState<"text" | "image" | "video">("text");
@@ -412,6 +416,28 @@ export default function AdminPage() {
     }
     setSavedPromptId(app.id);
     setTimeout(() => setSavedPromptId(null), 2000);
+    loadMiniApps();
+  }
+
+  // Hướng dẫn (system prompt) cho nút "AI viết giúp mô tả" ở trang app — rỗng thì route tự dùng
+  // bản mặc định rút gọn từ skill video-motion-prompt, không cần admin soạn ngay từ đầu.
+  async function handleSaveHelperInstructions(app: MiniAppPrice) {
+    const value = helperInstructionsDrafts[app.id] ?? app.promptHelperInstructions;
+    setSavingHelperId(app.id);
+    setAppPriceError(null);
+    const res = await fetch("/api/admin/mini-apps", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: app.id, promptHelperInstructions: value }),
+    });
+    setSavingHelperId(null);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setAppPriceError(data.error ?? "Không lưu được hướng dẫn AI viết giúp mô tả");
+      return;
+    }
+    setSavedHelperId(app.id);
+    setTimeout(() => setSavedHelperId(null), 2000);
     loadMiniApps();
   }
 
@@ -1056,6 +1082,29 @@ export default function AdminPage() {
                             className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-300"
                           >
                             {savingPromptId === app.id ? "Đang lưu..." : savedPromptId === app.id ? "Đã lưu ✓" : "Lưu prompt"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {app.isVideoApp && (
+                      <div className="border-t border-zinc-100 pt-2 dark:border-zinc-800">
+                        <p className="mb-1 text-xs text-zinc-500 dark:text-zinc-400">
+                          Hướng dẫn cho nút &quot;AI viết giúp mô tả&quot; (rỗng = dùng bản mặc định)
+                        </p>
+                        <textarea
+                          value={helperInstructionsDrafts[app.id] ?? app.promptHelperInstructions}
+                          onChange={(e) => setHelperInstructionsDrafts((prev) => ({ ...prev, [app.id]: e.target.value }))}
+                          rows={3}
+                          placeholder="Để trống sẽ dùng hướng dẫn mặc định (giữ nguyên danh tính/trang phục/bối cảnh, camera đứng yên, 1 chuyển động nhỏ tự nhiên)..."
+                          className="mb-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                        />
+                        <div className="flex justify-end">
+                          <button
+                            onClick={() => handleSaveHelperInstructions(app)}
+                            disabled={savingHelperId === app.id}
+                            className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-300"
+                          >
+                            {savingHelperId === app.id ? "Đang lưu..." : savedHelperId === app.id ? "Đã lưu ✓" : "Lưu hướng dẫn"}
                           </button>
                         </div>
                       </div>

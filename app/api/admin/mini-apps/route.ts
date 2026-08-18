@@ -41,6 +41,7 @@ export async function GET(req: Request) {
           output_type?: string;
           default_prompt?: string;
           default_prompt_visible?: boolean;
+          prompt_helper_instructions?: string;
         }
       | null;
     return {
@@ -76,6 +77,8 @@ export async function GET(req: Request) {
       // Công tắc ẩn/hiện riêng, độc lập với nội dung đã lưu — admin tắt mà không mất bản đã soạn.
       // Mặc định true để không đổi hành vi các app đã có sẵn default_prompt từ trước.
       defaultPromptVisible: config?.default_prompt_visible ?? true,
+      // System prompt cho nút "AI viết giúp mô tả" — rỗng thì route generate-prompt tự dùng bản mặc định
+      promptHelperInstructions: config?.prompt_helper_instructions ?? "",
     };
   });
 
@@ -86,8 +89,17 @@ export async function PATCH(req: Request) {
   const token = getCookie(req, ADMIN_COOKIE_NAME);
   if (!verifyAdminToken(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
 
-  const { id, creditCost, isActive, demoImageUrls, outfitSwapModels, modelTiers, defaultPrompt, defaultPromptVisible } =
-    await req.json();
+  const {
+    id,
+    creditCost,
+    isActive,
+    demoImageUrls,
+    outfitSwapModels,
+    modelTiers,
+    defaultPrompt,
+    defaultPromptVisible,
+    promptHelperInstructions,
+  } = await req.json();
   // modelTiers là alias tổng quát của outfitSwapModels — cùng 1 cơ chế bật/tắt entry trong
   // model_config.models, chỉ khác tên gọi cho rõ nghĩa khi dùng ở app không phải "Thay trang phục"
   // (vd tier chất lượng video "basic"/"premium"). Không cho gửi cả 2 cùng lúc để tránh mơ hồ.
@@ -101,7 +113,8 @@ export async function PATCH(req: Request) {
     demoImageUrls === undefined &&
     modelToggles === undefined &&
     defaultPrompt === undefined &&
-    defaultPromptVisible === undefined
+    defaultPromptVisible === undefined &&
+    promptHelperInstructions === undefined
   ) {
     return Response.json({ error: "Không có gì để cập nhật" }, { status: 400 });
   }
@@ -128,7 +141,8 @@ export async function PATCH(req: Request) {
     demoImageUrls !== undefined ||
     modelToggles !== undefined ||
     defaultPrompt !== undefined ||
-    defaultPromptVisible !== undefined
+    defaultPromptVisible !== undefined ||
+    promptHelperInstructions !== undefined
   ) {
     const { data: current } = await supabase.from("mini_apps").select("model_config").eq("id", id).single();
     const currentConfig = (current?.model_config as Record<string, unknown>) ?? {};
@@ -171,6 +185,12 @@ export async function PATCH(req: Request) {
         return Response.json({ error: "defaultPromptVisible phải là true/false" }, { status: 400 });
       }
       nextConfig.default_prompt_visible = defaultPromptVisible;
+    }
+    if (promptHelperInstructions !== undefined) {
+      if (typeof promptHelperInstructions !== "string") {
+        return Response.json({ error: "promptHelperInstructions phải là chuỗi" }, { status: 400 });
+      }
+      nextConfig.prompt_helper_instructions = promptHelperInstructions;
     }
 
     update.model_config = nextConfig;

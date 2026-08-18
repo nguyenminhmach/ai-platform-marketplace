@@ -35,6 +35,10 @@ type MiniAppRow = {
     // động (không phải prompt chữ), body Fal.ai khác hẳn image-to-video thường.
     input_mode?: "motion-control";
     models?: Partial<Record<VideoTierKey, VideoTierEntry>>;
+    // System prompt cho tính năng "AI viết giúp mô tả" — khách gõ 1 gợi ý ngắn tiếng Việt, model
+    // nhìn ảnh + gợi ý rồi viết ra prompt tiếng Anh chuẩn cho Kling. Admin sửa được qua /admin,
+    // rỗng thì route generate-prompt tự dùng DEFAULT_PROMPT_HELPER_INSTRUCTIONS.
+    prompt_helper_instructions?: string;
   };
 };
 
@@ -151,7 +155,7 @@ export async function getVideoQualityTiers(miniAppId: string): Promise<
 
 // usage.include=true là extension riêng của OpenRouter — trả kèm chi phí USD thật họ đã tính,
 // khỏi phải tự áng chừng theo bảng giá từng model (chính xác hơn, tự cập nhật khi họ đổi giá).
-async function callOpenRouter(
+export async function callOpenRouter(
   model: string,
   maxTokens: number,
   systemPrompt: string,
