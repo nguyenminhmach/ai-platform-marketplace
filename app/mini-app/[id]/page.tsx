@@ -1729,10 +1729,10 @@ export default function MiniAppDetailPage() {
             <p className="mt-3 text-sm text-red-600 dark:text-red-400">{runError}</p>
           )}
           </div>
-          <div>
+          <div className={isVideoPilotLayout ? "flex h-full flex-col" : undefined}>
 
           {isVideoPilotLayout && !result && !outfitSwapResults && (
-            <div className="flex min-h-[320px] flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-800">
+            <div className="flex flex-1 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-800">
               <p className="text-sm font-medium text-zinc-400 dark:text-zinc-500">
                 {isRunning ? "Đang xử lý..." : "Kết quả sẽ hiển thị ở đây"}
               </p>
