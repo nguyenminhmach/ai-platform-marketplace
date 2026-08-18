@@ -449,10 +449,12 @@ export async function submitVideoJob(
         character_orientation: "video",
       };
     } else if (resolvedParamStyle === "ltx") {
-      // Tier "budget" (LTX-2.3 Fast) đặt tên tham số khác Kling: start_image_url/end_image_url
-      // thay vì image_url/tail_image_url — độ dài video dùng mặc định của model (không cho chọn).
+      // Tier "budget" (LTX-2.3 Fast) — ảnh cuối dùng tên tham số khác Kling (end_image_url thay vì
+      // tail_image_url), nhưng ảnh đầu vẫn là "image_url" giống Kling (đã tra lại docs chính thức
+      // fal.ai/models/fal-ai/ltx-2.3/image-to-video/fast/api — trước đây gửi nhầm "start_image_url",
+      // field không tồn tại trong schema model này, khiến Fal.ai luôn trả 422 "Unexpected status code").
       body = { prompt };
-      if (startFrameDataUrl) body.start_image_url = startFrameDataUrl;
+      if (startFrameDataUrl) body.image_url = startFrameDataUrl;
       if (endFrameDataUrl) body.end_image_url = endFrameDataUrl;
     } else {
       body = { prompt };
