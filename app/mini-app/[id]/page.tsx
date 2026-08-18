@@ -932,7 +932,7 @@ export default function MiniAppDetailPage() {
   return (
     <div className="min-h-full bg-zinc-50 dark:bg-black">
       <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-black/80">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
+        <div className={`mx-auto flex items-center justify-between px-6 py-4 ${app.inputType === "video-gen" ? "max-w-6xl" : "max-w-3xl"}`}>
           <Link href="/" className="text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50">
             ← Quay lại Danh mục
           </Link>
@@ -943,7 +943,7 @@ export default function MiniAppDetailPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl px-6 py-10">
+      <main className={`mx-auto px-6 py-10 ${app.inputType === "video-gen" ? "max-w-6xl" : "max-w-3xl"}`}>
         {/* Header Mini App */}
         <div className="mb-2 flex items-center gap-2">
           <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
@@ -999,6 +999,10 @@ export default function MiniAppDetailPage() {
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             Thử ngay
           </h2>
+          {/* Thử nghiệm bố cục 2 cột (trái = input, phải = kết quả) riêng cho "video-gen" — app khác
+              vẫn giữ nguyên 1 cột như trước, 2 div dưới đây chỉ là wrapper vô hại khi không phải grid. */}
+          <div className={app.inputType === "video-gen" ? "grid grid-cols-1 gap-6 lg:grid-cols-2" : undefined}>
+          <div>
           {app.inputType !== "outfit-swap" && app.inputType !== "dialogue-video" && (
             <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               {app.inputLabel}
@@ -1674,6 +1678,8 @@ export default function MiniAppDetailPage() {
           {runError && (
             <p className="mt-3 text-sm text-red-600 dark:text-red-400">{runError}</p>
           )}
+          </div>
+          <div>
 
           {outfitSwapResults && (
             <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800">
@@ -1950,6 +1956,8 @@ export default function MiniAppDetailPage() {
               )}
             </div>
           )}
+          </div>
+          </div>
         </section>
 
         {/* Gợi ý Mini App liên quan — Tập 5 mục 4.1 */}
