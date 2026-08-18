@@ -37,6 +37,10 @@ export async function applyFalResult(job: VideoJobRow, falPayload: Record<string
   const isError = falPayload.status === "ERROR" || !!falPayload.error;
   if (isError) {
     const rawError = falPayload.error ? String(falPayload.error) : "Fal.ai báo lỗi";
+    // Log nguyên văn lỗi Fal.ai trước khi dịch sang thông báo chung cho khách — trước đây bị bỏ mất
+    // hoàn toàn (không lưu, không log), không cách nào tra được nguyên nhân thật (nội dung ảnh bị
+    // chặn kiểm duyệt, sai tỉ lệ ảnh, hay lỗi khác) khi khách báo gặp lỗi 422.
+    console.error(`[video_jobs] Fal.ai lỗi cho job #${job.id} (mini_app ${job.mini_app_id}):`, rawError);
     const errorMessage = rawError.includes("422")
       ? "AI từ chối xử lý yêu cầu này (lỗi 422) — thường do mô tả quá dài hoặc ảnh tham chiếu không hợp lệ. Vui lòng rút ngắn mô tả và thử lại."
       : rawError;
