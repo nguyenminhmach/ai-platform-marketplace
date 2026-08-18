@@ -71,6 +71,20 @@ export default function MiniAppDetailPage() {
   const [musicAddError, setMusicAddError] = useState<string | null>(null);
   const [musicAddedSuccess, setMusicAddedSuccess] = useState(false);
 
+  // Chia sẻ kết quả + đánh giá nhanh (👍/👎) — chỉ là tương tác phía client, không lưu server.
+  const [shareCopied, setShareCopied] = useState(false);
+  const [feedbackRating, setFeedbackRating] = useState<"up" | "down" | null>(null);
+
+  async function handleShareResult() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch {
+      setShareCopied(false);
+    }
+  }
+
   // "Video đồng nhất nhân vật": 2-4 nhân vật, mỗi người 1 ảnh + 1 lời thoại riêng — upload ảnh thật
   // lên Storage lúc bấm "Chạy ngay" (giống outfit-swap), không upload ngay lúc chọn file.
   const DIALOGUE_MIN_CHARACTERS = 2;
@@ -1745,17 +1759,18 @@ export default function MiniAppDetailPage() {
               ) : (
                 <p className="text-sm text-zinc-800 dark:text-zinc-200">{result}</p>
               )}
-              <div className="mt-3 flex gap-2">
+              <p className="mt-4 text-sm font-bold text-zinc-800 dark:text-zinc-200">Bạn muốn làm gì tiếp theo?</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
                 {app.outputType === "image" || app.outputType === "video" ? (
                   <a
                     href={`/api/download?url=${encodeURIComponent(result)}&filename=ket-qua.${app.outputType === "video" ? "mp4" : "jpg"}`}
                     download
-                    className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                    className="rounded-full border border-zinc-300 px-3 py-1 text-sm font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
                   >
                     Tải xuống
                   </a>
                 ) : (
-                  <button className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300">
+                  <button className="rounded-full border border-zinc-300 px-3 py-1 text-sm font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-300">
                     Tải xuống
                   </button>
                 )}
@@ -1766,11 +1781,46 @@ export default function MiniAppDetailPage() {
                     setImageDataUrl(null);
                     setEndFrameDataUrl(null);
                     setVideoStatusText(null);
+                    setFeedbackRating(null);
                   }}
-                  className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                  className="rounded-full border border-zinc-300 px-3 py-1 text-sm font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
                 >
                   Chạy lại với input khác
                 </button>
+                <button
+                  onClick={handleShareResult}
+                  className="rounded-full border border-zinc-300 px-3 py-1 text-sm font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                >
+                  {shareCopied ? "Đã sao chép liên kết!" : "Chia sẻ"}
+                </button>
+              </div>
+
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  onClick={() => setFeedbackRating((v) => (v === "up" ? null : "up"))}
+                  title="Kết quả tốt"
+                  className={`rounded-full border px-2.5 py-1 text-sm ${
+                    feedbackRating === "up"
+                      ? "border-emerald-400 bg-emerald-50 dark:border-emerald-600 dark:bg-emerald-900/30"
+                      : "border-zinc-300 dark:border-zinc-600"
+                  }`}
+                >
+                  👍
+                </button>
+                <button
+                  onClick={() => setFeedbackRating((v) => (v === "down" ? null : "down"))}
+                  title="Kết quả chưa tốt"
+                  className={`rounded-full border px-2.5 py-1 text-sm ${
+                    feedbackRating === "down"
+                      ? "border-red-400 bg-red-50 dark:border-red-600 dark:bg-red-900/30"
+                      : "border-zinc-300 dark:border-zinc-600"
+                  }`}
+                >
+                  👎
+                </button>
+                {feedbackRating && (
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400">Cảm ơn phản hồi của bạn!</span>
+                )}
               </div>
 
               {app.outputType === "video" && (
@@ -1779,9 +1829,9 @@ export default function MiniAppDetailPage() {
                     {currentVideoJobId ? (
                       <button
                         onClick={() => setShowMusicPicker((v) => !v)}
-                        className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                        className="rounded-full border border-zinc-300 px-3 py-1 text-sm font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
                       >
-                        Tạo nhạc nền
+                        Thêm âm thanh
                       </button>
                     ) : (
                       <span />
@@ -1796,14 +1846,14 @@ export default function MiniAppDetailPage() {
                     ) : !youtubeStatus?.connected ? (
                       <a
                         href={`/api/youtube/authorize?userId=${user?.id ?? ""}`}
-                        className="inline-block rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                        className="inline-block rounded-full border border-zinc-300 px-3 py-1 text-sm font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
                       >
                         Kết nối YouTube để đăng video
                       </a>
                     ) : (
                       <button
                         onClick={() => setShowYoutubeForm((v) => !v)}
-                        className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                        className="rounded-full border border-zinc-300 px-3 py-1 text-sm font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
                       >
                         Đăng lên YouTube ({youtubeStatus.channelTitle})
                       </button>
@@ -2020,6 +2070,19 @@ function CommunityMiniAppRunner({ miniAppId }: { miniAppId: string }) {
   const [addingMusic, setAddingMusic] = useState(false);
   const [musicAddError, setMusicAddError] = useState<string | null>(null);
   const [musicAddedSuccess, setMusicAddedSuccess] = useState(false);
+
+  const [shareCopied, setShareCopied] = useState(false);
+  const [feedbackRating, setFeedbackRating] = useState<"up" | "down" | null>(null);
+
+  async function handleShareResult() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch {
+      setShareCopied(false);
+    }
+  }
 
   useEffect(() => {
     fetch(`/api/mini-apps/community/${miniAppId}`)
@@ -2415,17 +2478,18 @@ function CommunityMiniAppRunner({ miniAppId }: { miniAppId: string }) {
               ) : (
                 <p className="text-sm text-zinc-800 dark:text-zinc-200">{result}</p>
               )}
-              <div className="mt-3 flex gap-2">
+              <p className="mt-4 text-sm font-bold text-zinc-800 dark:text-zinc-200">Bạn muốn làm gì tiếp theo?</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
                 {appInfo.outputType === "image" || appInfo.outputType === "video" ? (
                   <a
                     href={`/api/download?url=${encodeURIComponent(result)}&filename=ket-qua.${appInfo.outputType === "video" ? "mp4" : "jpg"}`}
                     download
-                    className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                    className="rounded-full border border-zinc-300 px-3 py-1 text-sm font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
                   >
                     Tải xuống
                   </a>
                 ) : (
-                  <button className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300">
+                  <button className="rounded-full border border-zinc-300 px-3 py-1 text-sm font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-300">
                     Tải xuống
                   </button>
                 )}
@@ -2436,20 +2500,55 @@ function CommunityMiniAppRunner({ miniAppId }: { miniAppId: string }) {
                     setImageDataUrl(null);
                     setEndFrameDataUrl(null);
                     setVideoStatusText(null);
+                    setFeedbackRating(null);
                   }}
-                  className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                  className="rounded-full border border-zinc-300 px-3 py-1 text-sm font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
                 >
                   Chạy lại với input khác
                 </button>
+                <button
+                  onClick={handleShareResult}
+                  className="rounded-full border border-zinc-300 px-3 py-1 text-sm font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                >
+                  {shareCopied ? "Đã sao chép liên kết!" : "Chia sẻ"}
+                </button>
+              </div>
+
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  onClick={() => setFeedbackRating((v) => (v === "up" ? null : "up"))}
+                  title="Kết quả tốt"
+                  className={`rounded-full border px-2.5 py-1 text-sm ${
+                    feedbackRating === "up"
+                      ? "border-emerald-400 bg-emerald-50 dark:border-emerald-600 dark:bg-emerald-900/30"
+                      : "border-zinc-300 dark:border-zinc-600"
+                  }`}
+                >
+                  👍
+                </button>
+                <button
+                  onClick={() => setFeedbackRating((v) => (v === "down" ? null : "down"))}
+                  title="Kết quả chưa tốt"
+                  className={`rounded-full border px-2.5 py-1 text-sm ${
+                    feedbackRating === "down"
+                      ? "border-red-400 bg-red-50 dark:border-red-600 dark:bg-red-900/30"
+                      : "border-zinc-300 dark:border-zinc-600"
+                  }`}
+                >
+                  👎
+                </button>
+                {feedbackRating && (
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400">Cảm ơn phản hồi của bạn!</span>
+                )}
               </div>
 
               {appInfo.outputType === "video" && currentVideoJobId && (
                 <div className="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-700">
                   <button
                     onClick={() => setShowMusicPicker((v) => !v)}
-                    className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                    className="rounded-full border border-zinc-300 px-3 py-1 text-sm font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
                   >
-                    Tạo nhạc nền
+                    Thêm âm thanh
                   </button>
 
                   {showMusicPicker && (
