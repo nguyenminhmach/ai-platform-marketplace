@@ -943,15 +943,20 @@ export default function MiniAppDetailPage() {
     }
   }
 
+  // Bố cục 2 cột (input trái/kết quả phải, tên app trên header) — thí điểm ở "Tạo video từ ảnh",
+  // giờ áp dụng thêm cho 2 app video còn lại có input đơn giản tương tự (ảnh + mô tả/tier). Không
+  // áp dụng "Video đồng nhất nhân vật" — UI của app đó là danh sách nhân vật động, khác cấu trúc.
+  const isVideoPilotLayout = ["video-gen", "video-transform", "motion-transfer"].includes(app.inputType);
+
   return (
     <div className="min-h-full bg-zinc-50 dark:bg-black">
       <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-black/80">
-        <div className={`mx-auto flex items-center justify-between px-6 py-4 ${app.inputType === "video-gen" ? "max-w-6xl" : "max-w-3xl"}`}>
+        <div className={`mx-auto flex items-center justify-between px-6 py-4 ${isVideoPilotLayout ? "max-w-6xl" : "max-w-3xl"}`}>
           <div className="flex items-center gap-4">
             <Link href="/" className="text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50">
               ← Quay lại Danh mục
             </Link>
-            {app.inputType === "video-gen" && (
+            {isVideoPilotLayout && (
               <span className="hidden text-base font-semibold text-zinc-900 dark:text-zinc-50 sm:inline">
                 {app.name}
               </span>
@@ -966,12 +971,12 @@ export default function MiniAppDetailPage() {
 
       <main
         className={`mx-auto px-6 ${
-          app.inputType === "video-gen" ? "max-w-6xl pt-4 pb-10" : "max-w-3xl py-10"
+          isVideoPilotLayout ? "max-w-6xl pt-4 pb-10" : "max-w-3xl py-10"
         }`}
       >
-        {/* Header Mini App — bỏ badge Danh mục/Hot/Mới riêng cho video-gen, tên app đã chuyển lên
-            thanh Header phía trên rồi nên không cần lặp lại gì ở đây nữa. */}
-        {app.inputType !== "video-gen" && (
+        {/* Header Mini App — bỏ badge Danh mục/Hot/Mới riêng cho các app video dùng bố cục 2 cột, tên
+            app đã chuyển lên thanh Header phía trên rồi nên không cần lặp lại gì ở đây nữa. */}
+        {!isVideoPilotLayout && (
           <div className="mb-2 flex items-center gap-2">
             <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
               {CATEGORIES[app.category]}
@@ -988,7 +993,7 @@ export default function MiniAppDetailPage() {
             )}
           </div>
         )}
-        {app.inputType !== "video-gen" && (
+        {!isVideoPilotLayout && (
           <>
             <h1 className="mb-2 text-2xl font-semibold text-zinc-900 dark:text-zinc-50">{app.name}</h1>
             <p className="mb-4 text-zinc-600 dark:text-zinc-400">{app.description}</p>
@@ -1031,10 +1036,11 @@ export default function MiniAppDetailPage() {
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             Thử ngay
           </h2>
-          {/* Thử nghiệm bố cục 2 cột (trái = input, phải = kết quả) riêng cho "video-gen" — app khác
-              vẫn giữ nguyên 1 cột như trước, 2 div dưới đây chỉ là wrapper vô hại khi không phải grid. */}
-          <div className={app.inputType === "video-gen" ? "grid grid-cols-1 gap-6 lg:grid-cols-2" : undefined}>
-          <div className={app.inputType === "video-gen" ? "flex h-full flex-col" : undefined}>
+          {/* Bố cục 2 cột (trái = input, phải = kết quả) cho các app video đơn giản (ảnh + mô tả/tier)
+              — app khác vẫn giữ nguyên 1 cột như trước, 2 div dưới đây chỉ là wrapper vô hại khi
+              không phải grid. */}
+          <div className={isVideoPilotLayout ? "grid grid-cols-1 gap-6 lg:grid-cols-2" : undefined}>
+          <div className={isVideoPilotLayout ? "flex h-full flex-col" : undefined}>
           {app.inputType !== "outfit-swap" && app.inputType !== "dialogue-video" && (
             <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               {app.inputLabel}
@@ -1285,7 +1291,7 @@ export default function MiniAppDetailPage() {
                 </div>
               )}
 
-              <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Câu lệnh mô tả (không bắt buộc)</p>
+              <p className="mb-1 text-sm font-semibold text-zinc-700 dark:text-zinc-300">Câu lệnh mô tả (không bắt buộc)</p>
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -1659,11 +1665,11 @@ export default function MiniAppDetailPage() {
             </div>
           ) : (
             <div
-              className={`flex items-center justify-between ${app.inputType === "video-gen" ? "mt-auto pt-4" : ""}`}
+              className={`flex items-center justify-between ${isVideoPilotLayout ? "mt-auto pt-4" : ""}`}
             >
               <span
                 className={
-                  app.inputType === "video-gen"
+                  isVideoPilotLayout
                     ? "text-base text-zinc-600 dark:text-zinc-400"
                     : "text-sm text-zinc-600 dark:text-zinc-400"
                 }
@@ -1701,7 +1707,7 @@ export default function MiniAppDetailPage() {
                     : input.trim() === "")
                 }
                 className={
-                  app.inputType === "video-gen"
+                  isVideoPilotLayout
                     ? "rounded-full bg-zinc-900 px-5 py-2 text-base font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
                     : "rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
                 }
@@ -1786,13 +1792,13 @@ export default function MiniAppDetailPage() {
                 <img
                   src={result}
                   alt="Ảnh do AI tạo"
-                  className={`w-full max-w-md rounded-lg ${app.inputType === "video-gen" ? "max-h-[50vh] object-contain" : ""}`}
+                  className={`w-full max-w-md rounded-lg ${isVideoPilotLayout ? "max-h-[50vh] object-contain" : ""}`}
                 />
               ) : app.outputType === "video" ? (
                 <video
                   src={result}
                   controls
-                  className={`w-full max-w-md rounded-lg ${app.inputType === "video-gen" ? "max-h-[50vh] object-contain" : ""}`}
+                  className={`w-full max-w-md rounded-lg ${isVideoPilotLayout ? "max-h-[50vh] object-contain" : ""}`}
                 />
               ) : (
                 <p className="text-sm text-zinc-800 dark:text-zinc-200">{result}</p>
