@@ -947,9 +947,16 @@ export default function MiniAppDetailPage() {
     <div className="min-h-full bg-zinc-50 dark:bg-black">
       <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-black/80">
         <div className={`mx-auto flex items-center justify-between px-6 py-4 ${app.inputType === "video-gen" ? "max-w-6xl" : "max-w-3xl"}`}>
-          <Link href="/" className="text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50">
-            ← Quay lại Danh mục
-          </Link>
+          <div className="flex items-center gap-4">
+            <Link href="/" className="text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50">
+              ← Quay lại Danh mục
+            </Link>
+            {app.inputType === "video-gen" && (
+              <span className="hidden text-sm font-semibold text-zinc-900 dark:text-zinc-50 sm:inline">
+                Tạo video từ ảnh
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-3">
             <ThemeToggle />
             <BalanceBadge />
@@ -959,7 +966,7 @@ export default function MiniAppDetailPage() {
 
       <main className={`mx-auto px-6 py-10 ${app.inputType === "video-gen" ? "max-w-6xl" : "max-w-3xl"}`}>
         {/* Header Mini App */}
-        <div className="mb-2 flex items-center gap-2">
+        <div className={`flex items-center gap-2 ${app.inputType === "video-gen" ? "mb-6" : "mb-2"}`}>
           <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
             {CATEGORIES[app.category]}
           </span>
@@ -974,12 +981,16 @@ export default function MiniAppDetailPage() {
             </span>
           )}
         </div>
-        <h1 className="mb-2 text-2xl font-semibold text-zinc-900 dark:text-zinc-50">{app.name}</h1>
-        <p className="mb-4 text-zinc-600 dark:text-zinc-400">{app.description}</p>
-        <div className="mb-8 flex items-center gap-4 text-sm text-zinc-500 dark:text-zinc-400">
-          <span>⭐ {app.rating}/5</span>
-          <span>{app.usageCount.toLocaleString("vi-VN")} lượt đã chạy</span>
-        </div>
+        {app.inputType !== "video-gen" && (
+          <>
+            <h1 className="mb-2 text-2xl font-semibold text-zinc-900 dark:text-zinc-50">{app.name}</h1>
+            <p className="mb-4 text-zinc-600 dark:text-zinc-400">{app.description}</p>
+            <div className="mb-8 flex items-center gap-4 text-sm text-zinc-500 dark:text-zinc-400">
+              <span>⭐ {app.rating}/5</span>
+              <span>{app.usageCount.toLocaleString("vi-VN")} lượt đã chạy</span>
+            </div>
+          </>
+        )}
 
         {/* Demo input/output mẫu — Tập 5 mục 1.2: cần thấy ví dụ thật trước khi bỏ credit ra thử.
             Bỏ riêng cho "thay-trang-phuc" — card trang chủ đã có ảnh minh hoạ trực quan hơn rồi, mục
