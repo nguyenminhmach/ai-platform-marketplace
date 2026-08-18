@@ -1848,6 +1848,37 @@ export default function MiniAppDetailPage() {
                 >
                   {shareCopied ? "Đã sao chép liên kết!" : "Chia sẻ"}
                 </button>
+                {app.outputType === "video" && currentVideoJobId && (
+                  <button
+                    onClick={() => setShowMusicPicker((v) => !v)}
+                    className="rounded-full border border-zinc-300 px-3 py-1 text-sm font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                  >
+                    Thêm âm thanh
+                  </button>
+                )}
+                {app.outputType === "video" &&
+                  (youtubePublishedUrl ? (
+                    <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                      Đã đăng lên YouTube:{" "}
+                      <a href={youtubePublishedUrl} target="_blank" rel="noopener noreferrer" className="underline">
+                        {youtubePublishedUrl}
+                      </a>
+                    </p>
+                  ) : !youtubeStatus?.connected ? (
+                    <a
+                      href={`/api/youtube/authorize?userId=${user?.id ?? ""}`}
+                      className="inline-block rounded-full border border-zinc-300 px-3 py-1 text-sm font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                    >
+                      Kết nối YouTube để đăng video
+                    </a>
+                  ) : (
+                    <button
+                      onClick={() => setShowYoutubeForm((v) => !v)}
+                      className="rounded-full border border-zinc-300 px-3 py-1 text-sm font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                    >
+                      Đăng lên YouTube ({youtubeStatus.channelTitle})
+                    </button>
+                  ))}
               </div>
 
               <div className="mt-2 flex items-center gap-2">
@@ -1878,43 +1909,8 @@ export default function MiniAppDetailPage() {
                 )}
               </div>
 
-              {app.outputType === "video" && (
+              {app.outputType === "video" && (showMusicPicker || showYoutubeForm || youtubeError) && (
                 <div className="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-700">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    {currentVideoJobId ? (
-                      <button
-                        onClick={() => setShowMusicPicker((v) => !v)}
-                        className="rounded-full border border-zinc-300 px-3 py-1 text-sm font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
-                      >
-                        Thêm âm thanh
-                      </button>
-                    ) : (
-                      <span />
-                    )}
-                    {youtubePublishedUrl ? (
-                      <p className="text-xs text-emerald-700 dark:text-emerald-400">
-                        Đã đăng lên YouTube:{" "}
-                        <a href={youtubePublishedUrl} target="_blank" rel="noopener noreferrer" className="underline">
-                          {youtubePublishedUrl}
-                        </a>
-                      </p>
-                    ) : !youtubeStatus?.connected ? (
-                      <a
-                        href={`/api/youtube/authorize?userId=${user?.id ?? ""}`}
-                        className="inline-block rounded-full border border-zinc-300 px-3 py-1 text-sm font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
-                      >
-                        Kết nối YouTube để đăng video
-                      </a>
-                    ) : (
-                      <button
-                        onClick={() => setShowYoutubeForm((v) => !v)}
-                        className="rounded-full border border-zinc-300 px-3 py-1 text-sm font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
-                      >
-                        Đăng lên YouTube ({youtubeStatus.channelTitle})
-                      </button>
-                    )}
-                  </div>
-
                   {showMusicPicker && currentVideoJobId && (
                     <div className="mt-3 space-y-2 border-t border-zinc-100 pt-3 dark:border-zinc-800">
                       <div className="flex gap-1">
