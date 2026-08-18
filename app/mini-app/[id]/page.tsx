@@ -952,8 +952,8 @@ export default function MiniAppDetailPage() {
               ← Quay lại Danh mục
             </Link>
             {app.inputType === "video-gen" && (
-              <span className="hidden text-sm font-semibold text-zinc-900 dark:text-zinc-50 sm:inline">
-                Tạo video từ ảnh
+              <span className="hidden text-base font-semibold text-zinc-900 dark:text-zinc-50 sm:inline">
+                {app.name}
               </span>
             )}
           </div>
@@ -964,23 +964,30 @@ export default function MiniAppDetailPage() {
         </div>
       </header>
 
-      <main className={`mx-auto px-6 py-10 ${app.inputType === "video-gen" ? "max-w-6xl" : "max-w-3xl"}`}>
-        {/* Header Mini App */}
-        <div className={`flex items-center gap-2 ${app.inputType === "video-gen" ? "mb-6" : "mb-2"}`}>
-          <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
-            {CATEGORIES[app.category]}
-          </span>
-          {app.popular && (
-            <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
-              Hot
+      <main
+        className={`mx-auto px-6 ${
+          app.inputType === "video-gen" ? "max-w-6xl pt-4 pb-10" : "max-w-3xl py-10"
+        }`}
+      >
+        {/* Header Mini App — bỏ badge Danh mục/Hot/Mới riêng cho video-gen, tên app đã chuyển lên
+            thanh Header phía trên rồi nên không cần lặp lại gì ở đây nữa. */}
+        {app.inputType !== "video-gen" && (
+          <div className="mb-2 flex items-center gap-2">
+            <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+              {CATEGORIES[app.category]}
             </span>
-          )}
-          {app.isNew && (
-            <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400">
-              Mới
-            </span>
-          )}
-        </div>
+            {app.popular && (
+              <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+                Hot
+              </span>
+            )}
+            {app.isNew && (
+              <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400">
+                Mới
+              </span>
+            )}
+          </div>
+        )}
         {app.inputType !== "video-gen" && (
           <>
             <h1 className="mb-2 text-2xl font-semibold text-zinc-900 dark:text-zinc-50">{app.name}</h1>
@@ -1027,7 +1034,7 @@ export default function MiniAppDetailPage() {
           {/* Thử nghiệm bố cục 2 cột (trái = input, phải = kết quả) riêng cho "video-gen" — app khác
               vẫn giữ nguyên 1 cột như trước, 2 div dưới đây chỉ là wrapper vô hại khi không phải grid. */}
           <div className={app.inputType === "video-gen" ? "grid grid-cols-1 gap-6 lg:grid-cols-2" : undefined}>
-          <div>
+          <div className={app.inputType === "video-gen" ? "flex h-full flex-col" : undefined}>
           {app.inputType !== "outfit-swap" && app.inputType !== "dialogue-video" && (
             <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               {app.inputLabel}
@@ -1169,7 +1176,7 @@ export default function MiniAppDetailPage() {
                 </div>
               )}
 
-              <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Câu lệnh mô tả (có thể chỉnh sửa)</p>
+              <p className="mb-1 text-sm font-semibold text-zinc-700 dark:text-zinc-300">Câu lệnh mô tả (có thể chỉnh sửa)</p>
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -1651,8 +1658,16 @@ export default function MiniAppDetailPage() {
               </Link>
             </div>
           ) : (
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-zinc-600 dark:text-zinc-400">
+            <div
+              className={`flex items-center justify-between ${app.inputType === "video-gen" ? "mt-auto pt-4" : ""}`}
+            >
+              <span
+                className={
+                  app.inputType === "video-gen"
+                    ? "text-base text-zinc-600 dark:text-zinc-400"
+                    : "text-sm text-zinc-600 dark:text-zinc-400"
+                }
+              >
                 Thao tác này sẽ trừ{" "}
                 <strong className="text-zinc-900 dark:text-zinc-50">
                   {(() => {
@@ -1685,7 +1700,11 @@ export default function MiniAppDetailPage() {
                     ? !imageDataUrl || !endFrameDataUrl
                     : input.trim() === "")
                 }
-                className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                className={
+                  app.inputType === "video-gen"
+                    ? "rounded-full bg-zinc-900 px-5 py-2 text-base font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                    : "rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                }
               >
                 {isRunning ? "Đang xử lý..." : "Chạy ngay"}
               </button>

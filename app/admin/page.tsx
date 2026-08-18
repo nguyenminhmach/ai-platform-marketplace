@@ -804,7 +804,7 @@ export default function AdminPage() {
                         ? "Người dùng nhập text, AI trả lời text — gọi OpenRouter."
                         : newAppType === "image"
                           ? "Người dùng nhập mô tả + ảnh tham chiếu (tuỳ chọn), AI tạo ảnh mới — dùng chung model Flux Kontext với app \"Tạo ảnh quảng cáo sản phẩm\"."
-                          : "Người dùng nhập mô tả + ảnh khung hình đầu/cuối (tuỳ chọn), AI tạo video ngắn — dùng chung model Kling với app \"Tạo video quảng cáo ngắn\", chạy bất đồng bộ (vài phút)."}
+                          : "Người dùng nhập mô tả + ảnh khung hình đầu/cuối (tuỳ chọn), AI tạo video ngắn — dùng chung model Kling với app \"Tạo video từ ảnh\", chạy bất đồng bộ (vài phút)."}
                     </p>
                   </div>
                   <div>

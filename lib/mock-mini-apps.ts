@@ -112,7 +112,7 @@ export const MINI_APPS: MiniApp[] = [
   },
   {
     id: "tao-video-quang-cao",
-    name: "Tạo video quảng cáo ngắn",
+    name: "Tạo video từ ảnh",
     description: "Tải 1 ảnh nhân vật (không bắt buộc), mô tả chuyển động muốn tạo, AI tạo video ngắn 4-5 giây.",
     category: "video",
     icon: "film",
