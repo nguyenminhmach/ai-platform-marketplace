@@ -198,7 +198,11 @@ function buildImageRequestBody(
   else body.image_url = characterImageUrls[0];
 
   if (model === "fal-ai/gpt-image-2/edit") {
-    body.image_size = "auto";
+    // Không nhận aspect_ratio riêng — field điều khiển kích thước là image_size, nhận preset chuỗi
+    // hoặc object {width,height} tuỳ độ phân giải. Giá thật đổi theo mức này (đã tra docs).
+    if (resolutionKey === "4K") body.image_size = { width: 3840, height: 2160 };
+    else if (resolutionKey === "1024") body.image_size = "square_hd";
+    else body.image_size = "auto";
     return body;
   }
   body.aspect_ratio = aspectRatio;

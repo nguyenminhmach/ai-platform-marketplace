@@ -85,3 +85,64 @@ body {
   text-align: left;
 }
 .chatbot-md th { background: rgba(113, 113, 122, 0.1); font-weight: 600; }
+
+/* "Video từ ý tưởng truyện" — bảng màu riêng xanh lá đậm/đen giống giao diện Genful tham khảo, chỉ
+   áp dụng trong khối .story-video-theme (khối "Thử ngay" của app này) — không đổi theme sáng/tối
+   chung của các app khác. Ép !important vì đè lên class Tailwind zinc/white/black tĩnh có sẵn trong
+   JSX, cố định 1 giao diện tối (không đổi theo nút sáng/tối chung của trang). */
+.story-video-theme {
+  color-scheme: dark;
+}
+.story-video-theme.bg-white,
+.story-video-theme .bg-white,
+.story-video-theme .dark\:bg-zinc-950,
+.story-video-theme .dark\:bg-zinc-900 {
+  background-color: #0b1f16 !important;
+}
+.story-video-theme .bg-zinc-50,
+.story-video-theme .dark\:bg-zinc-800,
+.story-video-theme .bg-zinc-200,
+.story-video-theme .dark\:bg-zinc-700 {
+  background-color: #12291d !important;
+}
+.story-video-theme.border-zinc-200,
+.story-video-theme .border-zinc-200,
+.story-video-theme .border-zinc-300,
+.story-video-theme .dark\:border-zinc-700,
+.story-video-theme .dark\:border-zinc-800 {
+  border-color: #1f4632 !important;
+}
+.story-video-theme .text-zinc-900,
+.story-video-theme .dark\:text-zinc-50 {
+  color: #eaf7ee !important;
+}
+.story-video-theme .text-zinc-700,
+.story-video-theme .dark\:text-zinc-300 {
+  color: #a9d4b6 !important;
+}
+.story-video-theme .text-zinc-600,
+.story-video-theme .dark\:text-zinc-400,
+.story-video-theme .text-zinc-500,
+.story-video-theme .dark\:text-zinc-500,
+.story-video-theme .text-zinc-400 {
+  color: #7fae8d !important;
+}
+.story-video-theme .focus\:border-zinc-500:focus {
+  border-color: #10b981 !important;
+}
+/* Nút chính (Chạy ngay/Tạo video) + pill số phân cảnh đang chọn — bg-zinc-900/dark:bg-zinc-50 trong
+   khối này chỉ xuất hiện ở nút/pill (nền card dùng bg-white/bg-zinc-50/dark:bg-zinc-900/800 đã đè ở
+   trên), nên đè thẳng luôn không cần selector phức tạp. */
+.story-video-theme .bg-zinc-900,
+.story-video-theme .dark\:bg-zinc-50 {
+  background-color: #10b981 !important;
+  color: #06150e !important;
+}
+.story-video-theme .hover\:bg-zinc-700:hover,
+.story-video-theme .dark\:hover\:bg-zinc-200:hover {
+  background-color: #0d9668 !important;
+}
+.story-video-theme .border-zinc-900,
+.story-video-theme .dark\:border-zinc-50 {
+  border-color: #10b981 !important;
+}

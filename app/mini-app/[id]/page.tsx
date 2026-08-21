@@ -1306,7 +1306,11 @@ export default function MiniAppDetailPage() {
         )}
 
         {/* Khu vực nhập input thật + chạy */}
-        <section className="mb-8 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+        <section
+          className={`mb-8 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 ${
+            app.inputType === "story-video" ? "story-video-theme" : ""
+          }`}
+        >
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             Thử ngay
           </h2>
