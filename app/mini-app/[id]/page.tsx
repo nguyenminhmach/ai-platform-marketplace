@@ -1209,11 +1209,15 @@ export default function MiniAppDetailPage() {
   // "Thay trang phục" (nhiều ảnh trang phục + 1 ảnh người mẫu, kết quả nhiều ảnh — outfitSwapResults).
   // Không áp dụng "Video đồng nhất nhân vật" — UI app đó là danh sách nhân vật động, khác cấu trúc.
   const isTwoColumnLayout = ["video-gen", "video-transform", "motion-transfer", "outfit-swap"].includes(app.inputType);
+  // "story-video" có bố cục 2 cột RIÊNG bên trong khối "Thử ngay" (trái: ảnh nhân vật/Agent/mô tả,
+  // phải: Cấu hình media) — không dùng chung hệ thống isTwoColumnLayout (vốn là input|kết quả),
+  // chỉ mượn cùng độ rộng khung trang để đủ chỗ cho 2 cột.
+  const isWideLayout = isTwoColumnLayout || app.inputType === "story-video";
 
   return (
     <div className="min-h-full bg-zinc-50 dark:bg-black">
       <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-black/80">
-        <div className={`mx-auto flex items-center justify-between px-6 py-4 ${isTwoColumnLayout ? "max-w-6xl" : "max-w-3xl"}`}>
+        <div className={`mx-auto flex items-center justify-between px-6 py-4 ${isWideLayout ? "max-w-6xl" : "max-w-3xl"}`}>
           <div className="flex items-center gap-4">
             <Link href="/" className="text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50">
               ← Quay lại Danh mục
@@ -1233,7 +1237,7 @@ export default function MiniAppDetailPage() {
 
       <main
         className={`mx-auto px-6 ${
-          isTwoColumnLayout ? "max-w-6xl pt-4 pb-10" : "max-w-3xl py-10"
+          isWideLayout ? "max-w-6xl pt-4 pb-10" : "max-w-3xl py-10"
         }`}
       >
         {/* Header Mini App — bỏ badge Danh mục/Hot/Mới riêng cho các app video dùng bố cục 2 cột, tên
@@ -1273,7 +1277,8 @@ export default function MiniAppDetailPage() {
         {app.inputType !== "outfit-swap" &&
           app.inputType !== "video-gen" &&
           app.inputType !== "motion-transfer" &&
-          app.inputType !== "video-transform" && (
+          app.inputType !== "video-transform" &&
+          app.inputType !== "story-video" && (
           <section className="mb-8 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
               Ví dụ minh hoạ
@@ -1897,183 +1902,198 @@ export default function MiniAppDetailPage() {
             </div>
           ) : app.inputType === "story-video" ? (
             <div className="mb-4">
-              <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                Ảnh nhân vật (1-{STORY_MAX_CHARACTER_IMAGES} ảnh, giữ đúng gương mặt xuyên suốt các cảnh)
-              </p>
-              <div className="flex flex-wrap items-center gap-2">
-                {storyCharacterImages.map((img, index) => (
-                  <div key={index} className="relative h-20 w-20">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={img} alt={`Ảnh nhân vật ${index + 1}`} className="h-full w-full rounded-lg object-cover" />
-                    <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[10px] text-white">@image{index + 1}</span>
-                    <button
-                      onClick={() => setStoryCharacterImages((prev) => prev.filter((_, i) => i !== index))}
-                      className="absolute -right-1.5 -top-1.5 rounded-full bg-black/70 px-1.5 py-0.5 text-xs font-medium text-white hover:bg-black/90"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))}
-                {storyCharacterImages.length < STORY_MAX_CHARACTER_IMAGES && (
-                  <label className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800">
-                    <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        e.target.value = "";
-                        if (!file) return;
-                        const reader = new FileReader();
-                        reader.onload = () => setStoryCharacterImages((prev) => [...prev, reader.result as string]);
-                        reader.readAsDataURL(file);
-                      }}
-                    />
-                  </label>
-                )}
-              </div>
-
-              <div className="mt-3">
-                <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">🤖 Agent xử lý</p>
-                <select
-                  disabled
-                  value="default"
-                  className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-2 py-1.5 text-xs text-zinc-500 outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
-                >
-                  <option value="default">Mặc định</option>
-                </select>
-                <p className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">
-                  Admin chỉnh hướng dẫn chia cảnh trong /admin — sau này chọn nhiều Agent sẽ hiện ở đây.
-                </p>
-              </div>
-
-              <p className="mb-1 mt-3 text-xs font-medium text-zinc-500 dark:text-zinc-400">Ý tưởng truyện</p>
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Ví dụ: cô gái bước vào quán cà phê buổi sáng, ngồi cạnh cửa sổ, mỉm cười nhìn ra ngoài, gọi 1 ly cà phê"
-                rows={4}
-                maxLength={2000}
-                className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-              />
-
-              <p className="mb-2 mt-3 text-xs font-medium text-zinc-500 dark:text-zinc-400">⚙️ Cấu hình media</p>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
-                  <p className="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">🖼️ Ảnh phân cảnh</p>
-                  <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Model</label>
-                  <select
-                    value={storyImageModelKey ?? ""}
-                    onChange={(e) => {
-                      setStoryImageModelKey(e.target.value);
-                      const m = storyImageModels.find((x) => x.key === e.target.value);
-                      setStoryResolutionKey(m?.resolution_price_vnd ? Object.keys(m.resolution_price_vnd)[0] : null);
-                      if (m?.aspect_ratios && !m.aspect_ratios.includes(storyAspectRatio)) setStoryAspectRatio(m.aspect_ratios[0]);
-                    }}
-                    className="mb-2 w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-                  >
-                    {Array.from(new Set(storyImageModels.map((m) => m.provider))).map((provider) => (
-                      <optgroup key={provider} label={provider}>
-                        {storyImageModels
-                          .filter((m) => m.provider === provider)
-                          .map((m) => (
-                            <option key={m.key} value={m.key}>
-                              {m.label} — {m.provider_cost_vnd}đ/cảnh
-                            </option>
-                          ))}
-                      </optgroup>
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div>
+                  <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                    Ảnh nhân vật (1-{STORY_MAX_CHARACTER_IMAGES} ảnh, giữ đúng gương mặt xuyên suốt các cảnh)
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {storyCharacterImages.map((img, index) => (
+                      <div key={index} className="relative h-20 w-20">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={img} alt={`Ảnh nhân vật ${index + 1}`} className="h-full w-full rounded-lg object-cover" />
+                        <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[10px] text-white">@image{index + 1}</span>
+                        <button
+                          onClick={() => setStoryCharacterImages((prev) => prev.filter((_, i) => i !== index))}
+                          className="absolute -right-1.5 -top-1.5 rounded-full bg-black/70 px-1.5 py-0.5 text-xs font-medium text-white hover:bg-black/90"
+                        >
+                          ✕
+                        </button>
+                      </div>
                     ))}
-                  </select>
-                  {(() => {
-                    const selected = storyImageModels.find((m) => m.key === storyImageModelKey);
-                    return (
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Tỉ lệ</label>
-                          <select
-                            value={storyAspectRatio}
-                            onChange={(e) => setStoryAspectRatio(e.target.value)}
-                            className="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-                          >
-                            {(selected?.aspect_ratios ?? ["9:16", "16:9", "1:1"]).map((r) => (
-                              <option key={r} value={r}>
-                                {r}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        {selected?.resolution_price_vnd && (
+                    {storyCharacterImages.length < STORY_MAX_CHARACTER_IMAGES && (
+                      <label className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                        <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            e.target.value = "";
+                            if (!file) return;
+                            const reader = new FileReader();
+                            reader.onload = () => setStoryCharacterImages((prev) => [...prev, reader.result as string]);
+                            reader.readAsDataURL(file);
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+
+                  <div className="mt-3 rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+                    <p className="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">🤖 Agent xử lý</p>
+                    <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Agent</label>
+                    <select
+                      disabled
+                      value="default"
+                      className="mb-2 w-full rounded-lg border border-zinc-300 bg-zinc-50 px-2 py-1.5 text-xs text-zinc-500 outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
+                    >
+                      <option value="default">Mặc định</option>
+                    </select>
+                    <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Model chat</label>
+                    <select
+                      disabled
+                      value="gemini-flash"
+                      className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-2 py-1.5 text-xs text-zinc-500 outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
+                    >
+                      <option value="gemini-flash">Gemini Flash</option>
+                    </select>
+                    <p className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">
+                      Admin chỉnh hướng dẫn chia cảnh trong /admin — sau này chọn nhiều Agent/model sẽ hiện ở đây.
+                    </p>
+                  </div>
+
+                  <p className="mb-1 mt-3 text-xs font-medium text-zinc-500 dark:text-zinc-400">Ý tưởng truyện</p>
+                  <textarea
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder="Mô tả mạch truyện, bối cảnh — AI sẽ chia thành phân cảnh"
+                    rows={8}
+                    maxLength={2000}
+                    className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                  />
+                </div>
+
+                <div>
+                  <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">⚙️ Cấu hình media</p>
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+                      <p className="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">🖼️ Ảnh phân cảnh</p>
+                      <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Model</label>
+                      <select
+                        value={storyImageModelKey ?? ""}
+                        onChange={(e) => {
+                          setStoryImageModelKey(e.target.value);
+                          const m = storyImageModels.find((x) => x.key === e.target.value);
+                          setStoryResolutionKey(m?.resolution_price_vnd ? Object.keys(m.resolution_price_vnd)[0] : null);
+                          if (m?.aspect_ratios && !m.aspect_ratios.includes(storyAspectRatio)) setStoryAspectRatio(m.aspect_ratios[0]);
+                        }}
+                        className="mb-2 w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                      >
+                        {Array.from(new Set(storyImageModels.map((m) => m.provider))).map((provider) => (
+                          <optgroup key={provider} label={provider}>
+                            {storyImageModels
+                              .filter((m) => m.provider === provider)
+                              .map((m) => (
+                                <option key={m.key} value={m.key}>
+                                  {m.label} — {m.provider_cost_vnd}đ/cảnh
+                                </option>
+                              ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                      {(() => {
+                        const selected = storyImageModels.find((m) => m.key === storyImageModelKey);
+                        return (
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Tỉ lệ</label>
+                              <select
+                                value={storyAspectRatio}
+                                onChange={(e) => setStoryAspectRatio(e.target.value)}
+                                className="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                              >
+                                {(selected?.aspect_ratios ?? ["9:16", "16:9", "1:1"]).map((r) => (
+                                  <option key={r} value={r}>
+                                    {r}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            {selected?.resolution_price_vnd && (
+                              <div>
+                                <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Độ phân giải</label>
+                                <select
+                                  value={storyResolutionKey ?? ""}
+                                  onChange={(e) => setStoryResolutionKey(e.target.value)}
+                                  className="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                                >
+                                  {Object.entries(selected.resolution_price_vnd).map(([k, v]) => (
+                                    <option key={k} value={k}>
+                                      {k} — {v}đ
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                      <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+                        Đơn giá đã chọn: <strong className="text-zinc-900 dark:text-zinc-50">{storyImageCost ?? "?"} credit</strong>
+                      </p>
+                    </div>
+
+                    <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+                      <p className="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">🎬 Video phân cảnh</p>
+                      <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Model</label>
+                      <select
+                        value={storyVideoModelKey ?? ""}
+                        onChange={(e) => {
+                          setStoryVideoModelKey(e.target.value);
+                          const m = storyVideoModels.find((x) => x.key === e.target.value);
+                          setStoryDurationKey(m?.duration_price_vnd ? Object.keys(m.duration_price_vnd)[0] : null);
+                        }}
+                        className="mb-2 w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                      >
+                        {Array.from(new Set(storyVideoModels.map((m) => m.provider))).map((provider) => (
+                          <optgroup key={provider} label={provider}>
+                            {storyVideoModels
+                              .filter((m) => m.provider === provider)
+                              .map((m) => (
+                                <option key={m.key} value={m.key}>
+                                  {m.label} — {m.provider_cost_vnd}đ/cảnh
+                                </option>
+                              ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                      {(() => {
+                        const selected = storyVideoModels.find((m) => m.key === storyVideoModelKey);
+                        if (!selected?.duration_price_vnd) return null;
+                        return (
                           <div>
-                            <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Độ phân giải</label>
+                            <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Thời lượng</label>
                             <select
-                              value={storyResolutionKey ?? ""}
-                              onChange={(e) => setStoryResolutionKey(e.target.value)}
+                              value={storyDurationKey ?? ""}
+                              onChange={(e) => setStoryDurationKey(e.target.value)}
                               className="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                             >
-                              {Object.entries(selected.resolution_price_vnd).map(([k, v]) => (
+                              {Object.entries(selected.duration_price_vnd).map(([k, v]) => (
                                 <option key={k} value={k}>
-                                  {k} — {v}đ
+                                  {k}s — {v}đ
                                 </option>
                               ))}
                             </select>
                           </div>
-                        )}
-                      </div>
-                    );
-                  })()}
-                  <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
-                    Đơn giá đã chọn: <strong className="text-zinc-900 dark:text-zinc-50">{storyImageCost ?? "?"} credit</strong>
-                  </p>
-                </div>
-
-                <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
-                  <p className="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">🎬 Video phân cảnh</p>
-                  <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Model</label>
-                  <select
-                    value={storyVideoModelKey ?? ""}
-                    onChange={(e) => {
-                      setStoryVideoModelKey(e.target.value);
-                      const m = storyVideoModels.find((x) => x.key === e.target.value);
-                      setStoryDurationKey(m?.duration_price_vnd ? Object.keys(m.duration_price_vnd)[0] : null);
-                    }}
-                    className="mb-2 w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-                  >
-                    {Array.from(new Set(storyVideoModels.map((m) => m.provider))).map((provider) => (
-                      <optgroup key={provider} label={provider}>
-                        {storyVideoModels
-                          .filter((m) => m.provider === provider)
-                          .map((m) => (
-                            <option key={m.key} value={m.key}>
-                              {m.label} — {m.provider_cost_vnd}đ/cảnh
-                            </option>
-                          ))}
-                      </optgroup>
-                    ))}
-                  </select>
-                  {(() => {
-                    const selected = storyVideoModels.find((m) => m.key === storyVideoModelKey);
-                    if (!selected?.duration_price_vnd) return null;
-                    return (
-                      <div>
-                        <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Thời lượng</label>
-                        <select
-                          value={storyDurationKey ?? ""}
-                          onChange={(e) => setStoryDurationKey(e.target.value)}
-                          className="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-                        >
-                          {Object.entries(selected.duration_price_vnd).map(([k, v]) => (
-                            <option key={k} value={k}>
-                              {k}s — {v}đ
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    );
-                  })()}
-                  <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
-                    Đơn giá đã chọn: <strong className="text-zinc-900 dark:text-zinc-50">{storyVideoCost ?? "?"} credit</strong>
-                  </p>
+                        );
+                      })()}
+                      <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+                        Đơn giá đã chọn: <strong className="text-zinc-900 dark:text-zinc-50">{storyVideoCost ?? "?"} credit</strong>
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
 
