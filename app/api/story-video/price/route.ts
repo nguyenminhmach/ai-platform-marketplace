@@ -8,6 +8,8 @@ export async function GET(req: Request) {
   const numScenes = Number(searchParams.get("numScenes"));
   const imageModelKey = searchParams.get("imageModelKey") ?? undefined;
   const videoModelKey = searchParams.get("videoModelKey") ?? undefined;
+  const resolutionKey = searchParams.get("resolutionKey") ?? undefined;
+  const durationKey = searchParams.get("durationKey") ?? undefined;
 
   if (!miniAppId) return Response.json({ error: "Thiếu miniAppId" }, { status: 400 });
   if (!numScenes || numScenes < MIN_SCENES || numScenes > MAX_SCENES) {
@@ -15,7 +17,14 @@ export async function GET(req: Request) {
   }
 
   try {
-    const { imageCost, videoCost, totalCost } = await computeStoryVideoCreditCost(miniAppId, numScenes, imageModelKey, videoModelKey);
+    const { imageCost, videoCost, totalCost } = await computeStoryVideoCreditCost(
+      miniAppId,
+      numScenes,
+      imageModelKey,
+      videoModelKey,
+      resolutionKey,
+      durationKey
+    );
     return Response.json({ imageCost, videoCost, totalCost });
   } catch (err) {
     return Response.json({ error: err instanceof Error ? err.message : "Có lỗi xảy ra" }, { status: 500 });

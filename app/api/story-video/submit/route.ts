@@ -9,7 +9,19 @@ const STORY_MAX_LENGTH = 2000;
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  const { userId, miniAppId, storyDescription, numScenes, characterImageUrls, imageModelKey, videoModelKey, autoVideo } = await req.json();
+  const {
+    userId,
+    miniAppId,
+    storyDescription,
+    numScenes,
+    characterImageUrls,
+    imageModelKey,
+    videoModelKey,
+    autoVideo,
+    aspectRatio,
+    resolutionKey,
+    durationKey,
+  } = await req.json();
 
   if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   if (typeof miniAppId !== "string" || !miniAppId) return Response.json({ error: "Thiếu miniAppId" }, { status: 400 });
@@ -41,6 +53,9 @@ export async function POST(req: Request) {
       typeof imageModelKey === "string" ? imageModelKey : undefined,
       typeof videoModelKey === "string" ? videoModelKey : undefined,
       autoVideo === true,
+      typeof aspectRatio === "string" && aspectRatio ? aspectRatio : "9:16",
+      typeof resolutionKey === "string" ? resolutionKey : undefined,
+      typeof durationKey === "string" ? durationKey : undefined,
       randomUUID()
     );
     return Response.json({ success: true, jobId: result.jobId, newBalance: result.newBalance });

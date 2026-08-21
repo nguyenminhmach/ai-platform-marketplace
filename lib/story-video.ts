@@ -43,6 +43,10 @@ export type ImageModelEntry = {
   provider_cost_vnd: number;
   multi_image: boolean;
   enabled: boolean;
+  aspect_ratios?: string[];
+  // Có thì frontend hiện dropdown "Độ phân giải", giá đổi theo lựa chọn — model không có field này
+  // (vd Flux Kontext) chỉ dùng 1 giá cố định provider_cost_vnd, không hiện dropdown.
+  resolution_price_vnd?: Record<string, number>;
 };
 
 export type VideoModelEntry = {
@@ -52,6 +56,10 @@ export type VideoModelEntry = {
   model: string;
   provider_cost_vnd: number;
   enabled: boolean;
+  aspect_ratios?: string[];
+  // Có thì frontend hiện dropdown "Thời lượng", giá đổi theo lựa chọn — cùng khuôn
+  // provider_cost_vnd_by_duration đã dùng cho app "Tạo video quảng cáo ngắn" (lib/ai-router.ts).
+  duration_price_vnd?: Record<string, number>;
 };
 
 export type SceneRow = {
@@ -79,6 +87,8 @@ type JobRow = {
   num_scenes: number;
   image_model: string | null;
   video_model: string | null;
+  aspect_ratio: string | null;
+  video_duration_key: string | null;
 };
 
 async function getMiniAppModelConfig(miniAppId: string) {
@@ -87,7 +97,11 @@ async function getMiniAppModelConfig(miniAppId: string) {
   if (!data) throw new Error("Không tìm thấy Mini App");
   return data as {
     credit_cost: number;
-    model_config: { image_models: ImageModelEntry[]; video_models: VideoModelEntry[] };
+    model_config: {
+      image_models: ImageModelEntry[];
+      video_models: VideoModelEntry[];
+      prompt_helper_instructions?: string;
+    };
   };
 }
 
@@ -100,24 +114,108 @@ function resolveModelEntry<T extends { key: string; enabled: boolean }>(entries:
   return fallback;
 }
 
-async function resolveCosts(miniAppId: string, numScenes: number, imageModelKey?: string, videoModelKey?: string) {
+// Chọn key trong 1 bảng giá theo lựa chọn/độ phân giải/thời lượng — key thiếu/sai thì rơi về key
+// đầu tiên trong bảng (giữ app luôn tính được giá kể cả khi frontend gửi key cũ không còn tồn tại).
+function resolvePricedKey(priceMap: Record<string, number>, key: string | undefined): { key: string; costVnd: number } {
+  const resolvedKey = key && priceMap[key] !== undefined ? key : Object.keys(priceMap)[0];
+  return { key: resolvedKey, costVnd: priceMap[resolvedKey] };
+}
+
+async function resolveCosts(
+  miniAppId: string,
+  numScenes: number,
+  imageModelKey?: string,
+  videoModelKey?: string,
+  resolutionKey?: string,
+  durationKey?: string
+) {
   const miniApp = await getMiniAppModelConfig(miniAppId);
   const imageEntry = resolveModelEntry(miniApp.model_config.image_models, imageModelKey);
   const videoEntry = resolveModelEntry(miniApp.model_config.video_models, videoModelKey);
+
+  let imageProviderCostVnd = imageEntry.provider_cost_vnd;
+  let resolvedResolutionKey: string | undefined;
+  if (imageEntry.resolution_price_vnd) {
+    const resolved = resolvePricedKey(imageEntry.resolution_price_vnd, resolutionKey);
+    resolvedResolutionKey = resolved.key;
+    imageProviderCostVnd = resolved.costVnd;
+  }
+
+  let videoProviderCostVnd = videoEntry.provider_cost_vnd;
+  let resolvedDurationKey: string | undefined;
+  if (videoEntry.duration_price_vnd) {
+    const resolved = resolvePricedKey(videoEntry.duration_price_vnd, durationKey);
+    resolvedDurationKey = resolved.key;
+    videoProviderCostVnd = resolved.costVnd;
+  }
+
   const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
-  const imageCost = computeDynamicCreditCost(imageEntry.provider_cost_vnd * numScenes, marginPercent, vndPerCredit);
-  const videoCost = computeDynamicCreditCost(videoEntry.provider_cost_vnd * numScenes, marginPercent, vndPerCredit);
-  return { imageEntry, videoEntry, imageCost, videoCost, totalCost: imageCost + videoCost };
+  const imageCost = computeDynamicCreditCost(imageProviderCostVnd * numScenes, marginPercent, vndPerCredit);
+  const videoCost = computeDynamicCreditCost(videoProviderCostVnd * numScenes, marginPercent, vndPerCredit);
+  return {
+    imageEntry,
+    videoEntry,
+    imageCost,
+    videoCost,
+    totalCost: imageCost + videoCost,
+    imageProviderCostVnd,
+    videoProviderCostVnd,
+    resolvedResolutionKey,
+    resolvedDurationKey,
+    promptHelperInstructions: miniApp.model_config.prompt_helper_instructions,
+  };
 }
 
 export async function computeStoryVideoCreditCost(
   miniAppId: string,
   numScenes: number,
   imageModelKey?: string,
-  videoModelKey?: string
+  videoModelKey?: string,
+  resolutionKey?: string,
+  durationKey?: string
 ): Promise<{ imageCost: number; videoCost: number; totalCost: number }> {
-  const { imageCost, videoCost, totalCost } = await resolveCosts(miniAppId, numScenes, imageModelKey, videoModelKey);
+  const { imageCost, videoCost, totalCost } = await resolveCosts(miniAppId, numScenes, imageModelKey, videoModelKey, resolutionKey, durationKey);
   return { imageCost, videoCost, totalCost };
+}
+
+// Body request Fal.ai theo model ảnh — mỗi model có field tên khác nhau đã tra kỹ docs thật (tránh
+// lặp lỗi 422 do gửi sai tên field từng gặp với LTX):
+// - GPT Image 2 edit: image_size (không nhận aspect_ratio riêng, dùng "auto" giữ tỉ lệ ảnh gốc).
+// - Nano Banana Pro edit: resolution nhận "1K"/"2K"/"4K".
+// - Còn lại (Flux Kontext...): aspect_ratio thường.
+function buildImageRequestBody(
+  model: string,
+  prompt: string | null,
+  characterImageUrls: string[],
+  multiImage: boolean,
+  aspectRatio: string,
+  resolutionKey?: string
+): Record<string, unknown> {
+  const body: Record<string, unknown> = { prompt };
+  if (multiImage) body.image_urls = characterImageUrls;
+  else body.image_url = characterImageUrls[0];
+
+  if (model === "fal-ai/gpt-image-2/edit") {
+    body.image_size = "auto";
+    return body;
+  }
+  body.aspect_ratio = aspectRatio;
+  if (resolutionKey) body.resolution = resolutionKey;
+  return body;
+}
+
+// Body request Fal.ai theo model video — VEO cần hậu tố "s" cho duration ("6s", không phải "6"),
+// Hailuo cố định resolution "768P" để khớp đúng giá đã nghiên cứu, còn lại theo mẫu Kling/LTX sẵn có.
+function buildVideoRequestBody(model: string, prompt: string | null, imageUrl: string, aspectRatio: string, durationKey?: string): Record<string, unknown> {
+  if (model === "fal-ai/veo3/image-to-video") {
+    return { prompt, image_url: imageUrl, duration: `${durationKey ?? "6"}s`, generate_audio: false };
+  }
+  if (model === "fal-ai/minimax/hailuo-02/standard/image-to-video") {
+    return { prompt, image_url: imageUrl, duration: durationKey ?? "6", resolution: "768P" };
+  }
+  const body: Record<string, unknown> = { prompt, image_url: imageUrl, aspect_ratio: aspectRatio };
+  if (durationKey) body.duration = durationKey;
+  return body;
 }
 
 async function submitFalJob(model: string, body: Record<string, unknown>, webhookUrl: string): Promise<string> {
@@ -156,12 +254,17 @@ function extractImageUrl(falPayload: Record<string, unknown>): string | undefine
 // Chia truyện thành đúng numScenes phân cảnh qua LLM — callOpenRouter không ép response_format nên
 // phải tự phòng thủ: bóc markdown fence nếu có, parse JSON, kiểm tra đúng kiểu + đúng số lượng, sai
 // thì thử lại 1 lần với nhắc nhở nghiêm ngặt hơn trước khi báo lỗi hẳn.
-export async function splitStoryIntoScenes(storyDescription: string, numScenes: number): Promise<string[]> {
+export async function splitStoryIntoScenes(storyDescription: string, numScenes: number, customInstructions?: string): Promise<string[]> {
+  // "Agent xử lý" — admin thêm hướng dẫn phong cách/chủ đề qua model_config.prompt_helper_instructions
+  // (đúng field/UI đã dùng cho nút "AI viết giúp mô tả" ở app video-gen). Nối THÊM vào cuối, không
+  // thay hẳn — bắt buộc giữ nguyên yêu cầu "chỉ trả JSON đúng N phần tử" để pipeline không gãy.
+  const basePrompt = SCENE_SPLIT_SYSTEM_PROMPT.replace("N phân cảnh", `${numScenes} phân cảnh`);
+  const systemPrompt = customInstructions?.trim() ? `${basePrompt}\n\nGhi chú thêm từ admin: ${customInstructions.trim()}` : basePrompt;
   async function attempt(reminder?: string): Promise<string[]> {
     const userInput = reminder
       ? `${storyDescription}\n\n(Lưu ý: lần trước bạn trả sai định dạng. Chỉ trả về mảng JSON gồm đúng ${numScenes} chuỗi, không thêm gì khác.)`
       : storyDescription;
-    const { output } = await callOpenRouter("google/gemini-3-flash-preview", 800, SCENE_SPLIT_SYSTEM_PROMPT.replace("N phân cảnh", `${numScenes} phân cảnh`), userInput);
+    const { output } = await callOpenRouter("google/gemini-3-flash-preview", 800, systemPrompt, userInput);
     const cleaned = output.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
     let parsed: unknown;
     try {
@@ -195,6 +298,9 @@ export async function submitStoryVideoJob(
   imageModelKey: string | undefined,
   videoModelKey: string | undefined,
   autoVideo: boolean,
+  aspectRatio: string,
+  resolutionKey: string | undefined,
+  durationKey: string | undefined,
   idempotencyKey: string
 ): Promise<{ jobId: number; newBalance: number }> {
   if (numScenes < MIN_SCENES || numScenes > MAX_SCENES) {
@@ -204,7 +310,18 @@ export async function submitStoryVideoJob(
     throw new Error(`Cần từ ${MIN_CHARACTER_IMAGES} đến ${MAX_CHARACTER_IMAGES} ảnh nhân vật`);
   }
 
-  const { imageEntry, videoEntry, imageCost, videoCost, totalCost } = await resolveCosts(miniAppId, numScenes, imageModelKey, videoModelKey);
+  const {
+    imageEntry,
+    videoEntry,
+    imageCost,
+    videoCost,
+    totalCost,
+    imageProviderCostVnd,
+    videoProviderCostVnd,
+    resolvedResolutionKey,
+    resolvedDurationKey,
+    promptHelperInstructions,
+  } = await resolveCosts(miniAppId, numScenes, imageModelKey, videoModelKey, resolutionKey, durationKey);
 
   // Mặc định chỉ trừ phần ảnh (bước 1) — phần video trừ riêng khi khách bấm "Tạo video" ở
   // continueStoryVideoToVideoStage(). Nếu chọn "tự động tạo video luôn" thì trừ gộp cả 2 phần ngay.
@@ -225,9 +342,12 @@ export async function submitStoryVideoJob(
       image_model: imageEntry.model,
       video_model: videoEntry.model,
       auto_video: autoVideo,
+      aspect_ratio: aspectRatio,
+      image_resolution_key: resolvedResolutionKey ?? null,
+      video_duration_key: resolvedDurationKey ?? null,
       image_credit_tx_id: deduction.txId,
-      image_provider_cost_vnd_per_scene: imageEntry.provider_cost_vnd,
-      video_provider_cost_vnd_per_scene: videoEntry.provider_cost_vnd,
+      image_provider_cost_vnd_per_scene: imageProviderCostVnd,
+      video_provider_cost_vnd_per_scene: videoProviderCostVnd,
     })
     .select("id")
     .single();
@@ -239,7 +359,7 @@ export async function submitStoryVideoJob(
 
   try {
     await supabase.from("story_video_jobs").update({ status: "splitting_story" }).eq("id", job.id);
-    const scenes = await splitStoryIntoScenes(storyDescription, numScenes);
+    const scenes = await splitStoryIntoScenes(storyDescription, numScenes, promptHelperInstructions);
 
     const { data: sceneRows, error: sceneError } = await supabase
       .from("story_video_scenes")
@@ -249,9 +369,7 @@ export async function submitStoryVideoJob(
 
     await Promise.all(
       sceneRows.map(async (row) => {
-        const body: Record<string, unknown> = { prompt: row.scene_description, aspect_ratio: "9:16" };
-        if (imageEntry.multi_image) body.image_urls = characterImageUrls;
-        else body.image_url = characterImageUrls[0];
+        const body = buildImageRequestBody(imageEntry.model, row.scene_description, characterImageUrls, imageEntry.multi_image, aspectRatio, resolvedResolutionKey);
 
         const requestId = await submitFalJob(
           imageEntry.model,
@@ -325,14 +443,25 @@ export async function applyImageStageResult(jobId: number, sceneId: number, falP
 async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
   const supabase = getSupabaseAdmin();
   try {
-    const { data: job } = await supabase.from("story_video_jobs").select("video_model").eq("id", jobId).single();
+    const { data: job } = await supabase
+      .from("story_video_jobs")
+      .select("video_model, aspect_ratio, video_duration_key")
+      .eq("id", jobId)
+      .single();
     if (!job?.video_model) throw new Error("Không tìm thấy model video của job");
 
     await Promise.all(
       scenes.map(async (scene) => {
+        const body = buildVideoRequestBody(
+          job.video_model as string,
+          scene.scene_description,
+          scene.image_url as string,
+          job.aspect_ratio ?? "9:16",
+          job.video_duration_key ?? undefined
+        );
         const requestId = await submitFalJob(
           job.video_model as string,
-          { prompt: scene.scene_description, image_url: scene.image_url },
+          body,
           `${SITE_URL}/api/story-video/webhook?jobId=${jobId}&sceneId=${scene.id}&stage=video`
         );
         await supabase.from("story_video_scenes").update({ video_fal_request_id: requestId }).eq("id", scene.id);

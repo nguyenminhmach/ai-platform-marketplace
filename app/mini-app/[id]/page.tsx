@@ -152,12 +152,26 @@ export default function MiniAppDetailPage() {
   const STORY_MAX_SCENES = 8;
   const STORY_MAX_CHARACTER_IMAGES = 3;
   const [numScenes, setNumScenes] = useState(3);
-  const [storyCharacterImages, setStoryCharacterImages] = useState<(string | null)[]>([null]);
-  type StoryModel = { key: string; provider: string; label: string; provider_cost_vnd: number; multi_image?: boolean };
+  const [storyCharacterImages, setStoryCharacterImages] = useState<string[]>([]);
+  type StoryModel = {
+    key: string;
+    provider: string;
+    label: string;
+    provider_cost_vnd: number;
+    multi_image?: boolean;
+    aspect_ratios?: string[];
+    resolution_price_vnd?: Record<string, number>;
+    duration_price_vnd?: Record<string, number>;
+  };
   const [storyImageModels, setStoryImageModels] = useState<StoryModel[]>([]);
   const [storyVideoModels, setStoryVideoModels] = useState<StoryModel[]>([]);
   const [storyImageModelKey, setStoryImageModelKey] = useState<string | null>(null);
   const [storyVideoModelKey, setStoryVideoModelKey] = useState<string | null>(null);
+  // "Cấu hình media" — tỉ lệ khung hình (luôn có), độ phân giải/thời lượng chỉ hiện khi model đang
+  // chọn có bảng giá riêng cho trục đó (không hiện dropdown giả cho model không hỗ trợ).
+  const [storyAspectRatio, setStoryAspectRatio] = useState("9:16");
+  const [storyResolutionKey, setStoryResolutionKey] = useState<string | null>(null);
+  const [storyDurationKey, setStoryDurationKey] = useState<string | null>(null);
   const [storyImageCost, setStoryImageCost] = useState<number | null>(null);
   const [storyVideoCost, setStoryVideoCost] = useState<number | null>(null);
   // "Tự động tạo video luôn" (gộp 1 lượt, giống Genful bấm mũi tên ▾) — mặc định TẮT: chỉ chạy chia
@@ -336,30 +350,44 @@ export default function MiniAppDetailPage() {
       .then((data) => {
         if (Array.isArray(data.imageModels)) {
           setStoryImageModels(data.imageModels);
-          if (data.imageModels[0]) setStoryImageModelKey(data.imageModels[0].key);
+          const first = data.imageModels[0];
+          if (first) {
+            setStoryImageModelKey(first.key);
+            if (first.resolution_price_vnd) setStoryResolutionKey(Object.keys(first.resolution_price_vnd)[0]);
+          }
         }
         if (Array.isArray(data.videoModels)) {
           setStoryVideoModels(data.videoModels);
-          if (data.videoModels[0]) setStoryVideoModelKey(data.videoModels[0].key);
+          const first = data.videoModels[0];
+          if (first) {
+            setStoryVideoModelKey(first.key);
+            if (first.duration_price_vnd) setStoryDurationKey(Object.keys(first.duration_price_vnd)[0]);
+          }
         }
       })
       .catch(() => {});
   }, [params.id]);
 
-  // "Video từ ý tưởng truyện": giá tăng theo số phân cảnh (2-8) + model ảnh/video đã chọn — tính lại
-  // mỗi khi đổi.
+  // "Video từ ý tưởng truyện": giá tăng theo số phân cảnh (2-8) + model/tỉ lệ/độ phân giải/thời
+  // lượng đã chọn — tính lại mỗi khi đổi.
   useEffect(() => {
     if (params.id !== "video-tu-y-tuong" || !storyImageModelKey || !storyVideoModelKey) return;
-    fetch(
-      `/api/story-video/price?miniAppId=${params.id}&numScenes=${numScenes}&imageModelKey=${storyImageModelKey}&videoModelKey=${storyVideoModelKey}`
-    )
+    const params2 = new URLSearchParams({
+      miniAppId: params.id,
+      numScenes: String(numScenes),
+      imageModelKey: storyImageModelKey,
+      videoModelKey: storyVideoModelKey,
+    });
+    if (storyResolutionKey) params2.set("resolutionKey", storyResolutionKey);
+    if (storyDurationKey) params2.set("durationKey", storyDurationKey);
+    fetch(`/api/story-video/price?${params2.toString()}`)
       .then((res) => res.json())
       .then((data) => {
         if (typeof data.imageCost === "number") setStoryImageCost(data.imageCost);
         if (typeof data.videoCost === "number") setStoryVideoCost(data.videoCost);
       })
       .catch(() => {});
-  }, [params.id, numScenes, storyImageModelKey, storyVideoModelKey]);
+  }, [params.id, numScenes, storyImageModelKey, storyVideoModelKey, storyResolutionKey, storyDurationKey]);
 
   // Ảnh/video có giá tính động theo chi phí thật + biên lợi nhuận, khác app text (giá cố định)
   useEffect(() => {
@@ -667,7 +695,7 @@ export default function MiniAppDetailPage() {
   }
 
   async function handleRunStoryVideo() {
-    const images = storyCharacterImages.filter((i): i is string => !!i);
+    const images = storyCharacterImages;
     if (!user || images.length === 0 || !input.trim() || !storyImageModelKey || !storyVideoModelKey) return;
     setStoryRunning(true);
     setStoryResult(null);
@@ -702,6 +730,9 @@ export default function MiniAppDetailPage() {
           imageModelKey: storyImageModelKey,
           videoModelKey: storyVideoModelKey,
           autoVideo: storyAutoVideo,
+          aspectRatio: storyAspectRatio,
+          resolutionKey: storyResolutionKey,
+          durationKey: storyDurationKey,
         }),
       });
       const data = await res.json();
@@ -1869,49 +1900,52 @@ export default function MiniAppDetailPage() {
               <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
                 Ảnh nhân vật (1-{STORY_MAX_CHARACTER_IMAGES} ảnh, giữ đúng gương mặt xuyên suốt các cảnh)
               </p>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {storyCharacterImages.map((img, index) => (
-                  <div key={index} className="relative aspect-square w-full">
-                    {img ? (
-                      <>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={img} alt={`Ảnh nhân vật ${index + 1}`} className="h-full w-full rounded-lg object-cover" />
-                        <button
-                          onClick={() => setStoryCharacterImages((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : [null]))}
-                          className="absolute right-1 top-1 rounded-full bg-black/60 px-2 py-0.5 text-xs font-medium text-white hover:bg-black/80"
-                        >
-                          Xóa
-                        </button>
-                      </>
-                    ) : (
-                      <label className="flex h-full w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-2 text-center dark:border-zinc-700 dark:bg-zinc-800">
-                        <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            e.target.value = "";
-                            if (!file) return;
-                            const reader = new FileReader();
-                            reader.onload = () =>
-                              setStoryCharacterImages((prev) => prev.map((v, i) => (i === index ? (reader.result as string) : v)));
-                            reader.readAsDataURL(file);
-                          }}
-                        />
-                      </label>
-                    )}
+                  <div key={index} className="relative h-20 w-20">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={img} alt={`Ảnh nhân vật ${index + 1}`} className="h-full w-full rounded-lg object-cover" />
+                    <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[10px] text-white">@image{index + 1}</span>
+                    <button
+                      onClick={() => setStoryCharacterImages((prev) => prev.filter((_, i) => i !== index))}
+                      className="absolute -right-1.5 -top-1.5 rounded-full bg-black/70 px-1.5 py-0.5 text-xs font-medium text-white hover:bg-black/90"
+                    >
+                      ✕
+                    </button>
                   </div>
                 ))}
                 {storyCharacterImages.length < STORY_MAX_CHARACTER_IMAGES && (
-                  <button
-                    onClick={() => setStoryCharacterImages((prev) => [...prev, null])}
-                    className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 text-xs text-zinc-500 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400"
-                  >
-                    + Thêm ảnh
-                  </button>
+                  <label className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                    <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = "";
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = () => setStoryCharacterImages((prev) => [...prev, reader.result as string]);
+                        reader.readAsDataURL(file);
+                      }}
+                    />
+                  </label>
                 )}
+              </div>
+
+              <div className="mt-3">
+                <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">🤖 Agent xử lý</p>
+                <select
+                  disabled
+                  value="default"
+                  className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-2 py-1.5 text-xs text-zinc-500 outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
+                >
+                  <option value="default">Mặc định</option>
+                </select>
+                <p className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">
+                  Admin chỉnh hướng dẫn chia cảnh trong /admin — sau này chọn nhiều Agent sẽ hiện ở đây.
+                </p>
               </div>
 
               <p className="mb-1 mt-3 text-xs font-medium text-zinc-500 dark:text-zinc-400">Ý tưởng truyện</p>
@@ -1924,13 +1958,20 @@ export default function MiniAppDetailPage() {
                 className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
               />
 
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <div>
-                  <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Model tạo ảnh</p>
+              <p className="mb-2 mt-3 text-xs font-medium text-zinc-500 dark:text-zinc-400">⚙️ Cấu hình media</p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+                  <p className="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">🖼️ Ảnh phân cảnh</p>
+                  <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Model</label>
                   <select
                     value={storyImageModelKey ?? ""}
-                    onChange={(e) => setStoryImageModelKey(e.target.value)}
-                    className="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                    onChange={(e) => {
+                      setStoryImageModelKey(e.target.value);
+                      const m = storyImageModels.find((x) => x.key === e.target.value);
+                      setStoryResolutionKey(m?.resolution_price_vnd ? Object.keys(m.resolution_price_vnd)[0] : null);
+                      if (m?.aspect_ratios && !m.aspect_ratios.includes(storyAspectRatio)) setStoryAspectRatio(m.aspect_ratios[0]);
+                    }}
+                    className="mb-2 w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                   >
                     {Array.from(new Set(storyImageModels.map((m) => m.provider))).map((provider) => (
                       <optgroup key={provider} label={provider}>
@@ -1944,13 +1985,59 @@ export default function MiniAppDetailPage() {
                       </optgroup>
                     ))}
                   </select>
+                  {(() => {
+                    const selected = storyImageModels.find((m) => m.key === storyImageModelKey);
+                    return (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Tỉ lệ</label>
+                          <select
+                            value={storyAspectRatio}
+                            onChange={(e) => setStoryAspectRatio(e.target.value)}
+                            className="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                          >
+                            {(selected?.aspect_ratios ?? ["9:16", "16:9", "1:1"]).map((r) => (
+                              <option key={r} value={r}>
+                                {r}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        {selected?.resolution_price_vnd && (
+                          <div>
+                            <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Độ phân giải</label>
+                            <select
+                              value={storyResolutionKey ?? ""}
+                              onChange={(e) => setStoryResolutionKey(e.target.value)}
+                              className="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                            >
+                              {Object.entries(selected.resolution_price_vnd).map(([k, v]) => (
+                                <option key={k} value={k}>
+                                  {k} — {v}đ
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                  <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+                    Đơn giá đã chọn: <strong className="text-zinc-900 dark:text-zinc-50">{storyImageCost ?? "?"} credit</strong>
+                  </p>
                 </div>
-                <div>
-                  <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Model tạo video</p>
+
+                <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+                  <p className="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">🎬 Video phân cảnh</p>
+                  <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Model</label>
                   <select
                     value={storyVideoModelKey ?? ""}
-                    onChange={(e) => setStoryVideoModelKey(e.target.value)}
-                    className="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                    onChange={(e) => {
+                      setStoryVideoModelKey(e.target.value);
+                      const m = storyVideoModels.find((x) => x.key === e.target.value);
+                      setStoryDurationKey(m?.duration_price_vnd ? Object.keys(m.duration_price_vnd)[0] : null);
+                    }}
+                    className="mb-2 w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                   >
                     {Array.from(new Set(storyVideoModels.map((m) => m.provider))).map((provider) => (
                       <optgroup key={provider} label={provider}>
@@ -1964,6 +2051,29 @@ export default function MiniAppDetailPage() {
                       </optgroup>
                     ))}
                   </select>
+                  {(() => {
+                    const selected = storyVideoModels.find((m) => m.key === storyVideoModelKey);
+                    if (!selected?.duration_price_vnd) return null;
+                    return (
+                      <div>
+                        <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Thời lượng</label>
+                        <select
+                          value={storyDurationKey ?? ""}
+                          onChange={(e) => setStoryDurationKey(e.target.value)}
+                          className="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                        >
+                          {Object.entries(selected.duration_price_vnd).map(([k, v]) => (
+                            <option key={k} value={k}>
+                              {k}s — {v}đ
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    );
+                  })()}
+                  <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+                    Đơn giá đã chọn: <strong className="text-zinc-900 dark:text-zinc-50">{storyVideoCost ?? "?"} credit</strong>
+                  </p>
                 </div>
               </div>
 
@@ -2037,7 +2147,7 @@ export default function MiniAppDetailPage() {
                     <button
                       onClick={() => {
                         setStoryResult(null);
-                        setStoryCharacterImages([null]);
+                        setStoryCharacterImages([]);
                         setStoryScenes(null);
                         setStoryStatus(null);
                         setStoryJobId(null);
@@ -2103,7 +2213,7 @@ export default function MiniAppDetailPage() {
               </span>
               <button
                 onClick={handleRunStoryVideo}
-                disabled={storyRunning || !storyCharacterImages.some((i) => !!i) || !input.trim() || !storyImageModelKey || !storyVideoModelKey}
+                disabled={storyRunning || storyCharacterImages.length === 0 || !input.trim() || !storyImageModelKey || !storyVideoModelKey}
                 className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
                 {storyRunning ? "Đang xử lý..." : storyAutoVideo ? "Chạy phân cảnh + ảnh + video" : "Chạy phân cảnh + ảnh"}
