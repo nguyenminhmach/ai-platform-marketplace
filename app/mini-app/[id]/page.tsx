@@ -1249,7 +1249,7 @@ export default function MiniAppDetailPage() {
       >
         {/* Header Mini App — bỏ badge Danh mục/Hot/Mới riêng cho các app video dùng bố cục 2 cột, tên
             app đã chuyển lên thanh Header phía trên rồi nên không cần lặp lại gì ở đây nữa. */}
-        {!isTwoColumnLayout && (
+        {!isTwoColumnLayout && app.inputType !== "story-video" && (
           <div className="mb-2 flex items-center gap-2">
             <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
               {CATEGORIES[app.category]}
@@ -1268,12 +1268,22 @@ export default function MiniAppDetailPage() {
         )}
         {!isTwoColumnLayout && (
           <>
-            <h1 className="mb-2 text-2xl font-semibold text-zinc-900 dark:text-zinc-50">{app.name}</h1>
-            <p className="mb-4 text-zinc-600 dark:text-zinc-400">{app.description}</p>
-            <div className="mb-8 flex items-center gap-4 text-sm text-zinc-500 dark:text-zinc-400">
-              <span>⭐ {app.rating}/5</span>
-              <span>{app.usageCount.toLocaleString("vi-VN")} lượt đã chạy</span>
-            </div>
+            <h1
+              className={`text-2xl font-semibold text-zinc-900 dark:text-zinc-50 ${
+                app.inputType === "story-video" ? "mb-4" : "mb-2"
+              }`}
+            >
+              {app.name}
+            </h1>
+            {app.inputType !== "story-video" && (
+              <>
+                <p className="mb-4 text-zinc-600 dark:text-zinc-400">{app.description}</p>
+                <div className="mb-8 flex items-center gap-4 text-sm text-zinc-500 dark:text-zinc-400">
+                  <span>⭐ {app.rating}/5</span>
+                  <span>{app.usageCount.toLocaleString("vi-VN")} lượt đã chạy</span>
+                </div>
+              </>
+            )}
           </>
         )}
 
@@ -1915,25 +1925,25 @@ export default function MiniAppDetailPage() {
             <div className="mb-4">
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                 <div>
-                  <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Ý tưởng truyện</p>
+                  <p className="mb-1 text-sm font-medium text-zinc-500 dark:text-zinc-400">Ý tưởng truyện</p>
                   <textarea
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     placeholder="Mô tả mạch truyện, bối cảnh — AI sẽ chia thành phân cảnh"
-                    rows={6}
+                    rows={8}
                     maxLength={2000}
-                    className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                    className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-base text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                   />
 
                   <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
-                      <p className="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">📷 Ảnh nhân vật</p>
+                    <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
+                      <p className="mb-2 text-sm font-semibold text-zinc-700 dark:text-zinc-300">📷 Ảnh nhân vật</p>
                       <div className="flex flex-wrap items-center gap-2">
                         {storyCharacterImages.map((img, index) => (
                           <div key={index} className="relative h-16 w-16">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src={img} alt={`Ảnh nhân vật ${index + 1}`} className="h-full w-full rounded-lg object-cover" />
-                            <span className="absolute bottom-0.5 left-0.5 rounded bg-black/60 px-1 text-[9px] text-white">@image{index + 1}</span>
+                            <span className="absolute bottom-0.5 left-0.5 rounded bg-black/60 px-1 text-[10px] text-white">@image{index + 1}</span>
                             <button
                               onClick={() => setStoryCharacterImages((prev) => prev.filter((_, i) => i !== index))}
                               className="absolute -right-1.5 -top-1.5 rounded-full bg-black/70 px-1.5 py-0.5 text-xs font-medium text-white hover:bg-black/90"
@@ -1943,7 +1953,7 @@ export default function MiniAppDetailPage() {
                           </div>
                         ))}
                         <label className="flex h-16 w-16 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800">
-                          <span className="text-[10px] font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
+                          <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
                           <input
                             type="file"
                             accept="image/*"
@@ -1959,24 +1969,24 @@ export default function MiniAppDetailPage() {
                           />
                         </label>
                       </div>
-                      <p className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">Giữ đúng gương mặt xuyên suốt các cảnh</p>
+                      <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">Giữ đúng gương mặt xuyên suốt các cảnh</p>
                     </div>
 
-                    <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
-                      <p className="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">🤖 Agent xử lý</p>
-                      <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Agent</label>
+                    <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
+                      <p className="mb-2 text-sm font-semibold text-zinc-700 dark:text-zinc-300">🤖 Agent xử lý</p>
+                      <label className="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Agent</label>
                       <select
                         disabled
                         value="default"
-                        className="mb-2 w-full rounded-lg border border-zinc-300 bg-zinc-50 px-2 py-1.5 text-xs text-zinc-500 outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
+                        className="mb-2 w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-500 outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
                       >
                         <option value="default">Mặc định</option>
                       </select>
-                      <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Model chat</label>
+                      <label className="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Model chat</label>
                       <select
                         value={storyModelChatKey}
                         onChange={(e) => setStoryModelChatKey(e.target.value)}
-                        className="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                        className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                       >
                         {STORY_MODEL_CHAT_OPTIONS.map((o) => (
                           <option key={o.value} value={o.value}>
@@ -1984,22 +1994,22 @@ export default function MiniAppDetailPage() {
                           </option>
                         ))}
                       </select>
-                      <p className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">Admin chỉnh hướng dẫn Agent trong /admin.</p>
+                      <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">Admin chỉnh hướng dẫn Agent trong /admin.</p>
                     </div>
                   </div>
                 </div>
 
                 <div>
-                  <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">⚙️ Cấu hình media</p>
+                  <p className="mb-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">⚙️ Cấu hình media</p>
                   <div className="space-y-3">
-                    <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
-                      <p className="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">🖼️ Ảnh phân cảnh</p>
+                    <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
+                      <p className="mb-2 text-sm font-semibold text-zinc-700 dark:text-zinc-300">🖼️ Ảnh phân cảnh</p>
                       {(() => {
                         const selected = storyImageModels.find((m) => m.key === storyImageModelKey);
                         return (
                           <div className="grid grid-cols-2 gap-2">
                             <div>
-                              <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Model</label>
+                              <label className="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Model</label>
                               <select
                                 value={storyImageModelKey ?? ""}
                                 onChange={(e) => {
@@ -2008,7 +2018,7 @@ export default function MiniAppDetailPage() {
                                   setStoryResolutionKey(m?.resolution_price_vnd ? Object.keys(m.resolution_price_vnd)[0] : null);
                                   if (m?.aspect_ratios && !m.aspect_ratios.includes(storyAspectRatio)) setStoryAspectRatio(m.aspect_ratios[0]);
                                 }}
-                                className="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                               >
                                 {Array.from(new Set(storyImageModels.map((m) => m.provider))).map((provider) => (
                                   <optgroup key={provider} label={provider}>
@@ -2024,11 +2034,11 @@ export default function MiniAppDetailPage() {
                               </select>
                             </div>
                             <div>
-                              <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Tỉ lệ</label>
+                              <label className="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Tỉ lệ</label>
                               <select
                                 value={storyAspectRatio}
                                 onChange={(e) => setStoryAspectRatio(e.target.value)}
-                                className="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                               >
                                 {(selected?.aspect_ratios ?? ["9:16", "16:9", "1:1"]).map((r) => (
                                   <option key={r} value={r}>
@@ -2039,11 +2049,11 @@ export default function MiniAppDetailPage() {
                             </div>
                             {selected?.resolution_price_vnd && (
                               <div>
-                                <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Độ phân giải</label>
+                                <label className="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Độ phân giải</label>
                                 <select
                                   value={storyResolutionKey ?? ""}
                                   onChange={(e) => setStoryResolutionKey(e.target.value)}
-                                  className="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                                 >
                                   {Object.entries(selected.resolution_price_vnd).map(([k, v]) => (
                                     <option key={k} value={k}>
@@ -2056,19 +2066,19 @@ export default function MiniAppDetailPage() {
                           </div>
                         );
                       })()}
-                      <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+                      <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
                         Đơn giá đã chọn: <strong className="text-zinc-900 dark:text-zinc-50">{storyImageCost ?? "?"} credit</strong>
                       </p>
                     </div>
 
-                    <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
-                      <p className="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">🎬 Video phân cảnh</p>
+                    <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
+                      <p className="mb-2 text-sm font-semibold text-zinc-700 dark:text-zinc-300">🎬 Video phân cảnh</p>
                       {(() => {
                         const selected = storyVideoModels.find((m) => m.key === storyVideoModelKey);
                         return (
                           <div className="grid grid-cols-2 gap-2">
                             <div>
-                              <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Model</label>
+                              <label className="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Model</label>
                               <select
                                 value={storyVideoModelKey ?? ""}
                                 onChange={(e) => {
@@ -2076,7 +2086,7 @@ export default function MiniAppDetailPage() {
                                   const m = storyVideoModels.find((x) => x.key === e.target.value);
                                   setStoryDurationKey(m?.duration_price_vnd ? Object.keys(m.duration_price_vnd)[0] : null);
                                 }}
-                                className="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                               >
                                 {Array.from(new Set(storyVideoModels.map((m) => m.provider))).map((provider) => (
                                   <optgroup key={provider} label={provider}>
@@ -2092,11 +2102,11 @@ export default function MiniAppDetailPage() {
                               </select>
                             </div>
                             <div>
-                              <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Tỉ lệ</label>
+                              <label className="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Tỉ lệ</label>
                               <select
                                 value={storyAspectRatio}
                                 onChange={(e) => setStoryAspectRatio(e.target.value)}
-                                className="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                               >
                                 {(selected?.aspect_ratios ?? ["9:16", "16:9", "1:1"]).map((r) => (
                                   <option key={r} value={r}>
@@ -2107,11 +2117,11 @@ export default function MiniAppDetailPage() {
                             </div>
                             {selected?.duration_price_vnd && (
                               <div>
-                                <label className="mb-1 block text-[11px] text-zinc-500 dark:text-zinc-400">Thời lượng</label>
+                                <label className="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Thời lượng</label>
                                 <select
                                   value={storyDurationKey ?? ""}
                                   onChange={(e) => setStoryDurationKey(e.target.value)}
-                                  className="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                                 >
                                   {Object.entries(selected.duration_price_vnd).map(([k, v]) => (
                                     <option key={k} value={k}>
@@ -2124,7 +2134,7 @@ export default function MiniAppDetailPage() {
                           </div>
                         );
                       })()}
-                      <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+                      <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
                         Đơn giá đã chọn: <strong className="text-zinc-900 dark:text-zinc-50">{storyVideoCost ?? "?"} credit</strong>
                       </p>
                     </div>
@@ -2133,13 +2143,13 @@ export default function MiniAppDetailPage() {
               </div>
 
               <div className="mt-3">
-                <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Số phân cảnh</p>
-                <div className="flex gap-2">
+                <p className="mb-1 text-sm font-medium text-zinc-500 dark:text-zinc-400">Số phân cảnh</p>
+                <div className="flex flex-wrap gap-2">
                   {Array.from({ length: STORY_MAX_SCENES - STORY_MIN_SCENES + 1 }, (_, i) => STORY_MIN_SCENES + i).map((n) => (
                     <button
                       key={n}
                       onClick={() => setNumScenes(n)}
-                      className={`rounded-full border px-3 py-1 text-xs font-medium ${
+                      className={`rounded-full border px-4 py-1.5 text-sm font-medium ${
                         numScenes === n
                           ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
                           : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
@@ -2151,7 +2161,7 @@ export default function MiniAppDetailPage() {
                 </div>
               </div>
 
-              <label className="mt-3 flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+              <label className="mt-3 flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
                 <input type="checkbox" checked={storyAutoVideo} onChange={(e) => setStoryAutoVideo(e.target.checked)} />
                 Tự động tạo video luôn (gộp 1 lượt) — mặc định tắt: chỉ tạo ảnh trước, xem ưng ý mới tạo video
               </label>
@@ -2161,7 +2171,7 @@ export default function MiniAppDetailPage() {
 
               {storyStatus === "images_ready" && storyScenes && (
                 <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800">
-                  <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">Ảnh từng phân cảnh — xem trước rồi mới tạo video</p>
+                  <p className="mb-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">Ảnh từng phân cảnh — xem trước rồi mới tạo video</p>
                   <div className="grid grid-cols-4 gap-2">
                     {storyScenes.map((s) => (
                       <div key={s.position} className="aspect-square overflow-hidden rounded-lg bg-zinc-200 dark:bg-zinc-700">
@@ -2173,13 +2183,13 @@ export default function MiniAppDetailPage() {
                     ))}
                   </div>
                   <div className="mt-3 flex items-center justify-between">
-                    <span className="text-xs text-zinc-600 dark:text-zinc-400">
+                    <span className="text-sm text-zinc-600 dark:text-zinc-400">
                       Tạo video sẽ trừ thêm <strong className="text-zinc-900 dark:text-zinc-50">{storyVideoCost ?? "?"} credit</strong>
                     </span>
                     <button
                       onClick={handleContinueToVideo}
                       disabled={storyContinuing}
-                      className="rounded-full bg-zinc-900 px-4 py-1.5 text-xs font-medium text-white disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900"
+                      className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900"
                     >
                       {storyContinuing ? "Đang gửi..." : "Tạo video"}
                     </button>
@@ -2189,13 +2199,13 @@ export default function MiniAppDetailPage() {
 
               {storyResult && (
                 <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800">
-                  <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Kết quả từ AI</p>
+                  <p className="mb-1 text-sm font-medium text-zinc-500 dark:text-zinc-400">Kết quả từ AI</p>
                   <video src={storyResult} controls className="w-full max-w-md rounded-lg" />
                   <div className="mt-3 flex gap-2">
                     <a
                       href={`/api/download?url=${encodeURIComponent(storyResult)}&filename=video-tu-y-tuong.mp4`}
                       download
-                      className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                      className="rounded-full border border-zinc-300 px-4 py-1.5 text-sm font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
                     >
                       Tải xuống
                     </a>
@@ -2208,7 +2218,7 @@ export default function MiniAppDetailPage() {
                         setStoryJobId(null);
                         setInput("");
                       }}
-                      className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                      className="rounded-full border border-zinc-300 px-4 py-1.5 text-sm font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
                     >
                       Chạy lại với input khác
                     </button>
@@ -2259,7 +2269,7 @@ export default function MiniAppDetailPage() {
             </div>
           ) : app.inputType === "story-video" ? (
             <div className="flex items-center justify-between">
-              <span className="text-sm text-zinc-600 dark:text-zinc-400">
+              <span className="text-base text-zinc-600 dark:text-zinc-400">
                 Thao tác này sẽ trừ{" "}
                 <strong className="text-zinc-900 dark:text-zinc-50">
                   {storyAutoVideo ? (storyImageCost ?? 0) + (storyVideoCost ?? 0) : (storyImageCost ?? app.creditCost)} credit
@@ -2269,7 +2279,7 @@ export default function MiniAppDetailPage() {
               <button
                 onClick={handleRunStoryVideo}
                 disabled={storyRunning || storyCharacterImages.length === 0 || !input.trim() || !storyImageModelKey || !storyVideoModelKey}
-                className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                className="rounded-full bg-zinc-900 px-6 py-2.5 text-base font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
                 {storyRunning ? "Đang xử lý..." : storyAutoVideo ? "Chạy phân cảnh + ảnh + video" : "Chạy phân cảnh + ảnh"}
               </button>
