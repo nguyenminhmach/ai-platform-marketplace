@@ -21,6 +21,7 @@ export async function POST(req: Request) {
     aspectRatio,
     resolutionKey,
     durationKey,
+    modelChatKey,
   } = await req.json();
 
   if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
@@ -56,6 +57,7 @@ export async function POST(req: Request) {
       typeof aspectRatio === "string" && aspectRatio ? aspectRatio : "9:16",
       typeof resolutionKey === "string" ? resolutionKey : undefined,
       typeof durationKey === "string" ? durationKey : undefined,
+      typeof modelChatKey === "string" ? modelChatKey : undefined,
       randomUUID()
     );
     return Response.json({ success: true, jobId: result.jobId, newBalance: result.newBalance });

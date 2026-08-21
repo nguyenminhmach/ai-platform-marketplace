@@ -254,7 +254,18 @@ function extractImageUrl(falPayload: Record<string, unknown>): string | undefine
 // Chia truyện thành đúng numScenes phân cảnh qua LLM — callOpenRouter không ép response_format nên
 // phải tự phòng thủ: bóc markdown fence nếu có, parse JSON, kiểm tra đúng kiểu + đúng số lượng, sai
 // thì thử lại 1 lần với nhắc nhở nghiêm ngặt hơn trước khi báo lỗi hẳn.
-export async function splitStoryIntoScenes(storyDescription: string, numScenes: number, customInstructions?: string): Promise<string[]> {
+// "Model chat" — LLM thực thi bước chia cảnh, tách biệt với "Agent" (persona/hướng dẫn). Whitelist
+// cứng 2 model đã kiểm chứng (đúng danh sách MODEL_OPTIONS admin dùng cho app tự tạo dạng text) —
+// không cho truyền chuỗi model tuỳ ý từ client để tránh gọi nhầm model lạ/tốn phí ngoài ý muốn.
+const ALLOWED_CHAT_MODELS = ["google/gemini-3-flash-preview", "anthropic/claude-sonnet-4.6"];
+
+export async function splitStoryIntoScenes(
+  storyDescription: string,
+  numScenes: number,
+  customInstructions?: string,
+  modelChatKey?: string
+): Promise<string[]> {
+  const chatModel = modelChatKey && ALLOWED_CHAT_MODELS.includes(modelChatKey) ? modelChatKey : ALLOWED_CHAT_MODELS[0];
   // "Agent xử lý" — admin thêm hướng dẫn phong cách/chủ đề qua model_config.prompt_helper_instructions
   // (đúng field/UI đã dùng cho nút "AI viết giúp mô tả" ở app video-gen). Nối THÊM vào cuối, không
   // thay hẳn — bắt buộc giữ nguyên yêu cầu "chỉ trả JSON đúng N phần tử" để pipeline không gãy.
@@ -264,7 +275,7 @@ export async function splitStoryIntoScenes(storyDescription: string, numScenes: 
     const userInput = reminder
       ? `${storyDescription}\n\n(Lưu ý: lần trước bạn trả sai định dạng. Chỉ trả về mảng JSON gồm đúng ${numScenes} chuỗi, không thêm gì khác.)`
       : storyDescription;
-    const { output } = await callOpenRouter("google/gemini-3-flash-preview", 800, systemPrompt, userInput);
+    const { output } = await callOpenRouter(chatModel, 800, systemPrompt, userInput);
     const cleaned = output.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
     let parsed: unknown;
     try {
@@ -301,6 +312,7 @@ export async function submitStoryVideoJob(
   aspectRatio: string,
   resolutionKey: string | undefined,
   durationKey: string | undefined,
+  modelChatKey: string | undefined,
   idempotencyKey: string
 ): Promise<{ jobId: number; newBalance: number }> {
   if (numScenes < MIN_SCENES || numScenes > MAX_SCENES) {
@@ -359,7 +371,7 @@ export async function submitStoryVideoJob(
 
   try {
     await supabase.from("story_video_jobs").update({ status: "splitting_story" }).eq("id", job.id);
-    const scenes = await splitStoryIntoScenes(storyDescription, numScenes, promptHelperInstructions);
+    const scenes = await splitStoryIntoScenes(storyDescription, numScenes, promptHelperInstructions, modelChatKey);
 
     const { data: sceneRows, error: sceneError } = await supabase
       .from("story_video_scenes")
