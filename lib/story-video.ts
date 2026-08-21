@@ -28,7 +28,9 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://ai-platform-market
 export const MIN_SCENES = 2;
 export const MAX_SCENES = 8;
 export const MIN_CHARACTER_IMAGES = 1;
-export const MAX_CHARACTER_IMAGES = 3;
+// Không giới hạn số ảnh nhân vật theo yêu cầu — chỉ giữ 1 trần an toàn kỹ thuật (tránh payload quá
+// lớn/timeout, và một số model multi-image như Nano Banana Pro tự giới hạn tối đa 14 ảnh ở phía Fal.ai).
+export const MAX_CHARACTER_IMAGES = 20;
 
 const SCENE_SPLIT_SYSTEM_PROMPT = `Bạn là đạo diễn dựng phân cảnh. Người dùng đưa 1 ý tưởng truyện/kịch bản ngắn.
 Nhiệm vụ: chia thành ĐÚNG N phân cảnh liên tục, mỗi cảnh là 1 khoảnh khắc hình ảnh cụ thể (nhân vật đang làm gì, ở đâu, bối cảnh gì), giữ nguyên nhân vật chính xuyên suốt các cảnh.

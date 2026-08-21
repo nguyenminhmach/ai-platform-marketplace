@@ -150,7 +150,6 @@ export default function MiniAppDetailPage() {
   // khách tự viết từng cảnh.
   const STORY_MIN_SCENES = 2;
   const STORY_MAX_SCENES = 8;
-  const STORY_MAX_CHARACTER_IMAGES = 3;
   const [numScenes, setNumScenes] = useState(3);
   const [storyCharacterImages, setStoryCharacterImages] = useState<string[]>([]);
   type StoryModel = {
@@ -1912,7 +1911,17 @@ export default function MiniAppDetailPage() {
             <div className="mb-4">
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                 <div>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Ý tưởng truyện</p>
+                  <textarea
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder="Mô tả mạch truyện, bối cảnh — AI sẽ chia thành phân cảnh"
+                    rows={6}
+                    maxLength={2000}
+                    className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                  />
+
+                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
                       <p className="mb-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">📷 Ảnh nhân vật</p>
                       <div className="flex flex-wrap items-center gap-2">
@@ -1929,26 +1938,24 @@ export default function MiniAppDetailPage() {
                             </button>
                           </div>
                         ))}
-                        {storyCharacterImages.length < STORY_MAX_CHARACTER_IMAGES && (
-                          <label className="flex h-16 w-16 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800">
-                            <span className="text-[10px] font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                e.target.value = "";
-                                if (!file) return;
-                                const reader = new FileReader();
-                                reader.onload = () => setStoryCharacterImages((prev) => [...prev, reader.result as string]);
-                                reader.readAsDataURL(file);
-                              }}
-                            />
-                          </label>
-                        )}
+                        <label className="flex h-16 w-16 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                          <span className="text-[10px] font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              e.target.value = "";
+                              if (!file) return;
+                              const reader = new FileReader();
+                              reader.onload = () => setStoryCharacterImages((prev) => [...prev, reader.result as string]);
+                              reader.readAsDataURL(file);
+                            }}
+                          />
+                        </label>
                       </div>
-                      <p className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">Tối đa {STORY_MAX_CHARACTER_IMAGES} ảnh, giữ đúng gương mặt xuyên suốt các cảnh</p>
+                      <p className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">Giữ đúng gương mặt xuyên suốt các cảnh</p>
                     </div>
 
                     <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
@@ -1976,16 +1983,6 @@ export default function MiniAppDetailPage() {
                       <p className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">Admin chỉnh hướng dẫn Agent trong /admin.</p>
                     </div>
                   </div>
-
-                  <p className="mb-1 mt-3 text-xs font-medium text-zinc-500 dark:text-zinc-400">Ý tưởng truyện</p>
-                  <textarea
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    placeholder="Mô tả mạch truyện, bối cảnh — AI sẽ chia thành phân cảnh"
-                    rows={8}
-                    maxLength={2000}
-                    className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-                  />
                 </div>
 
                 <div>
