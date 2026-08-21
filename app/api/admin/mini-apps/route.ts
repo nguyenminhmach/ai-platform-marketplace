@@ -42,6 +42,8 @@ export async function GET(req: Request) {
           default_prompt?: string;
           default_prompt_visible?: boolean;
           prompt_helper_instructions?: string;
+          image_models?: { key: string; provider: string; label: string; model: string; provider_cost_vnd: number; multi_image: boolean; enabled: boolean }[];
+          video_models?: { key: string; provider: string; label: string; model: string; provider_cost_vnd: number; enabled: boolean }[];
         }
       | null;
     return {
@@ -79,6 +81,10 @@ export async function GET(req: Request) {
       defaultPromptVisible: config?.default_prompt_visible ?? true,
       // System prompt cho nút "AI viết giúp mô tả" — rỗng thì route generate-prompt tự dùng bản mặc định
       promptHelperInstructions: config?.prompt_helper_instructions ?? "",
+      // Catalog model ảnh/video nhiều nhà cung cấp — chỉ app "Video từ ý tưởng truyện" có, null cho
+      // app khác để không hiện nhầm section catalog.
+      storyImageModels: config?.image_models ?? null,
+      storyVideoModels: config?.video_models ?? null,
     };
   });
 
@@ -99,6 +105,8 @@ export async function PATCH(req: Request) {
     defaultPrompt,
     defaultPromptVisible,
     promptHelperInstructions,
+    storyImageModels,
+    storyVideoModels,
   } = await req.json();
   // modelTiers là alias tổng quát của outfitSwapModels — cùng 1 cơ chế bật/tắt entry trong
   // model_config.models, chỉ khác tên gọi cho rõ nghĩa khi dùng ở app không phải "Thay trang phục"
@@ -114,7 +122,9 @@ export async function PATCH(req: Request) {
     modelToggles === undefined &&
     defaultPrompt === undefined &&
     defaultPromptVisible === undefined &&
-    promptHelperInstructions === undefined
+    promptHelperInstructions === undefined &&
+    storyImageModels === undefined &&
+    storyVideoModels === undefined
   ) {
     return Response.json({ error: "Không có gì để cập nhật" }, { status: 400 });
   }
@@ -142,7 +152,9 @@ export async function PATCH(req: Request) {
     modelToggles !== undefined ||
     defaultPrompt !== undefined ||
     defaultPromptVisible !== undefined ||
-    promptHelperInstructions !== undefined
+    promptHelperInstructions !== undefined ||
+    storyImageModels !== undefined ||
+    storyVideoModels !== undefined
   ) {
     const { data: current } = await supabase.from("mini_apps").select("model_config").eq("id", id).single();
     const currentConfig = (current?.model_config as Record<string, unknown>) ?? {};
@@ -191,6 +203,40 @@ export async function PATCH(req: Request) {
         return Response.json({ error: "promptHelperInstructions phải là chuỗi" }, { status: 400 });
       }
       nextConfig.prompt_helper_instructions = promptHelperInstructions;
+    }
+    if (storyImageModels !== undefined) {
+      if (
+        !Array.isArray(storyImageModels) ||
+        !storyImageModels.every(
+          (m) =>
+            m && typeof m.key === "string" && m.key && typeof m.provider === "string" && typeof m.label === "string" &&
+            typeof m.model === "string" && m.model && typeof m.provider_cost_vnd === "number" && m.provider_cost_vnd > 0 &&
+            typeof m.multi_image === "boolean" && typeof m.enabled === "boolean"
+        )
+      ) {
+        return Response.json({ error: "Danh sách model ảnh không hợp lệ" }, { status: 400 });
+      }
+      if (!storyImageModels.some((m) => m.enabled)) {
+        return Response.json({ error: "Phải bật ít nhất 1 model ảnh" }, { status: 400 });
+      }
+      nextConfig.image_models = storyImageModels;
+    }
+    if (storyVideoModels !== undefined) {
+      if (
+        !Array.isArray(storyVideoModels) ||
+        !storyVideoModels.every(
+          (m) =>
+            m && typeof m.key === "string" && m.key && typeof m.provider === "string" && typeof m.label === "string" &&
+            typeof m.model === "string" && m.model && typeof m.provider_cost_vnd === "number" && m.provider_cost_vnd > 0 &&
+            typeof m.enabled === "boolean"
+        )
+      ) {
+        return Response.json({ error: "Danh sách model video không hợp lệ" }, { status: 400 });
+      }
+      if (!storyVideoModels.some((m) => m.enabled)) {
+        return Response.json({ error: "Phải bật ít nhất 1 model video" }, { status: 400 });
+      }
+      nextConfig.video_models = storyVideoModels;
     }
 
     update.model_config = nextConfig;

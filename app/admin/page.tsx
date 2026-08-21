@@ -73,6 +73,21 @@ type MiniAppPrice = {
   defaultPrompt: string;
   defaultPromptVisible: boolean;
   promptHelperInstructions: string;
+  storyImageModels: StoryModelEntry[] | null;
+  storyVideoModels: StoryModelEntry[] | null;
+};
+
+// Catalog model ảnh/video nhiều nhà cung cấp cho app "Video từ ý tưởng truyện" — multi_image chỉ có
+// ý nghĩa với model ảnh (model video luôn nhận 1 ảnh keyframe/cảnh), field thừa với model video không
+// gây lỗi gì vì backend chỉ đọc field mình cần.
+type StoryModelEntry = {
+  key: string;
+  provider: string;
+  label: string;
+  model: string;
+  provider_cost_vnd: number;
+  multi_image?: boolean;
+  enabled: boolean;
 };
 
 // 3 ảnh minh hoạ trên card trang chủ: trước → trang phục → sau (kiểu "A + B = C") thay vì 2 ảnh rời rạc,
@@ -138,6 +153,13 @@ export default function AdminPage() {
   const [helperInstructionsDrafts, setHelperInstructionsDrafts] = useState<Record<string, string>>({});
   const [savingHelperId, setSavingHelperId] = useState<string | null>(null);
   const [savedHelperId, setSavedHelperId] = useState<string | null>(null);
+
+  // Catalog model ảnh/video của "Video từ ý tưởng truyện" — draft riêng theo app.id + loại (ảnh/video),
+  // chỉ ghi đè state gốc (app.storyImageModels/storyVideoModels) khi bấm "Lưu catalog".
+  const [storyImageModelsDrafts, setStoryImageModelsDrafts] = useState<Record<string, StoryModelEntry[]>>({});
+  const [storyVideoModelsDrafts, setStoryVideoModelsDrafts] = useState<Record<string, StoryModelEntry[]>>({});
+  const [savingStoryModelsId, setSavingStoryModelsId] = useState<string | null>(null);
+  const [savedStoryModelsId, setSavedStoryModelsId] = useState<string | null>(null);
 
   const [showNewAppForm, setShowNewAppForm] = useState(false);
   const [newAppType, setNewAppType] = useState<"text" | "image" | "video">("text");
@@ -438,6 +460,63 @@ export default function AdminPage() {
     }
     setSavedHelperId(app.id);
     setTimeout(() => setSavedHelperId(null), 2000);
+    loadMiniApps();
+  }
+
+  function getStoryImageModelsDraft(app: MiniAppPrice): StoryModelEntry[] {
+    return storyImageModelsDrafts[app.id] ?? app.storyImageModels ?? [];
+  }
+  function getStoryVideoModelsDraft(app: MiniAppPrice): StoryModelEntry[] {
+    return storyVideoModelsDrafts[app.id] ?? app.storyVideoModels ?? [];
+  }
+
+  function addStoryModelRow(app: MiniAppPrice, kind: "image" | "video") {
+    const blank: StoryModelEntry = { key: "", provider: "", label: "", model: "", provider_cost_vnd: 1000, multi_image: false, enabled: true };
+    if (kind === "image") {
+      setStoryImageModelsDrafts((prev) => ({ ...prev, [app.id]: [...getStoryImageModelsDraft(app), blank] }));
+    } else {
+      setStoryVideoModelsDrafts((prev) => ({ ...prev, [app.id]: [...getStoryVideoModelsDraft(app), blank] }));
+    }
+  }
+
+  function updateStoryModelRow(app: MiniAppPrice, kind: "image" | "video", index: number, patch: Partial<StoryModelEntry>) {
+    if (kind === "image") {
+      const next = getStoryImageModelsDraft(app).map((m, i) => (i === index ? { ...m, ...patch } : m));
+      setStoryImageModelsDrafts((prev) => ({ ...prev, [app.id]: next }));
+    } else {
+      const next = getStoryVideoModelsDraft(app).map((m, i) => (i === index ? { ...m, ...patch } : m));
+      setStoryVideoModelsDrafts((prev) => ({ ...prev, [app.id]: next }));
+    }
+  }
+
+  function removeStoryModelRow(app: MiniAppPrice, kind: "image" | "video", index: number) {
+    if (kind === "image") {
+      setStoryImageModelsDrafts((prev) => ({ ...prev, [app.id]: getStoryImageModelsDraft(app).filter((_, i) => i !== index) }));
+    } else {
+      setStoryVideoModelsDrafts((prev) => ({ ...prev, [app.id]: getStoryVideoModelsDraft(app).filter((_, i) => i !== index) }));
+    }
+  }
+
+  async function handleSaveStoryModels(app: MiniAppPrice) {
+    setSavingStoryModelsId(app.id);
+    setAppPriceError(null);
+    const res = await fetch("/api/admin/mini-apps", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: app.id,
+        storyImageModels: getStoryImageModelsDraft(app).map((m) => ({ ...m, multi_image: !!m.multi_image })),
+        storyVideoModels: getStoryVideoModelsDraft(app),
+      }),
+    });
+    setSavingStoryModelsId(null);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setAppPriceError(data.error ?? "Không lưu được catalog model");
+      return;
+    }
+    setSavedStoryModelsId(app.id);
+    setTimeout(() => setSavedStoryModelsId(null), 2000);
     loadMiniApps();
   }
 
@@ -1105,6 +1184,97 @@ export default function AdminPage() {
                             className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-300"
                           >
                             {savingHelperId === app.id ? "Đang lưu..." : savedHelperId === app.id ? "Đã lưu ✓" : "Lưu hướng dẫn"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {(app.storyImageModels || app.storyVideoModels) && (
+                      <div className="border-t border-zinc-100 pt-2 dark:border-zinc-800">
+                        <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">Catalog model ảnh/video (nhóm theo provider)</p>
+                        {(
+                          [
+                            { kind: "image" as const, title: "Model ảnh phân cảnh", rows: getStoryImageModelsDraft(app) },
+                            { kind: "video" as const, title: "Model video phân cảnh", rows: getStoryVideoModelsDraft(app) },
+                          ]
+                        ).map(({ kind, title, rows }) => (
+                          <div key={kind} className="mb-3">
+                            <p className="mb-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">{title}</p>
+                            <div className="space-y-1.5">
+                              {rows.map((m, index) => (
+                                <div key={index} className="grid grid-cols-12 items-center gap-1.5">
+                                  <input
+                                    value={m.provider}
+                                    onChange={(e) => updateStoryModelRow(app, kind, index, { provider: e.target.value })}
+                                    placeholder="Provider"
+                                    className="col-span-2 rounded border border-zinc-300 bg-white px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                                  />
+                                  <input
+                                    value={m.label}
+                                    onChange={(e) => updateStoryModelRow(app, kind, index, { label: e.target.value })}
+                                    placeholder="Tên hiển thị"
+                                    className="col-span-2 rounded border border-zinc-300 bg-white px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                                  />
+                                  <input
+                                    value={m.key}
+                                    onChange={(e) => updateStoryModelRow(app, kind, index, { key: e.target.value })}
+                                    placeholder="key"
+                                    className="col-span-1 rounded border border-zinc-300 bg-white px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                                  />
+                                  <input
+                                    value={m.model}
+                                    onChange={(e) => updateStoryModelRow(app, kind, index, { model: e.target.value })}
+                                    placeholder="fal-ai/..."
+                                    className="col-span-3 rounded border border-zinc-300 bg-white px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                                  />
+                                  <input
+                                    type="number"
+                                    value={m.provider_cost_vnd}
+                                    onChange={(e) => updateStoryModelRow(app, kind, index, { provider_cost_vnd: Number(e.target.value) })}
+                                    placeholder="Giá VND"
+                                    className="col-span-2 rounded border border-zinc-300 bg-white px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                                  />
+                                  {kind === "image" && (
+                                    <label className="col-span-1 flex items-center gap-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+                                      <input
+                                        type="checkbox"
+                                        checked={!!m.multi_image}
+                                        onChange={(e) => updateStoryModelRow(app, kind, index, { multi_image: e.target.checked })}
+                                      />
+                                      multi
+                                    </label>
+                                  )}
+                                  <label className={`flex items-center gap-1 text-[10px] text-zinc-500 dark:text-zinc-400 ${kind === "image" ? "col-span-1" : "col-span-2"}`}>
+                                    <input
+                                      type="checkbox"
+                                      checked={m.enabled}
+                                      onChange={(e) => updateStoryModelRow(app, kind, index, { enabled: e.target.checked })}
+                                    />
+                                    bật
+                                  </label>
+                                  <button
+                                    onClick={() => removeStoryModelRow(app, kind, index)}
+                                    className="text-xs text-zinc-400 hover:text-red-600 dark:text-zinc-500 dark:hover:text-red-400"
+                                  >
+                                    Xoá
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                            <button
+                              onClick={() => addStoryModelRow(app, kind)}
+                              className="mt-1.5 rounded-full border border-dashed border-zinc-300 px-3 py-0.5 text-xs text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400"
+                            >
+                              + Thêm model
+                            </button>
+                          </div>
+                        ))}
+                        <div className="flex justify-end">
+                          <button
+                            onClick={() => handleSaveStoryModels(app)}
+                            disabled={savingStoryModelsId === app.id}
+                            className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-300"
+                          >
+                            {savingStoryModelsId === app.id ? "Đang lưu..." : savedStoryModelsId === app.id ? "Đã lưu ✓" : "Lưu catalog"}
                           </button>
                         </div>
                       </div>

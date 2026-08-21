@@ -145,6 +145,35 @@ export default function MiniAppDetailPage() {
   const [dialogueError, setDialogueError] = useState<string | null>(null);
   const dialoguePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // "Video từ ý tưởng truyện": 1-3 ảnh nhân vật + mô tả truyện (dùng chung state `input`) + số phân
+  // cảnh (2-8) + chọn model ảnh/video từ catalog nhiều nhà cung cấp — AI tự chia cảnh, không cho
+  // khách tự viết từng cảnh.
+  const STORY_MIN_SCENES = 2;
+  const STORY_MAX_SCENES = 8;
+  const STORY_MAX_CHARACTER_IMAGES = 3;
+  const [numScenes, setNumScenes] = useState(3);
+  const [storyCharacterImages, setStoryCharacterImages] = useState<(string | null)[]>([null]);
+  type StoryModel = { key: string; provider: string; label: string; provider_cost_vnd: number; multi_image?: boolean };
+  const [storyImageModels, setStoryImageModels] = useState<StoryModel[]>([]);
+  const [storyVideoModels, setStoryVideoModels] = useState<StoryModel[]>([]);
+  const [storyImageModelKey, setStoryImageModelKey] = useState<string | null>(null);
+  const [storyVideoModelKey, setStoryVideoModelKey] = useState<string | null>(null);
+  const [storyImageCost, setStoryImageCost] = useState<number | null>(null);
+  const [storyVideoCost, setStoryVideoCost] = useState<number | null>(null);
+  // "Tự động tạo video luôn" (gộp 1 lượt, giống Genful bấm mũi tên ▾) — mặc định TẮT: chỉ chạy chia
+  // cảnh + tạo ảnh trước, dừng lại cho khách xem, ưng mới bấm "Tạo video" (đỡ tốn credit video oan
+  // nếu ảnh ra không đúng ý).
+  const [storyAutoVideo, setStoryAutoVideo] = useState(false);
+  const [storyRunning, setStoryRunning] = useState(false);
+  const [storyContinuing, setStoryContinuing] = useState(false);
+  const [storyStatusText, setStoryStatusText] = useState<string | null>(null);
+  const [storyStatus, setStoryStatus] = useState<string | null>(null);
+  const [storyJobId, setStoryJobId] = useState<number | null>(null);
+  const [storyScenes, setStoryScenes] = useState<{ position: number; imageUrl: string | null; videoUrl: string | null }[] | null>(null);
+  const [storyResult, setStoryResult] = useState<string | null>(null);
+  const [storyError, setStoryError] = useState<string | null>(null);
+  const storyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // "Thay trang phục": imageDataUrl dùng chung làm ảnh người mẫu, garmentImages là danh sách trang phục
   // tham chiếu riêng (tối đa 10) — kết quả trả về nhiều ảnh nên dùng state riêng, không dùng chung `result`.
   const [garmentImages, setGarmentImages] = useState<string[]>([]);
@@ -173,6 +202,7 @@ export default function MiniAppDetailPage() {
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
       if (dialoguePollRef.current) clearInterval(dialoguePollRef.current);
+      if (storyPollRef.current) clearInterval(storyPollRef.current);
     };
   }, []);
 
@@ -296,6 +326,40 @@ export default function MiniAppDetailPage() {
       })
       .catch(() => {});
   }, [params.id, dialogueCharacters.length]);
+
+  // "Video từ ý tưởng truyện": tải danh sách model ảnh/video từ catalog 1 lần khi vào trang, chọn sẵn
+  // model đầu tiên mỗi loại.
+  useEffect(() => {
+    if (params.id !== "video-tu-y-tuong") return;
+    fetch(`/api/story-video/models?miniAppId=${params.id}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data.imageModels)) {
+          setStoryImageModels(data.imageModels);
+          if (data.imageModels[0]) setStoryImageModelKey(data.imageModels[0].key);
+        }
+        if (Array.isArray(data.videoModels)) {
+          setStoryVideoModels(data.videoModels);
+          if (data.videoModels[0]) setStoryVideoModelKey(data.videoModels[0].key);
+        }
+      })
+      .catch(() => {});
+  }, [params.id]);
+
+  // "Video từ ý tưởng truyện": giá tăng theo số phân cảnh (2-8) + model ảnh/video đã chọn — tính lại
+  // mỗi khi đổi.
+  useEffect(() => {
+    if (params.id !== "video-tu-y-tuong" || !storyImageModelKey || !storyVideoModelKey) return;
+    fetch(
+      `/api/story-video/price?miniAppId=${params.id}&numScenes=${numScenes}&imageModelKey=${storyImageModelKey}&videoModelKey=${storyVideoModelKey}`
+    )
+      .then((res) => res.json())
+      .then((data) => {
+        if (typeof data.imageCost === "number") setStoryImageCost(data.imageCost);
+        if (typeof data.videoCost === "number") setStoryVideoCost(data.videoCost);
+      })
+      .catch(() => {});
+  }, [params.id, numScenes, storyImageModelKey, storyVideoModelKey]);
 
   // Ảnh/video có giá tính động theo chi phí thật + biên lợi nhuận, khác app text (giá cố định)
   useEffect(() => {
@@ -539,6 +603,128 @@ export default function MiniAppDetailPage() {
       setDialogueError("Không kết nối được tới server");
       setDialogueRunning(false);
       setDialogueStatusText(null);
+    }
+  }
+
+  function pollStoryVideoStatus(jobId: number) {
+    storyPollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/story-video/status?jobId=${jobId}`);
+        const data = await res.json();
+
+        if (Array.isArray(data.scenes)) setStoryScenes(data.scenes);
+        setStoryStatus(data.status ?? null);
+
+        if (data.status === "done" && data.outputUrl) {
+          if (storyPollRef.current) clearInterval(storyPollRef.current);
+          setStoryResult(data.outputUrl);
+          setStoryRunning(false);
+          setStoryStatusText(null);
+        } else if (data.status === "images_ready") {
+          // Dừng poll — job đang chờ khách xem ảnh và tự bấm "Tạo video", không có gì chạy ngầm nữa.
+          if (storyPollRef.current) clearInterval(storyPollRef.current);
+          setStoryRunning(false);
+          setStoryStatusText(data.statusText ?? null);
+        } else if (data.status === "failed") {
+          if (storyPollRef.current) clearInterval(storyPollRef.current);
+          setStoryError(data.errorMessage ?? "Tạo video thất bại, credit đã được hoàn");
+          setStoryRunning(false);
+          setStoryStatusText(null);
+        } else if (data.statusText) {
+          setStoryStatusText(data.statusText);
+        }
+      } catch {
+        // bỏ qua lỗi mạng tạm thời, vòng poll tiếp theo sẽ thử lại
+      }
+    }, 4000);
+  }
+
+  async function handleContinueToVideo() {
+    if (!user || !storyJobId) return;
+    setStoryContinuing(true);
+    setStoryError(null);
+    try {
+      const res = await fetch("/api/story-video/continue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, jobId: storyJobId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStoryError(data.error ?? "Có lỗi xảy ra");
+        setStoryContinuing(false);
+        return;
+      }
+      window.dispatchEvent(new Event("balance-updated"));
+      setStoryContinuing(false);
+      setStoryRunning(true);
+      setStoryStatusText("Đang tạo video cho từng phân cảnh...");
+      pollStoryVideoStatus(storyJobId);
+    } catch {
+      setStoryError("Không kết nối được tới server");
+      setStoryContinuing(false);
+    }
+  }
+
+  async function handleRunStoryVideo() {
+    const images = storyCharacterImages.filter((i): i is string => !!i);
+    if (!user || images.length === 0 || !input.trim() || !storyImageModelKey || !storyVideoModelKey) return;
+    setStoryRunning(true);
+    setStoryResult(null);
+    setStoryError(null);
+    setStoryScenes(null);
+    setStoryStatus(null);
+    setStoryJobId(null);
+    setStoryStatusText("Đang tải ảnh lên...");
+
+    let characterImageUrls: string[];
+    try {
+      characterImageUrls = await Promise.all(images.map((img) => uploadOutfitSwapImage(img)));
+    } catch (err) {
+      setStoryError(err instanceof Error ? err.message : "Không tải được ảnh lên, thử lại");
+      setStoryRunning(false);
+      setStoryStatusText(null);
+      return;
+    }
+
+    setStoryStatusText("AI đang chia phân cảnh...");
+
+    try {
+      const res = await fetch("/api/story-video/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: user.id,
+          miniAppId: app!.id,
+          storyDescription: input.trim(),
+          numScenes,
+          characterImageUrls,
+          imageModelKey: storyImageModelKey,
+          videoModelKey: storyVideoModelKey,
+          autoVideo: storyAutoVideo,
+        }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setStoryError(data.error ?? "Có lỗi xảy ra");
+        setStoryRunning(false);
+        setStoryStatusText(null);
+        return;
+      }
+
+      window.dispatchEvent(new Event("balance-updated"));
+      setStoryJobId(data.jobId);
+      setStoryStatusText(
+        storyAutoVideo
+          ? `Đang tạo ${numScenes} phân cảnh + video, có thể mất vài phút — anh có thể rời trang, quay lại vẫn thấy kết quả...`
+          : `Đang tạo ảnh cho ${numScenes} phân cảnh...`
+      );
+      pollStoryVideoStatus(data.jobId);
+    } catch {
+      setStoryError("Không kết nối được tới server");
+      setStoryRunning(false);
+      setStoryStatusText(null);
     }
   }
 
@@ -1678,6 +1864,193 @@ export default function MiniAppDetailPage() {
                 </div>
               )}
             </div>
+          ) : app.inputType === "story-video" ? (
+            <div className="mb-4">
+              <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                Ảnh nhân vật (1-{STORY_MAX_CHARACTER_IMAGES} ảnh, giữ đúng gương mặt xuyên suốt các cảnh)
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                {storyCharacterImages.map((img, index) => (
+                  <div key={index} className="relative aspect-square w-full">
+                    {img ? (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={img} alt={`Ảnh nhân vật ${index + 1}`} className="h-full w-full rounded-lg object-cover" />
+                        <button
+                          onClick={() => setStoryCharacterImages((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : [null]))}
+                          className="absolute right-1 top-1 rounded-full bg-black/60 px-2 py-0.5 text-xs font-medium text-white hover:bg-black/80"
+                        >
+                          Xóa
+                        </button>
+                      </>
+                    ) : (
+                      <label className="flex h-full w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-2 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                        <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            e.target.value = "";
+                            if (!file) return;
+                            const reader = new FileReader();
+                            reader.onload = () =>
+                              setStoryCharacterImages((prev) => prev.map((v, i) => (i === index ? (reader.result as string) : v)));
+                            reader.readAsDataURL(file);
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+                ))}
+                {storyCharacterImages.length < STORY_MAX_CHARACTER_IMAGES && (
+                  <button
+                    onClick={() => setStoryCharacterImages((prev) => [...prev, null])}
+                    className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 text-xs text-zinc-500 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400"
+                  >
+                    + Thêm ảnh
+                  </button>
+                )}
+              </div>
+
+              <p className="mb-1 mt-3 text-xs font-medium text-zinc-500 dark:text-zinc-400">Ý tưởng truyện</p>
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Ví dụ: cô gái bước vào quán cà phê buổi sáng, ngồi cạnh cửa sổ, mỉm cười nhìn ra ngoài, gọi 1 ly cà phê"
+                rows={4}
+                maxLength={2000}
+                className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+              />
+
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div>
+                  <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Model tạo ảnh</p>
+                  <select
+                    value={storyImageModelKey ?? ""}
+                    onChange={(e) => setStoryImageModelKey(e.target.value)}
+                    className="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                  >
+                    {Array.from(new Set(storyImageModels.map((m) => m.provider))).map((provider) => (
+                      <optgroup key={provider} label={provider}>
+                        {storyImageModels
+                          .filter((m) => m.provider === provider)
+                          .map((m) => (
+                            <option key={m.key} value={m.key}>
+                              {m.label} — {m.provider_cost_vnd}đ/cảnh
+                            </option>
+                          ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Model tạo video</p>
+                  <select
+                    value={storyVideoModelKey ?? ""}
+                    onChange={(e) => setStoryVideoModelKey(e.target.value)}
+                    className="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                  >
+                    {Array.from(new Set(storyVideoModels.map((m) => m.provider))).map((provider) => (
+                      <optgroup key={provider} label={provider}>
+                        {storyVideoModels
+                          .filter((m) => m.provider === provider)
+                          .map((m) => (
+                            <option key={m.key} value={m.key}>
+                              {m.label} — {m.provider_cost_vnd}đ/cảnh
+                            </option>
+                          ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="mt-3">
+                <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Số phân cảnh</p>
+                <div className="flex gap-2">
+                  {Array.from({ length: STORY_MAX_SCENES - STORY_MIN_SCENES + 1 }, (_, i) => STORY_MIN_SCENES + i).map((n) => (
+                    <button
+                      key={n}
+                      onClick={() => setNumScenes(n)}
+                      className={`rounded-full border px-3 py-1 text-xs font-medium ${
+                        numScenes === n
+                          ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
+                          : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
+                      }`}
+                    >
+                      {n} cảnh
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <label className="mt-3 flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                <input type="checkbox" checked={storyAutoVideo} onChange={(e) => setStoryAutoVideo(e.target.checked)} />
+                Tự động tạo video luôn (gộp 1 lượt) — mặc định tắt: chỉ tạo ảnh trước, xem ưng ý mới tạo video
+              </label>
+
+              {storyStatusText && <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{storyStatusText}</p>}
+              {storyError && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{storyError}</p>}
+
+              {storyStatus === "images_ready" && storyScenes && (
+                <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800">
+                  <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">Ảnh từng phân cảnh — xem trước rồi mới tạo video</p>
+                  <div className="grid grid-cols-4 gap-2">
+                    {storyScenes.map((s) => (
+                      <div key={s.position} className="aspect-square overflow-hidden rounded-lg bg-zinc-200 dark:bg-zinc-700">
+                        {s.imageUrl && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={s.imageUrl} alt={`Cảnh ${s.position + 1}`} className="h-full w-full object-cover" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex items-center justify-between">
+                    <span className="text-xs text-zinc-600 dark:text-zinc-400">
+                      Tạo video sẽ trừ thêm <strong className="text-zinc-900 dark:text-zinc-50">{storyVideoCost ?? "?"} credit</strong>
+                    </span>
+                    <button
+                      onClick={handleContinueToVideo}
+                      disabled={storyContinuing}
+                      className="rounded-full bg-zinc-900 px-4 py-1.5 text-xs font-medium text-white disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900"
+                    >
+                      {storyContinuing ? "Đang gửi..." : "Tạo video"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {storyResult && (
+                <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800">
+                  <p className="mb-1 text-xs font-medium text-zinc-500 dark:text-zinc-400">Kết quả từ AI</p>
+                  <video src={storyResult} controls className="w-full max-w-md rounded-lg" />
+                  <div className="mt-3 flex gap-2">
+                    <a
+                      href={`/api/download?url=${encodeURIComponent(storyResult)}&filename=video-tu-y-tuong.mp4`}
+                      download
+                      className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                    >
+                      Tải xuống
+                    </a>
+                    <button
+                      onClick={() => {
+                        setStoryResult(null);
+                        setStoryCharacterImages([null]);
+                        setStoryScenes(null);
+                        setStoryStatus(null);
+                        setStoryJobId(null);
+                        setInput("");
+                      }}
+                      className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                    >
+                      Chạy lại với input khác
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           ) : (
             <div className="mb-4">
               <textarea
@@ -1697,7 +2070,7 @@ export default function MiniAppDetailPage() {
             </div>
           )}
 
-          {(app.inputType === "outfit-swap" || app.inputType === "dialogue-video") && !user ? (
+          {(app.inputType === "outfit-swap" || app.inputType === "dialogue-video" || app.inputType === "story-video") && !user ? (
             <div className="flex items-center justify-between rounded-lg bg-zinc-50 p-3 dark:bg-zinc-800">
               <span className="text-sm text-zinc-600 dark:text-zinc-400">Cần đăng nhập để chạy Mini App</span>
               <Link href="/login" className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white dark:bg-zinc-50 dark:text-zinc-900">
@@ -1717,6 +2090,23 @@ export default function MiniAppDetailPage() {
                 className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
                 {dialogueRunning ? "Đang xử lý..." : "Chạy ngay"}
+              </button>
+            </div>
+          ) : app.inputType === "story-video" ? (
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                Thao tác này sẽ trừ{" "}
+                <strong className="text-zinc-900 dark:text-zinc-50">
+                  {storyAutoVideo ? (storyImageCost ?? 0) + (storyVideoCost ?? 0) : (storyImageCost ?? app.creditCost)} credit
+                </strong>{" "}
+                ({numScenes} phân cảnh{storyAutoVideo ? " + video" : ", chỉ ảnh"})
+              </span>
+              <button
+                onClick={handleRunStoryVideo}
+                disabled={storyRunning || !storyCharacterImages.some((i) => !!i) || !input.trim() || !storyImageModelKey || !storyVideoModelKey}
+                className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              >
+                {storyRunning ? "Đang xử lý..." : storyAutoVideo ? "Chạy phân cảnh + ảnh + video" : "Chạy phân cảnh + ảnh"}
               </button>
             </div>
           ) : app.inputType === "outfit-swap" ? (

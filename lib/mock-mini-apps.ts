@@ -7,7 +7,7 @@ export type MiniApp = {
   creditCost: number;
   popular?: boolean;
   isNew?: boolean;
-  inputType: "text" | "image" | "image-gen" | "video-gen" | "outfit-swap" | "dialogue-video" | "motion-transfer" | "video-transform";
+  inputType: "text" | "image" | "image-gen" | "video-gen" | "outfit-swap" | "dialogue-video" | "motion-transfer" | "video-transform" | "story-video";
   outputType?: "text" | "image" | "video";
   inputLabel: string;
   inputPlaceholder: string;
@@ -175,6 +175,23 @@ export const MINI_APPS: MiniApp[] = [
     inputPlaceholder: "",
     demoInput: "Nhân vật A: \"Bạn thấy chiếc váy này thế nào?\" — Nhân vật B: \"Mình thấy rất đẹp, màu này rất hợp với bạn.\"",
     demoOutput: "Video 2 nhân vật đối thoại qua lại bằng tiếng Việt, giữ đúng gương mặt từng người.",
+    usageCount: 0,
+    rating: 5.0,
+  },
+  {
+    id: "video-tu-y-tuong",
+    name: "Video từ ý tưởng truyện",
+    description: "Nhập ý tưởng truyện + tải 1 ảnh nhân vật, AI tự chia thành nhiều phân cảnh, tạo ảnh giữ đúng nhân vật cho từng cảnh rồi động hoá thành 1 video hoàn chỉnh.",
+    category: "video",
+    icon: "film",
+    creditCost: 900,
+    isNew: true,
+    inputType: "story-video",
+    outputType: "video",
+    inputLabel: "Ý tưởng truyện",
+    inputPlaceholder: "",
+    demoInput: "Cô gái bước vào quán cà phê buổi sáng, ngồi cạnh cửa sổ, mỉm cười nhìn ra ngoài, gọi 1 ly cà phê",
+    demoOutput: "Video 3 phân cảnh nối tiếp nhau, giữ đúng gương mặt nhân vật, chuyển cảnh mượt mà.",
     usageCount: 0,
     rating: 5.0,
   },
