@@ -193,6 +193,20 @@ export default function MiniAppDetailPage() {
   const [storyResult, setStoryResult] = useState<string | null>(null);
   const [storyError, setStoryError] = useState<string | null>(null);
   const storyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const storyScenesPreviewRef = useRef<HTMLDivElement | null>(null);
+  const storyResultRef = useRef<HTMLDivElement | null>(null);
+
+  // Tự động cuộn xuống khi ảnh phân cảnh xong hoặc video hoàn tất — khách không phải cuộn tay để xem kết quả.
+  useEffect(() => {
+    if (storyStatus === "images_ready") {
+      storyScenesPreviewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [storyStatus]);
+  useEffect(() => {
+    if (storyResult) {
+      storyResultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [storyResult]);
 
   // "Thay trang phục": imageDataUrl dùng chung làm ảnh người mẫu, garmentImages là danh sách trang phục
   // tham chiếu riêng (tối đa 10) — kết quả trả về nhiều ảnh nên dùng state riêng, không dùng chung `result`.
@@ -2172,7 +2186,10 @@ export default function MiniAppDetailPage() {
               {storyError && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{storyError}</p>}
 
               {storyStatus === "images_ready" && storyScenes && (
-                <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800">
+                <div
+                  ref={storyScenesPreviewRef}
+                  className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800"
+                >
                   <p className="mb-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">Ảnh từng phân cảnh — xem trước rồi mới tạo video</p>
                   <div className="grid grid-cols-4 gap-2">
                     {storyScenes.map((s) => (
@@ -2200,7 +2217,7 @@ export default function MiniAppDetailPage() {
               )}
 
               {storyResult && (
-                <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800">
+                <div ref={storyResultRef} className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800">
                   <p className="mb-1 text-sm font-medium text-zinc-500 dark:text-zinc-400">Kết quả từ AI</p>
                   <video src={storyResult} controls className="w-full max-w-md rounded-lg" />
                   <div className="mt-3 flex gap-2">
