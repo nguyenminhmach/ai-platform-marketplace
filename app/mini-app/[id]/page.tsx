@@ -2129,12 +2129,26 @@ export default function MiniAppDetailPage() {
                           })()}
                           <div className="flex items-center justify-between">
                             <span className="text-sm text-zinc-600 dark:text-zinc-400">Đã chọn Character đã lưu — bỏ qua tải ảnh mới</span>
-                            <button
-                              onClick={() => setStorySelectedSavedCharacterId(null)}
-                              className="text-sm font-medium text-zinc-700 underline dark:text-zinc-300"
-                            >
-                              Bỏ chọn
-                            </button>
+                            <div className="flex items-center gap-2">
+                              {(() => {
+                                const selected = storySavedCharacters.find((c) => c.id === storySelectedSavedCharacterId);
+                                return selected ? (
+                                  <a
+                                    href={`/api/download?url=${encodeURIComponent(selected.imageUrl)}&filename=character-sheet.png`}
+                                    download
+                                    className="text-sm font-medium text-zinc-700 underline dark:text-zinc-300"
+                                  >
+                                    Tải xuống
+                                  </a>
+                                ) : null;
+                              })()}
+                              <button
+                                onClick={() => setStorySelectedSavedCharacterId(null)}
+                                className="text-sm font-medium text-zinc-700 underline dark:text-zinc-300"
+                              >
+                                Bỏ chọn
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ) : (
@@ -2385,6 +2399,13 @@ export default function MiniAppDetailPage() {
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={storyCharacterSheetUrl} alt="Character sheet" className="w-full max-w-xl rounded-lg" />
                   <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <a
+                      href={`/api/download?url=${encodeURIComponent(storyCharacterSheetUrl)}&filename=character-sheet.png`}
+                      download
+                      className="rounded-full border border-zinc-300 px-4 py-1.5 text-sm font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                    >
+                      Tải xuống
+                    </a>
                     {storyCharacterSource !== "reused" && (
                       <button
                         onClick={handleRegenerateCharacter}
