@@ -2154,11 +2154,15 @@ export default function MiniAppDetailPage() {
                             {storySavedCharacters.map((c) => (
                               <div key={c.id} className="relative h-14 w-14">
                                 <button
-                                  onClick={() => setStorySelectedSavedCharacterId((prev) => (prev === c.id ? null : c.id))}
+                                  onClick={() => {
+                                    const wasSelected = storySelectedSavedCharacterId === c.id;
+                                    setStorySelectedSavedCharacterId(wasSelected ? null : c.id);
+                                    setStoryQuickZoomUrl(wasSelected ? null : c.imageUrl);
+                                  }}
                                   className={`h-14 w-14 cursor-zoom-in overflow-hidden rounded-lg border-2 ${
                                     storySelectedSavedCharacterId === c.id ? "border-zinc-900 dark:border-zinc-50" : "border-transparent"
                                   }`}
-                                  title={`${c.label ?? `Character #${c.id}`} — bấm để phóng to`}
+                                  title={`${c.label ?? `Character #${c.id}`} — bấm để chọn + xem to`}
                                 >
                                   {/* eslint-disable-next-line @next/next/no-img-element */}
                                   <img src={c.imageUrl} alt={c.label ?? `Character #${c.id}`} className="h-full w-full object-cover" />
@@ -2178,36 +2182,34 @@ export default function MiniAppDetailPage() {
 
                       {storySelectedSavedCharacterId ? (
                         <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-2 dark:border-zinc-700 dark:bg-zinc-800">
-                          {(() => {
-                            const selected = storySavedCharacters.find((c) => c.id === storySelectedSavedCharacterId);
-                            return selected ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={selected.imageUrl}
-                                alt={selected.label ?? "Character đã chọn"}
-                                onClick={() => setStorySelectedSavedCharacterId(null)}
-                                className="mb-2 w-full cursor-zoom-out rounded-lg"
-                                title="Bấm để thu nhỏ"
-                              />
-                            ) : null;
-                          })()}
                           <div className="flex items-center justify-between">
                             <span className="text-sm text-zinc-600 dark:text-zinc-400">Đã chọn Character đã lưu — bỏ qua tải ảnh mới</span>
                             <div className="flex items-center gap-2">
                               {(() => {
                                 const selected = storySavedCharacters.find((c) => c.id === storySelectedSavedCharacterId);
                                 return selected ? (
-                                  <a
-                                    href={`/api/download?url=${encodeURIComponent(selected.imageUrl)}&filename=character-sheet.png`}
-                                    download
-                                    className="text-sm font-medium text-zinc-700 underline dark:text-zinc-300"
-                                  >
-                                    Tải xuống
-                                  </a>
+                                  <>
+                                    <button
+                                      onClick={() => setStoryQuickZoomUrl(selected.imageUrl)}
+                                      className="text-sm font-medium text-zinc-700 underline dark:text-zinc-300"
+                                    >
+                                      Xem to
+                                    </button>
+                                    <a
+                                      href={`/api/download?url=${encodeURIComponent(selected.imageUrl)}&filename=character-sheet.png`}
+                                      download
+                                      className="text-sm font-medium text-zinc-700 underline dark:text-zinc-300"
+                                    >
+                                      Tải xuống
+                                    </a>
+                                  </>
                                 ) : null;
                               })()}
                               <button
-                                onClick={() => setStorySelectedSavedCharacterId(null)}
+                                onClick={() => {
+                                  setStorySelectedSavedCharacterId(null);
+                                  setStoryQuickZoomUrl(null);
+                                }}
                                 className="text-sm font-medium text-zinc-700 underline dark:text-zinc-300"
                               >
                                 Bỏ chọn
@@ -2215,6 +2217,7 @@ export default function MiniAppDetailPage() {
                               <button
                                 onClick={() => {
                                   if (storySelectedSavedCharacterId) handleDeleteSavedCharacter(storySelectedSavedCharacterId);
+                                  setStoryQuickZoomUrl(null);
                                 }}
                                 className="text-sm font-medium text-red-600 underline dark:text-red-400"
                               >
