@@ -154,8 +154,17 @@ async function getMiniAppModelConfig(miniAppId: string) {
       image_models: ImageModelEntry[];
       video_models: VideoModelEntry[];
       prompt_helper_instructions?: string;
+      character_prompt?: string;
     };
   };
+}
+
+// Prompt tạo Character — admin sửa được qua /admin (model_config.character_prompt), rỗng thì dùng bản
+// mặc định 6 góc (CHARACTER_SHEET_PROMPT).
+async function resolveCharacterPrompt(miniAppId: string): Promise<string> {
+  const miniApp = await getMiniAppModelConfig(miniAppId);
+  const override = miniApp.model_config.character_prompt;
+  return override?.trim() ? override.trim() : CHARACTER_SHEET_PROMPT;
 }
 
 // Chọn đúng entry theo key nếu còn bật (enabled) — key thiếu/sai/bị tắt thì rơi về entry bật đầu
@@ -444,7 +453,8 @@ export async function submitStoryVideoJob(
         if (!deduction.success) throw new InsufficientCreditError();
         characterTxId = deduction.txId ?? null;
 
-        const body = buildImageRequestBody(CHARACTER_SHEET_MODEL, CHARACTER_SHEET_PROMPT, characterImageUrls, true, "1:1", undefined);
+        const characterPrompt = await resolveCharacterPrompt(miniAppId);
+        const body = buildImageRequestBody(CHARACTER_SHEET_MODEL, characterPrompt, characterImageUrls, true, "1:1", undefined);
         const requestId = await submitFalJob(
           CHARACTER_SHEET_MODEL,
           body,
@@ -562,7 +572,8 @@ export async function regenerateCharacter(userId: string, jobId: number, idempot
   if (!deduction.success) throw new InsufficientCreditError();
 
   try {
-    const body = buildImageRequestBody(CHARACTER_SHEET_MODEL, CHARACTER_SHEET_PROMPT, job.character_image_urls, true, "1:1", undefined);
+    const characterPrompt = await resolveCharacterPrompt(job.mini_app_id);
+    const body = buildImageRequestBody(CHARACTER_SHEET_MODEL, characterPrompt, job.character_image_urls, true, "1:1", undefined);
     const requestId = await submitFalJob(CHARACTER_SHEET_MODEL, body, `${SITE_URL}/api/story-video/webhook?jobId=${jobId}&stage=character`);
     await supabase
       .from("story_video_jobs")

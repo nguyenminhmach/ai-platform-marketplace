@@ -73,6 +73,7 @@ type MiniAppPrice = {
   defaultPrompt: string;
   defaultPromptVisible: boolean;
   promptHelperInstructions: string;
+  characterPrompt: string;
   storyImageModels: StoryModelEntry[] | null;
   storyVideoModels: StoryModelEntry[] | null;
 };
@@ -153,6 +154,9 @@ export default function AdminPage() {
   const [helperInstructionsDrafts, setHelperInstructionsDrafts] = useState<Record<string, string>>({});
   const [savingHelperId, setSavingHelperId] = useState<string | null>(null);
   const [savedHelperId, setSavedHelperId] = useState<string | null>(null);
+  const [characterPromptDrafts, setCharacterPromptDrafts] = useState<Record<string, string>>({});
+  const [savingCharacterPromptId, setSavingCharacterPromptId] = useState<string | null>(null);
+  const [savedCharacterPromptId, setSavedCharacterPromptId] = useState<string | null>(null);
 
   // Catalog model ảnh/video của "Video từ ý tưởng truyện" — draft riêng theo app.id + loại (ảnh/video),
   // chỉ ghi đè state gốc (app.storyImageModels/storyVideoModels) khi bấm "Lưu catalog".
@@ -460,6 +464,28 @@ export default function AdminPage() {
     }
     setSavedHelperId(app.id);
     setTimeout(() => setSavedHelperId(null), 2000);
+    loadMiniApps();
+  }
+
+  // Prompt tạo ảnh Character (sheet nhiều góc) cho "Video từ ý tưởng truyện" — rỗng thì
+  // lib/story-video.ts tự dùng bản mặc định 6 góc.
+  async function handleSaveCharacterPrompt(app: MiniAppPrice) {
+    const value = characterPromptDrafts[app.id] ?? app.characterPrompt;
+    setSavingCharacterPromptId(app.id);
+    setAppPriceError(null);
+    const res = await fetch("/api/admin/mini-apps", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: app.id, characterPrompt: value }),
+    });
+    setSavingCharacterPromptId(null);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setAppPriceError(data.error ?? "Không lưu được prompt tạo Character");
+      return;
+    }
+    setSavedCharacterPromptId(app.id);
+    setTimeout(() => setSavedCharacterPromptId(null), 2000);
     loadMiniApps();
   }
 
@@ -1190,6 +1216,25 @@ export default function AdminPage() {
                     )}
                     {(app.storyImageModels || app.storyVideoModels) && (
                       <div className="border-t border-zinc-100 pt-2 dark:border-zinc-800">
+                        <p className="mb-1 text-xs text-zinc-500 dark:text-zinc-400">
+                          Prompt tạo ảnh Character (sheet nhiều góc) — rỗng = dùng bản mặc định 6 góc
+                        </p>
+                        <textarea
+                          value={characterPromptDrafts[app.id] ?? app.characterPrompt}
+                          onChange={(e) => setCharacterPromptDrafts((prev) => ({ ...prev, [app.id]: e.target.value }))}
+                          rows={4}
+                          placeholder="Để trống sẽ dùng prompt mặc định: sheet 6 góc (chính diện/3-4 trái/3-4 phải/nghiêng/sau lưng/cận mặt), giữ nguyên mặt-tóc-trang phục..."
+                          className="mb-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                        />
+                        <div className="mb-3 flex justify-end">
+                          <button
+                            onClick={() => handleSaveCharacterPrompt(app)}
+                            disabled={savingCharacterPromptId === app.id}
+                            className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-300"
+                          >
+                            {savingCharacterPromptId === app.id ? "Đang lưu..." : savedCharacterPromptId === app.id ? "Đã lưu ✓" : "Lưu prompt Character"}
+                          </button>
+                        </div>
                         <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">Catalog model ảnh/video (nhóm theo provider)</p>
                         {(
                           [

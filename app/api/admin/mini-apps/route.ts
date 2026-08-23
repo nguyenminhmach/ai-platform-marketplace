@@ -42,6 +42,7 @@ export async function GET(req: Request) {
           default_prompt?: string;
           default_prompt_visible?: boolean;
           prompt_helper_instructions?: string;
+          character_prompt?: string;
           image_models?: { key: string; provider: string; label: string; model: string; provider_cost_vnd: number; multi_image: boolean; enabled: boolean }[];
           video_models?: { key: string; provider: string; label: string; model: string; provider_cost_vnd: number; enabled: boolean }[];
         }
@@ -81,6 +82,9 @@ export async function GET(req: Request) {
       defaultPromptVisible: config?.default_prompt_visible ?? true,
       // System prompt cho nút "AI viết giúp mô tả" — rỗng thì route generate-prompt tự dùng bản mặc định
       promptHelperInstructions: config?.prompt_helper_instructions ?? "",
+      // Prompt tạo ảnh Character (sheet nhiều góc) — chỉ app "Video từ ý tưởng truyện" dùng, rỗng thì
+      // lib/story-video.ts tự dùng bản mặc định 6 góc.
+      characterPrompt: config?.character_prompt ?? "",
       // Catalog model ảnh/video nhiều nhà cung cấp — chỉ app "Video từ ý tưởng truyện" có, null cho
       // app khác để không hiện nhầm section catalog.
       storyImageModels: config?.image_models ?? null,
@@ -105,6 +109,7 @@ export async function PATCH(req: Request) {
     defaultPrompt,
     defaultPromptVisible,
     promptHelperInstructions,
+    characterPrompt,
     storyImageModels,
     storyVideoModels,
   } = await req.json();
@@ -123,6 +128,7 @@ export async function PATCH(req: Request) {
     defaultPrompt === undefined &&
     defaultPromptVisible === undefined &&
     promptHelperInstructions === undefined &&
+    characterPrompt === undefined &&
     storyImageModels === undefined &&
     storyVideoModels === undefined
   ) {
@@ -153,6 +159,7 @@ export async function PATCH(req: Request) {
     defaultPrompt !== undefined ||
     defaultPromptVisible !== undefined ||
     promptHelperInstructions !== undefined ||
+    characterPrompt !== undefined ||
     storyImageModels !== undefined ||
     storyVideoModels !== undefined
   ) {
@@ -203,6 +210,12 @@ export async function PATCH(req: Request) {
         return Response.json({ error: "promptHelperInstructions phải là chuỗi" }, { status: 400 });
       }
       nextConfig.prompt_helper_instructions = promptHelperInstructions;
+    }
+    if (characterPrompt !== undefined) {
+      if (typeof characterPrompt !== "string") {
+        return Response.json({ error: "characterPrompt phải là chuỗi" }, { status: 400 });
+      }
+      nextConfig.character_prompt = characterPrompt;
     }
     if (storyImageModels !== undefined) {
       if (
