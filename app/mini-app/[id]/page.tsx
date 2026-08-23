@@ -148,7 +148,7 @@ export default function MiniAppDetailPage() {
   // "Video từ ý tưởng truyện": 1-3 ảnh nhân vật + mô tả truyện (dùng chung state `input`) + số phân
   // cảnh (2-8) + chọn model ảnh/video từ catalog nhiều nhà cung cấp — AI tự chia cảnh, không cho
   // khách tự viết từng cảnh.
-  const STORY_MIN_SCENES = 2;
+  const STORY_MIN_SCENES = 1;
   const STORY_MAX_SCENES = 8;
   const [numScenes, setNumScenes] = useState(3);
   const [storyCharacterImages, setStoryCharacterImages] = useState<string[]>([]);

@@ -27,7 +27,7 @@ import { computeDynamicCreditCost, getMediaPricingSettings } from "@/lib/pricing
 const execFileAsync = promisify(execFile);
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://ai-platform-marketplace.vercel.app";
 
-export const MIN_SCENES = 2;
+export const MIN_SCENES = 1;
 export const MAX_SCENES = 8;
 export const MIN_CHARACTER_IMAGES = 1;
 // Không giới hạn số ảnh nhân vật theo yêu cầu — chỉ giữ 1 trần an toàn kỹ thuật (tránh payload quá
