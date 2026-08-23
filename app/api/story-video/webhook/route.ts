@@ -1,7 +1,8 @@
-import { applyImageStageResult, applyVideoStageResult } from "@/lib/story-video";
+import { applyCharacterStageResult, applyImageStageResult, applyVideoStageResult } from "@/lib/story-video";
 
-// Fal.ai gọi vào đây 1 lần/cảnh cho bước tạo ảnh và 1 lần/cảnh cho bước tạo video — phân biệt bằng
-// query param sceneId (id hàng trong story_video_scenes) và stage (image/video). Bước ghép video
+// Fal.ai gọi vào đây: 1 lần/job cho bước tạo Character (không có sceneId), 1 lần/cảnh cho bước tạo
+// ảnh và 1 lần/cảnh cho bước tạo video — phân biệt bằng query param sceneId (id hàng trong
+// story_video_scenes, bỏ trống với stage=character) và stage (character/image/video). Bước ghép video
 // cuối (ffmpeg) chạy ngay trong request này khi cảnh cuối cùng xong video, nên cần thời gian chờ dài
 // hơn mặc định.
 export const maxDuration = 60;
@@ -13,13 +14,18 @@ export async function POST(req: Request) {
     const sceneId = searchParams.get("sceneId");
     const stage = searchParams.get("stage");
 
-    if (!jobId || !sceneId || (stage !== "image" && stage !== "video")) {
-      return Response.json({ error: "Thiếu hoặc sai jobId/sceneId/stage" }, { status: 400 });
+    if (!jobId || (stage !== "character" && stage !== "image" && stage !== "video")) {
+      return Response.json({ error: "Thiếu hoặc sai jobId/stage" }, { status: 400 });
+    }
+    if (stage !== "character" && !sceneId) {
+      return Response.json({ error: "Thiếu sceneId" }, { status: 400 });
     }
 
     const payload = await req.json();
 
-    if (stage === "image") {
+    if (stage === "character") {
+      await applyCharacterStageResult(Number(jobId), payload);
+    } else if (stage === "image") {
       await applyImageStageResult(Number(jobId), Number(sceneId), payload);
     } else {
       await applyVideoStageResult(Number(jobId), Number(sceneId), payload);

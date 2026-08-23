@@ -180,6 +180,20 @@ export default function MiniAppDetailPage() {
   const [storyModelChatKey, setStoryModelChatKey] = useState(STORY_MODEL_CHAT_OPTIONS[0].value);
   const [storyImageCost, setStoryImageCost] = useState<number | null>(null);
   const [storyVideoCost, setStoryVideoCost] = useState<number | null>(null);
+  const [storyCharacterCost, setStoryCharacterCost] = useState<number | null>(null);
+  // Bước "Tạo Character" — ảnh sheet nhiều góc dùng làm tham chiếu chung cho mọi phân cảnh (thay vì
+  // ảnh gốc lộn xộn). Job dừng ở "character_ready" chờ khách duyệt trước khi tốn credit chia cảnh.
+  const [storyCharacterSheetUrl, setStoryCharacterSheetUrl] = useState<string | null>(null);
+  const [storyCharacterSource, setStoryCharacterSource] = useState<string | null>(null);
+  const [storyRegeneratingCharacter, setStoryRegeneratingCharacter] = useState(false);
+  const [storyContinuingScenes, setStoryContinuingScenes] = useState(false);
+  const [storySavingCharacter, setStorySavingCharacter] = useState(false);
+  const [storySavedCharacterMsg, setStorySavedCharacterMsg] = useState<string | null>(null);
+  // Thư viện Character đã lưu — chọn 1 cái thay vì tải ảnh mới, bỏ qua hẳn bước tạo Character (chắc
+  // chắn 100% vì chính hệ thống đã tạo ra trước đó, không cần AI phân loại lại).
+  type SavedCharacter = { id: number; imageUrl: string; label: string | null };
+  const [storySavedCharacters, setStorySavedCharacters] = useState<SavedCharacter[]>([]);
+  const [storySelectedSavedCharacterId, setStorySelectedSavedCharacterId] = useState<number | null>(null);
   // "Tự động tạo video luôn" (gộp 1 lượt, giống Genful bấm mũi tên ▾) — mặc định TẮT: chỉ chạy chia
   // cảnh + tạo ảnh trước, dừng lại cho khách xem, ưng mới bấm "Tạo video" (đỡ tốn credit video oan
   // nếu ảnh ra không đúng ý).
@@ -193,12 +207,16 @@ export default function MiniAppDetailPage() {
   const [storyResult, setStoryResult] = useState<string | null>(null);
   const [storyError, setStoryError] = useState<string | null>(null);
   const storyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const storyCharacterPreviewRef = useRef<HTMLDivElement | null>(null);
   const storyScenesPreviewRef = useRef<HTMLDivElement | null>(null);
   const storyResultRef = useRef<HTMLDivElement | null>(null);
 
-  // Tự động cuộn xuống khi ảnh phân cảnh xong hoặc video hoàn tất — khách không phải cuộn tay để xem kết quả.
+  // Tự động cuộn xuống khi Character/ảnh phân cảnh xong hoặc video hoàn tất — khách không phải cuộn
+  // tay để xem kết quả.
   useEffect(() => {
-    if (storyStatus === "images_ready") {
+    if (storyStatus === "character_ready") {
+      storyCharacterPreviewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else if (storyStatus === "images_ready") {
       storyScenesPreviewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [storyStatus]);
@@ -207,6 +225,21 @@ export default function MiniAppDetailPage() {
       storyResultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [storyResult]);
+
+  // Thư viện Character đã lưu — tải khi vào app + sau khi lưu 1 Character mới.
+  function loadSavedStoryCharacters(userId: string) {
+    fetch(`/api/story-video/characters?userId=${userId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data.characters)) setStorySavedCharacters(data.characters);
+      })
+      .catch(() => {});
+  }
+  useEffect(() => {
+    if (params.id !== "video-tu-y-tuong" || !user) return;
+    loadSavedStoryCharacters(user.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.id, user?.id]);
 
   // "Thay trang phục": imageDataUrl dùng chung làm ảnh người mẫu, garmentImages là danh sách trang phục
   // tham chiếu riêng (tối đa 10) — kết quả trả về nhiều ảnh nên dùng state riêng, không dùng chung `result`.
@@ -405,6 +438,7 @@ export default function MiniAppDetailPage() {
       .then((data) => {
         if (typeof data.imageCost === "number") setStoryImageCost(data.imageCost);
         if (typeof data.videoCost === "number") setStoryVideoCost(data.videoCost);
+        if (typeof data.characterCost === "number") setStoryCharacterCost(data.characterCost);
       })
       .catch(() => {});
   }, [params.id, numScenes, storyImageModelKey, storyVideoModelKey, storyResolutionKey, storyDurationKey]);
@@ -662,12 +696,20 @@ export default function MiniAppDetailPage() {
 
         if (Array.isArray(data.scenes)) setStoryScenes(data.scenes);
         setStoryStatus(data.status ?? null);
+        if (data.characterSheetUrl) setStoryCharacterSheetUrl(data.characterSheetUrl);
+        if (data.characterSource) setStoryCharacterSource(data.characterSource);
 
         if (data.status === "done" && data.outputUrl) {
           if (storyPollRef.current) clearInterval(storyPollRef.current);
           setStoryResult(data.outputUrl);
           setStoryRunning(false);
           setStoryStatusText(null);
+        } else if (data.status === "character_ready") {
+          // Dừng poll — job đang chờ khách xem/duyệt ảnh Character, tự bấm "Tạo lại" hoặc
+          // "Tiếp tục chia cảnh", không có gì chạy ngầm nữa.
+          if (storyPollRef.current) clearInterval(storyPollRef.current);
+          setStoryRunning(false);
+          setStoryStatusText(data.statusText ?? null);
         } else if (data.status === "images_ready") {
           // Dừng poll — job đang chờ khách xem ảnh và tự bấm "Tạo video", không có gì chạy ngầm nữa.
           if (storyPollRef.current) clearInterval(storyPollRef.current);
@@ -685,6 +727,84 @@ export default function MiniAppDetailPage() {
         // bỏ qua lỗi mạng tạm thời, vòng poll tiếp theo sẽ thử lại
       }
     }, 4000);
+  }
+
+  async function handleRegenerateCharacter() {
+    if (!user || !storyJobId) return;
+    setStoryRegeneratingCharacter(true);
+    setStoryError(null);
+    try {
+      const res = await fetch("/api/story-video/regenerate-character", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, jobId: storyJobId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStoryError(data.error ?? "Có lỗi xảy ra");
+        setStoryRegeneratingCharacter(false);
+        return;
+      }
+      window.dispatchEvent(new Event("balance-updated"));
+      setStoryRegeneratingCharacter(false);
+      setStoryRunning(true);
+      setStoryCharacterSheetUrl(null);
+      setStoryStatusText("Đang tạo lại ảnh Character...");
+      pollStoryVideoStatus(storyJobId);
+    } catch {
+      setStoryError("Không kết nối được tới server");
+      setStoryRegeneratingCharacter(false);
+    }
+  }
+
+  async function handleSaveCharacter() {
+    if (!user || !storyCharacterSheetUrl) return;
+    setStorySavingCharacter(true);
+    setStorySavedCharacterMsg(null);
+    try {
+      const res = await fetch("/api/story-video/characters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, imageUrl: storyCharacterSheetUrl }),
+      });
+      if (res.ok) {
+        setStorySavedCharacterMsg("Đã lưu vào thư viện Character.");
+        loadSavedStoryCharacters(user.id);
+      } else {
+        setStorySavedCharacterMsg("Không lưu được, thử lại.");
+      }
+    } catch {
+      setStorySavedCharacterMsg("Không kết nối được tới server");
+    } finally {
+      setStorySavingCharacter(false);
+    }
+  }
+
+  async function handleContinueToScenes() {
+    if (!user || !storyJobId) return;
+    setStoryContinuingScenes(true);
+    setStoryError(null);
+    try {
+      const res = await fetch("/api/story-video/continue-to-scenes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, jobId: storyJobId, modelChatKey: storyModelChatKey }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStoryError(data.error ?? "Có lỗi xảy ra");
+        setStoryContinuingScenes(false);
+        return;
+      }
+      window.dispatchEvent(new Event("balance-updated"));
+      setStoryContinuingScenes(false);
+      setStoryRunning(true);
+      setStoryStatusText(`Đang tạo ảnh cho ${numScenes} phân cảnh...`);
+      pollStoryVideoStatus(storyJobId);
+    } catch {
+      setStoryError("Không kết nối được tới server");
+      setStoryContinuingScenes(false);
+    }
   }
 
   async function handleContinueToVideo() {
@@ -716,26 +836,32 @@ export default function MiniAppDetailPage() {
 
   async function handleRunStoryVideo() {
     const images = storyCharacterImages;
-    if (!user || images.length === 0 || !input.trim() || !storyImageModelKey || !storyVideoModelKey) return;
+    const reuseId = storySelectedSavedCharacterId;
+    if (!user || (!reuseId && images.length === 0) || !input.trim() || !storyImageModelKey || !storyVideoModelKey) return;
     setStoryRunning(true);
     setStoryResult(null);
     setStoryError(null);
     setStoryScenes(null);
     setStoryStatus(null);
     setStoryJobId(null);
-    setStoryStatusText("Đang tải ảnh lên...");
+    setStoryCharacterSheetUrl(null);
+    setStoryCharacterSource(null);
+    setStorySavedCharacterMsg(null);
 
-    let characterImageUrls: string[];
-    try {
-      characterImageUrls = await Promise.all(images.map((img) => uploadOutfitSwapImage(img)));
-    } catch (err) {
-      setStoryError(err instanceof Error ? err.message : "Không tải được ảnh lên, thử lại");
-      setStoryRunning(false);
-      setStoryStatusText(null);
-      return;
+    let characterImageUrls: string[] = [];
+    if (!reuseId) {
+      setStoryStatusText("Đang tải ảnh lên...");
+      try {
+        characterImageUrls = await Promise.all(images.map((img) => uploadOutfitSwapImage(img)));
+      } catch (err) {
+        setStoryError(err instanceof Error ? err.message : "Không tải được ảnh lên, thử lại");
+        setStoryRunning(false);
+        setStoryStatusText(null);
+        return;
+      }
     }
 
-    setStoryStatusText("AI đang chia phân cảnh...");
+    setStoryStatusText(reuseId ? "Đang chuẩn bị Character đã lưu..." : "AI đang kiểm tra ảnh nhân vật...");
 
     try {
       const res = await fetch("/api/story-video/submit", {
@@ -754,6 +880,7 @@ export default function MiniAppDetailPage() {
           resolutionKey: storyResolutionKey,
           durationKey: storyDurationKey,
           modelChatKey: storyModelChatKey,
+          reuseCharacterId: reuseId ?? undefined,
         }),
       });
       const data = await res.json();
@@ -767,11 +894,7 @@ export default function MiniAppDetailPage() {
 
       window.dispatchEvent(new Event("balance-updated"));
       setStoryJobId(data.jobId);
-      setStoryStatusText(
-        storyAutoVideo
-          ? `Đang tạo ${numScenes} phân cảnh + video, có thể mất vài phút — anh có thể rời trang, quay lại vẫn thấy kết quả...`
-          : `Đang tạo ảnh cho ${numScenes} phân cảnh...`
-      );
+      setStoryStatusText("Đang xử lý ảnh Character...");
       pollStoryVideoStatus(data.jobId);
     } catch {
       setStoryError("Không kết nối được tới server");
@@ -1954,38 +2077,76 @@ export default function MiniAppDetailPage() {
                   <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
                       <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">📷 Ảnh nhân vật</p>
-                      <div className="grid grid-cols-2 gap-3">
-                        {storyCharacterImages.map((img, index) => (
-                          <div key={index} className="relative aspect-square w-full">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={img} alt={`Ảnh nhân vật ${index + 1}`} className="h-full w-full rounded-lg object-cover" />
-                            <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">@image{index + 1}</span>
-                            <button
-                              onClick={() => setStoryCharacterImages((prev) => prev.filter((_, i) => i !== index))}
-                              className="absolute -right-2 -top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white hover:bg-black/90"
-                            >
-                              ✕
-                            </button>
+
+                      {storySavedCharacters.length > 0 && (
+                        <div className="mb-3">
+                          <p className="mb-1 text-sm text-zinc-500 dark:text-zinc-400">📂 Character đã lưu</p>
+                          <div className="flex flex-wrap gap-2">
+                            {storySavedCharacters.map((c) => (
+                              <button
+                                key={c.id}
+                                onClick={() => setStorySelectedSavedCharacterId((prev) => (prev === c.id ? null : c.id))}
+                                className={`relative h-14 w-14 overflow-hidden rounded-lg border-2 ${
+                                  storySelectedSavedCharacterId === c.id ? "border-zinc-900 dark:border-zinc-50" : "border-transparent"
+                                }`}
+                                title={c.label ?? `Character #${c.id}`}
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={c.imageUrl} alt={c.label ?? `Character #${c.id}`} className="h-full w-full object-cover" />
+                              </button>
+                            ))}
                           </div>
-                        ))}
-                        <label className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800">
-                          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              e.target.value = "";
-                              if (!file) return;
-                              const reader = new FileReader();
-                              reader.onload = () => setStoryCharacterImages((prev) => [...prev, reader.result as string]);
-                              reader.readAsDataURL(file);
-                            }}
-                          />
-                        </label>
-                      </div>
-                      <p className="mt-2 text-sm text-zinc-400 dark:text-zinc-500">Giữ đúng gương mặt xuyên suốt các cảnh</p>
+                        </div>
+                      )}
+
+                      {storySelectedSavedCharacterId ? (
+                        <div className="flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800">
+                          <span className="text-sm text-zinc-600 dark:text-zinc-400">Đã chọn Character đã lưu — bỏ qua tải ảnh mới</span>
+                          <button
+                            onClick={() => setStorySelectedSavedCharacterId(null)}
+                            className="text-sm font-medium text-zinc-700 underline dark:text-zinc-300"
+                          >
+                            Bỏ chọn
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="grid grid-cols-2 gap-3">
+                            {storyCharacterImages.map((img, index) => (
+                              <div key={index} className="relative aspect-square w-full">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={img} alt={`Ảnh nhân vật ${index + 1}`} className="h-full w-full rounded-lg object-cover" />
+                                <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">@image{index + 1}</span>
+                                <button
+                                  onClick={() => setStoryCharacterImages((prev) => prev.filter((_, i) => i !== index))}
+                                  className="absolute -right-2 -top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white hover:bg-black/90"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                            <label className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                              <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  e.target.value = "";
+                                  if (!file) return;
+                                  const reader = new FileReader();
+                                  reader.onload = () => setStoryCharacterImages((prev) => [...prev, reader.result as string]);
+                                  reader.readAsDataURL(file);
+                                }}
+                              />
+                            </label>
+                          </div>
+                          <p className="mt-2 text-sm text-zinc-400 dark:text-zinc-500">
+                            AI sẽ tự tạo 1 ảnh Character (nhiều góc) từ ảnh anh/chị tải lên, dùng giữ đúng nhân vật xuyên suốt các cảnh
+                          </p>
+                        </>
+                      )}
                     </div>
 
                     <div className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
@@ -2185,6 +2346,47 @@ export default function MiniAppDetailPage() {
               {storyStatusText && <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{storyStatusText}</p>}
               {storyError && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{storyError}</p>}
 
+              {storyStatus === "character_ready" && storyCharacterSheetUrl && (
+                <div
+                  ref={storyCharacterPreviewRef}
+                  className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800"
+                >
+                  <p className="mb-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                    Ảnh Character (nhiều góc) — xem trước rồi mới chia cảnh
+                  </p>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={storyCharacterSheetUrl} alt="Character sheet" className="w-full max-w-xl rounded-lg" />
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {storyCharacterSource !== "reused" && (
+                      <button
+                        onClick={handleRegenerateCharacter}
+                        disabled={storyRegeneratingCharacter || storyContinuingScenes}
+                        className="rounded-full border border-zinc-300 px-4 py-1.5 text-sm font-medium text-zinc-700 disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-300"
+                      >
+                        {storyRegeneratingCharacter ? "Đang tạo lại..." : "🔄 Tạo lại Character"}
+                      </button>
+                    )}
+                    {storyCharacterSource !== "reused" && (
+                      <button
+                        onClick={handleSaveCharacter}
+                        disabled={storySavingCharacter}
+                        className="rounded-full border border-zinc-300 px-4 py-1.5 text-sm font-medium text-zinc-700 disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-300"
+                      >
+                        {storySavingCharacter ? "Đang lưu..." : "💾 Lưu vào thư viện"}
+                      </button>
+                    )}
+                    <button
+                      onClick={handleContinueToScenes}
+                      disabled={storyContinuingScenes || storyRegeneratingCharacter}
+                      className="ml-auto rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900"
+                    >
+                      {storyContinuingScenes ? "Đang gửi..." : "Tiếp tục chia cảnh →"}
+                    </button>
+                  </div>
+                  {storySavedCharacterMsg && <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">{storySavedCharacterMsg}</p>}
+                </div>
+              )}
+
               {storyStatus === "images_ready" && storyScenes && (
                 <div
                   ref={storyScenesPreviewRef}
@@ -2232,6 +2434,9 @@ export default function MiniAppDetailPage() {
                       onClick={() => {
                         setStoryResult(null);
                         setStoryCharacterImages([]);
+                        setStorySelectedSavedCharacterId(null);
+                        setStoryCharacterSheetUrl(null);
+                        setStoryCharacterSource(null);
                         setStoryScenes(null);
                         setStoryStatus(null);
                         setStoryJobId(null);
@@ -2289,15 +2494,26 @@ export default function MiniAppDetailPage() {
           ) : app.inputType === "story-video" ? (
             <div className="flex items-center justify-between">
               <span className="text-base text-zinc-600 dark:text-zinc-400">
-                Thao tác này sẽ trừ{" "}
-                <strong className="text-zinc-900 dark:text-zinc-50">
-                  {storyAutoVideo ? (storyImageCost ?? 0) + (storyVideoCost ?? 0) : (storyImageCost ?? app.creditCost)} credit
-                </strong>{" "}
-                ({numScenes} phân cảnh{storyAutoVideo ? " + video" : ", chỉ ảnh"})
+                {storySelectedSavedCharacterId ? (
+                  "Character đã lưu — không tốn credit bước này"
+                ) : (
+                  <>
+                    Bước này tốn tối đa{" "}
+                    <strong className="text-zinc-900 dark:text-zinc-50">{storyCharacterCost ?? "?"} credit</strong> (chỉ khi cần tạo Character mới) — phần ảnh/video (~
+                    {storyAutoVideo ? (storyImageCost ?? 0) + (storyVideoCost ?? 0) : (storyImageCost ?? app.creditCost)} credit,{" "}
+                    {numScenes} phân cảnh) tính ở bước sau, sau khi anh/chị duyệt Character
+                  </>
+                )}
               </span>
               <button
                 onClick={handleRunStoryVideo}
-                disabled={storyRunning || storyCharacterImages.length === 0 || !input.trim() || !storyImageModelKey || !storyVideoModelKey}
+                disabled={
+                  storyRunning ||
+                  (!storySelectedSavedCharacterId && storyCharacterImages.length === 0) ||
+                  !input.trim() ||
+                  !storyImageModelKey ||
+                  !storyVideoModelKey
+                }
                 className="rounded-full bg-zinc-900 px-6 py-2.5 text-base font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
                 {storyRunning ? "Đang xử lý..." : storyAutoVideo ? "Chạy phân cảnh + ảnh + video" : "Chạy phân cảnh + ảnh"}

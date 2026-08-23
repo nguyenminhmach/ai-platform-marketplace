@@ -3,6 +3,8 @@ import { resolveStoryVideoJob } from "@/lib/story-video";
 
 const STAGE_LABEL: Record<string, string> = {
   pending: "Đang bắt đầu...",
+  generating_character: "Đang tạo ảnh Character (nhiều góc) từ ảnh anh/chị tải lên...",
+  character_ready: "Đã có ảnh Character — xem trước và bấm \"Tiếp tục chia cảnh\" nếu ưng ý.",
   splitting_story: "AI đang chia phân cảnh...",
   generating_images: "Đang tạo ảnh cho từng phân cảnh...",
   images_ready: "Đã tạo xong ảnh — xem trước và bấm \"Tạo video\" nếu ưng ý.",
@@ -18,7 +20,11 @@ export async function GET(req: Request) {
   await resolveStoryVideoJob(Number(jobId)).catch(() => {});
 
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase.from("story_video_jobs").select("status, output_url, error_message").eq("id", jobId).single();
+  const { data, error } = await supabase
+    .from("story_video_jobs")
+    .select("status, output_url, error_message, character_sheet_url, character_source")
+    .eq("id", jobId)
+    .single();
   if (error || !data) return Response.json({ error: "Không tìm thấy job" }, { status: 404 });
 
   let progressText: string | null = null;
@@ -45,5 +51,7 @@ export async function GET(req: Request) {
     errorMessage: data.error_message,
     statusText: progressText ?? STAGE_LABEL[data.status] ?? null,
     scenes,
+    characterSheetUrl: data.character_sheet_url,
+    characterSource: data.character_source,
   });
 }

@@ -4,11 +4,13 @@
 // đúng thứ tự thành 1 video hoàn chỉnh. Mỗi cảnh là 1 hàng trong story_video_scenes, xử lý song song,
 // chờ đủ cả N hàng mới sang bước kế tiếp — cùng khuôn với lib/dialogue-video.ts.
 //
-// Chia 2 nấc theo đúng cách Genful làm: mặc định submitStoryVideoJob() chỉ chạy tới hết bước ảnh rồi
-// DỪNG ở status "images_ready" (chỉ trừ credit phần ảnh) — khách xem ảnh từng cảnh trước, ưng mới gọi
-// continueStoryVideoToVideoStage() (trừ thêm credit phần video) để chạy tiếp video + ghép. Nếu khách
-// chọn "tự động tạo video luôn" (autoVideo=true) thì submit trừ đủ cả 2 phần và tự chạy hết 1 lượt,
-// không dừng ở images_ready.
+// Chia 3 nấc: submitStoryVideoJob() xử lý bước "Tạo Character" trước tiên rồi DỪNG ở "character_ready"
+// (chỉ trừ credit nếu thực sự phải tạo Character mới) — khách xem/duyệt ảnh Character, ưng mới gọi
+// continueStoryVideoToSceneStage() (trừ credit phần ảnh, chạy chia cảnh + tạo ảnh từng cảnh dùng
+// Character làm tham chiếu) rồi DỪNG ở "images_ready" — khách xem ảnh từng cảnh, ưng mới gọi
+// continueStoryVideoToVideoStage() (trừ credit phần video) để chạy tiếp video + ghép. Nếu khách chọn
+// "tự động tạo video luôn" (autoVideo=true) thì continueStoryVideoToSceneStage trừ gộp cả ảnh+video và
+// tự chạy hết tới cuối, không dừng ở images_ready.
 
 import { randomUUID } from "crypto";
 import { execFile } from "child_process";
@@ -18,7 +20,7 @@ import { tmpdir } from "os";
 import path from "path";
 import ffmpegPath from "ffmpeg-static";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { deductCredit, refundCredit, InsufficientCreditError } from "@/lib/credit-system";
+import { deductCredit, refundCredit, getCreditBalance, InsufficientCreditError } from "@/lib/credit-system";
 import { callOpenRouter, recordGenerationHistory } from "@/lib/ai-router";
 import { computeDynamicCreditCost, getMediaPricingSettings } from "@/lib/pricing";
 
@@ -36,6 +38,49 @@ const SCENE_SPLIT_SYSTEM_PROMPT = `Bạn là đạo diễn dựng phân cảnh. 
 Nhiệm vụ: chia thành ĐÚNG N phân cảnh liên tục, mỗi cảnh là 1 khoảnh khắc hình ảnh cụ thể (nhân vật đang làm gì, ở đâu, bối cảnh gì), giữ nguyên nhân vật chính xuyên suốt các cảnh.
 Chỉ trả về DUY NHẤT 1 mảng JSON gồm đúng N chuỗi tiếng Anh, mỗi chuỗi mô tả 1 cảnh (dùng để tạo ảnh AI), không kèm markdown fence, không giải thích, không đánh số.
 Ví dụ format: ["a young woman walking into a coffee shop, morning light", "she sits by the window, smiling while looking outside"]`;
+
+// Bước "Tạo Character" — chạy trước khi chia cảnh: biến (các) ảnh gốc khách tải lên (thường 1 góc,
+// ánh sáng/nền lộn xộn) thành 1 ảnh sheet nhiều góc chuẩn (chính diện/3-4 trái/3-4 phải/nghiêng/sau
+// lưng/cận mặt), dùng LÀM tham chiếu chung cho mọi lần gọi model ảnh phân cảnh sau đó — giúp nhân vật
+// đồng nhất qua các cảnh tốt hơn nhiều so với dùng thẳng ảnh gốc lộn xộn mỗi lần. Cố định GPT Image 2
+// (đã kiểm chứng qua nghiên cứu: model này dựng được bố cục nhiều-panel-trong-1-ảnh khá tin cậy qua 1
+// lần gọi duy nhất — tính giá theo ĐỘ PHÂN GIẢI OUTPUT, không theo số panel trong ảnh).
+const CHARACTER_SHEET_MODEL = "fal-ai/gpt-image-2/edit";
+// Giá GPT Image 2 @1024px đã tra fal.ai (xem migration-story-video-gpt-image2-resolution.sql) — cố
+// định 1 mức giá, không cho khách chọn độ phân giải riêng cho bước này (giữ đơn giản, đủ dùng làm
+// ảnh tham chiếu nội bộ, không phải ảnh xuất bản cuối cùng).
+const CHARACTER_PROVIDER_COST_VND = 5700;
+const CHARACTER_SHEET_PROMPT =
+  "Create a single professional character reference sheet: one wide landscape canvas on a neutral light-gray studio background, divided into 6 equal panels labeled 1) FRONT VIEW (full body), 2) 3/4 LEFT VIEW (full body), 3) 3/4 RIGHT VIEW (full body), 4) SIDE VIEW (full body), 5) BACK VIEW (full body), 6) FACE CLOSE-UP. Keep the exact same face, hairstyle, outfit, and body proportions identical and consistent across all six panels, based strictly on the reference photo(s) provided — do not invent a different person. Even, soft studio lighting, photorealistic, sharp focus.";
+
+// Phân loại ảnh khách vừa tải lên: đã là 1 sheet nhiều góc (không cần tạo lại, dùng thẳng) hay chỉ là
+// 1 ảnh chụp thường (cần chạy bước Tạo Character). Dùng Gemini Flash (đã có sẵn qua callOpenRouter,
+// chi phí ~18đ/lần — rẻ hơn ảnh Character ~300 lần) thay vì đoán bằng heuristic không đáng tin.
+const CHARACTER_CLASSIFY_SYSTEM_PROMPT = `Bạn là trợ lý phân loại ảnh. Nhìn ảnh được cung cấp và trả lời DUY NHẤT 1 từ, không giải thích, không thêm chữ nào khác:
+- "SHEET" nếu ảnh là 1 tấm ghép nhiều ô/panel thể hiện nhiều góc nhìn khác nhau (chính diện, nghiêng, sau lưng...) của CÙNG một người.
+- "PHOTO" nếu ảnh chỉ là 1 bức ảnh chụp thường (1 người, 1 góc, không chia ô).`;
+
+async function classifyCharacterImage(imageUrl: string): Promise<boolean> {
+  try {
+    const { output } = await callOpenRouter(
+      "google/gemini-3-flash-preview",
+      10,
+      CHARACTER_CLASSIFY_SYSTEM_PROMPT,
+      "Phân loại ảnh này.",
+      imageUrl
+    );
+    return output.trim().toUpperCase().startsWith("SHEET");
+  } catch {
+    // Lỗi gọi AI phân loại -> coi như ảnh thường, chạy bước Tạo Character cho chắc (an toàn hơn bỏ qua).
+    return false;
+  }
+}
+
+export async function computeCharacterCreditCost(): Promise<{ providerCostVnd: number; creditCost: number }> {
+  const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
+  const creditCost = computeDynamicCreditCost(CHARACTER_PROVIDER_COST_VND, marginPercent, vndPerCredit);
+  return { providerCostVnd: CHARACTER_PROVIDER_COST_VND, creditCost };
+}
 
 export type ImageModelEntry = {
   key: string;
@@ -84,12 +129,18 @@ type JobRow = {
   auto_video: boolean;
   image_credit_tx_id: number | null;
   video_credit_tx_id: number | null;
+  character_credit_tx_id: number | null;
   image_provider_cost_vnd_per_scene: number | null;
   video_provider_cost_vnd_per_scene: number | null;
   num_scenes: number;
+  story_description: string;
+  character_image_urls: string[];
+  character_sheet_url: string | null;
+  character_fal_request_id: string | null;
   image_model: string | null;
   video_model: string | null;
   aspect_ratio: string | null;
+  image_resolution_key: string | null;
   video_duration_key: string | null;
 };
 
@@ -306,6 +357,10 @@ export async function splitStoryIntoScenes(
   }
 }
 
+// Bước 1: nhận request khách bấm "Chạy ngay" -> xử lý Character (chọn từ thư viện / phân loại ảnh đã
+// là sheet / tạo mới qua GPT Image 2) -> dừng ở "character_ready". KHÔNG chia cảnh/tạo ảnh phân cảnh
+// ở hàm này nữa (dời sang continueStoryVideoToSceneStage, chạy khi khách duyệt Character xong) — chỉ
+// tốn credit ở đây nếu thực sự phải gọi GPT Image 2 tạo Character mới.
 export async function submitStoryVideoJob(
   userId: string,
   miniAppId: string,
@@ -319,34 +374,32 @@ export async function submitStoryVideoJob(
   resolutionKey: string | undefined,
   durationKey: string | undefined,
   modelChatKey: string | undefined,
-  idempotencyKey: string
+  idempotencyKey: string,
+  reuseCharacterId?: number
 ): Promise<{ jobId: number; newBalance: number }> {
   if (numScenes < MIN_SCENES || numScenes > MAX_SCENES) {
     throw new Error(`Cần từ ${MIN_SCENES} đến ${MAX_SCENES} phân cảnh`);
   }
-  if (characterImageUrls.length < MIN_CHARACTER_IMAGES || characterImageUrls.length > MAX_CHARACTER_IMAGES) {
+
+  const supabase = getSupabaseAdmin();
+
+  // Chọn từ thư viện đã lưu -> biết chắc 100% đây là Character chuẩn (chính hệ thống tạo ra trước
+  // đó), bỏ qua hoàn toàn bước validate/phân loại ảnh tải lên mới.
+  let reusedImageUrl: string | null = null;
+  if (reuseCharacterId) {
+    const { data: saved } = await supabase
+      .from("story_characters")
+      .select("id, user_id, image_url")
+      .eq("id", reuseCharacterId)
+      .single();
+    if (!saved || saved.user_id !== userId) throw new Error("Không tìm thấy Character đã lưu");
+    reusedImageUrl = saved.image_url;
+  } else if (characterImageUrls.length < MIN_CHARACTER_IMAGES || characterImageUrls.length > MAX_CHARACTER_IMAGES) {
     throw new Error(`Cần từ ${MIN_CHARACTER_IMAGES} đến ${MAX_CHARACTER_IMAGES} ảnh nhân vật`);
   }
 
-  const {
-    imageEntry,
-    videoEntry,
-    imageCost,
-    videoCost,
-    totalCost,
-    imageProviderCostVnd,
-    videoProviderCostVnd,
-    resolvedResolutionKey,
-    resolvedDurationKey,
-    promptHelperInstructions,
-  } = await resolveCosts(miniAppId, numScenes, imageModelKey, videoModelKey, resolutionKey, durationKey);
-
-  // Mặc định chỉ trừ phần ảnh (bước 1) — phần video trừ riêng khi khách bấm "Tạo video" ở
-  // continueStoryVideoToVideoStage(). Nếu chọn "tự động tạo video luôn" thì trừ gộp cả 2 phần ngay.
-  const deduction = await deductCredit(userId, autoVideo ? totalCost : imageCost, miniAppId, idempotencyKey);
-  if (!deduction.success) throw new InsufficientCreditError();
-
-  const supabase = getSupabaseAdmin();
+  const { imageEntry, videoEntry, imageProviderCostVnd, videoProviderCostVnd, resolvedResolutionKey, resolvedDurationKey } =
+    await resolveCosts(miniAppId, numScenes, imageModelKey, videoModelKey, resolutionKey, durationKey);
 
   const { data: job, error: insertError } = await supabase
     .from("story_video_jobs")
@@ -363,60 +416,205 @@ export async function submitStoryVideoJob(
       aspect_ratio: aspectRatio,
       image_resolution_key: resolvedResolutionKey ?? null,
       video_duration_key: resolvedDurationKey ?? null,
-      image_credit_tx_id: deduction.txId,
       image_provider_cost_vnd_per_scene: imageProviderCostVnd,
       video_provider_cost_vnd_per_scene: videoProviderCostVnd,
     })
     .select("id")
     .single();
 
-  if (insertError || !job) {
-    if (deduction.txId) await refundCredit(deduction.txId);
-    throw new Error(insertError?.message ?? "Không tạo được job");
-  }
+  if (insertError || !job) throw new Error(insertError?.message ?? "Không tạo được job");
 
+  let characterTxId: number | null = null;
   try {
-    await supabase.from("story_video_jobs").update({ status: "splitting_story" }).eq("id", job.id);
-    const scenes = await splitStoryIntoScenes(storyDescription, numScenes, promptHelperInstructions, modelChatKey);
+    if (reusedImageUrl) {
+      await supabase
+        .from("story_video_jobs")
+        .update({ status: "character_ready", character_sheet_url: reusedImageUrl, character_source: "reused" })
+        .eq("id", job.id);
+    } else {
+      const isAlreadySheet = await classifyCharacterImage(characterImageUrls[0]);
+      if (isAlreadySheet) {
+        await supabase
+          .from("story_video_jobs")
+          .update({ status: "character_ready", character_sheet_url: characterImageUrls[0], character_source: "uploaded_sheet" })
+          .eq("id", job.id);
+      } else {
+        const { creditCost } = await computeCharacterCreditCost();
+        const deduction = await deductCredit(userId, creditCost, miniAppId, idempotencyKey);
+        if (!deduction.success) throw new InsufficientCreditError();
+        characterTxId = deduction.txId ?? null;
 
-    const { data: sceneRows, error: sceneError } = await supabase
-      .from("story_video_scenes")
-      .insert(scenes.map((description, index) => ({ job_id: job.id, position: index, scene_description: description })))
-      .select("id, position, scene_description");
-    if (sceneError || !sceneRows) throw new Error(sceneError?.message ?? "Không tạo được phân cảnh");
-
-    await Promise.all(
-      sceneRows.map(async (row) => {
-        const body = buildImageRequestBody(imageEntry.model, row.scene_description, characterImageUrls, imageEntry.multi_image, aspectRatio, resolvedResolutionKey);
-
+        const body = buildImageRequestBody(CHARACTER_SHEET_MODEL, CHARACTER_SHEET_PROMPT, characterImageUrls, true, "1:1", undefined);
         const requestId = await submitFalJob(
-          imageEntry.model,
+          CHARACTER_SHEET_MODEL,
           body,
-          `${SITE_URL}/api/story-video/webhook?jobId=${job.id}&sceneId=${row.id}&stage=image`
+          `${SITE_URL}/api/story-video/webhook?jobId=${job.id}&stage=character`
         );
-        await supabase.from("story_video_scenes").update({ image_fal_request_id: requestId }).eq("id", row.id);
-      })
-    );
-
-    await supabase.from("story_video_jobs").update({ status: "generating_images" }).eq("id", job.id);
+        await supabase
+          .from("story_video_jobs")
+          .update({
+            status: "generating_character",
+            character_source: "generated",
+            character_credit_tx_id: characterTxId,
+            character_fal_request_id: requestId,
+          })
+          .eq("id", job.id);
+      }
+    }
   } catch (err) {
     await supabase
       .from("story_video_jobs")
       .update({ status: "failed", error_message: err instanceof Error ? err.message : String(err) })
       .eq("id", job.id);
+    if (characterTxId) await refundCredit(characterTxId);
+    throw err;
+  }
+
+  return { jobId: job.id, newBalance: await getCreditBalance(userId) };
+}
+
+// Khách bấm "Tiếp tục chia cảnh" sau khi xem/duyệt ảnh Character (job đang ở "character_ready") — trừ
+// credit phần ảnh (đã snapshot provider_cost_vnd/cảnh lúc submit) rồi chạy chia cảnh (LLM) + submit
+// ảnh cho từng cảnh, dùng character_sheet_url làm tham chiếu chung thay vì ảnh gốc lộn xộn.
+export async function continueStoryVideoToSceneStage(
+  userId: string,
+  jobId: number,
+  modelChatKey: string | undefined,
+  idempotencyKey: string
+): Promise<{ newBalance: number }> {
+  const supabase = getSupabaseAdmin();
+  const { data: jobData } = await supabase.from("story_video_jobs").select("*").eq("id", jobId).single();
+  if (!jobData) throw new Error("Không tìm thấy job");
+  const job = jobData as JobRow;
+
+  if (job.user_id !== userId) throw new Error("Không có quyền với job này");
+  if (job.status !== "character_ready") throw new Error("Job không ở trạng thái sẵn sàng chia cảnh");
+  if (!job.character_sheet_url) throw new Error("Thiếu ảnh Character của job");
+  if (!job.image_provider_cost_vnd_per_scene || !job.video_provider_cost_vnd_per_scene) {
+    throw new Error("Thiếu dữ liệu giá của job");
+  }
+
+  const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
+  const imageCost = computeDynamicCreditCost(job.image_provider_cost_vnd_per_scene * job.num_scenes, marginPercent, vndPerCredit);
+  const videoCost = computeDynamicCreditCost(job.video_provider_cost_vnd_per_scene * job.num_scenes, marginPercent, vndPerCredit);
+
+  const deduction = await deductCredit(userId, job.auto_video ? imageCost + videoCost : imageCost, job.mini_app_id, idempotencyKey);
+  if (!deduction.success) throw new InsufficientCreditError();
+
+  await supabase.from("story_video_jobs").update({ status: "splitting_story", image_credit_tx_id: deduction.txId }).eq("id", jobId);
+
+  try {
+    const miniApp = await getMiniAppModelConfig(job.mini_app_id);
+    const imageEntry = miniApp.model_config.image_models.find((m) => m.model === job.image_model);
+    const scenes = await splitStoryIntoScenes(job.story_description, job.num_scenes, miniApp.model_config.prompt_helper_instructions, modelChatKey);
+
+    const { data: sceneRows, error: sceneError } = await supabase
+      .from("story_video_scenes")
+      .insert(scenes.map((description, index) => ({ job_id: jobId, position: index, scene_description: description })))
+      .select("id, position, scene_description");
+    if (sceneError || !sceneRows) throw new Error(sceneError?.message ?? "Không tạo được phân cảnh");
+
+    await Promise.all(
+      sceneRows.map(async (row) => {
+        const body = buildImageRequestBody(
+          job.image_model as string,
+          row.scene_description,
+          [job.character_sheet_url as string],
+          imageEntry?.multi_image ?? false,
+          job.aspect_ratio ?? "9:16",
+          job.image_resolution_key ?? undefined
+        );
+        const requestId = await submitFalJob(
+          job.image_model as string,
+          body,
+          `${SITE_URL}/api/story-video/webhook?jobId=${jobId}&sceneId=${row.id}&stage=image`
+        );
+        await supabase.from("story_video_scenes").update({ image_fal_request_id: requestId }).eq("id", row.id);
+      })
+    );
+
+    await supabase.from("story_video_jobs").update({ status: "generating_images" }).eq("id", jobId);
+  } catch (err) {
+    await failJob(jobId, err instanceof Error ? err.message : String(err));
+    throw err;
+  }
+
+  return { newBalance: deduction.newBalance };
+}
+
+// Khách chưa ưng ảnh Character (job đang ở "character_ready") -> ép tạo lại từ đúng ảnh gốc đã tải
+// lên lúc submit. Không hoàn credit lần tạo trước (đã tốn phí gọi model thật, coi là chi phí đã chi
+// để thử) — chỉ tính thêm credit cho lần tạo mới.
+export async function regenerateCharacter(userId: string, jobId: number, idempotencyKey: string): Promise<{ newBalance: number }> {
+  const supabase = getSupabaseAdmin();
+  const { data: jobData } = await supabase.from("story_video_jobs").select("*").eq("id", jobId).single();
+  if (!jobData) throw new Error("Không tìm thấy job");
+  const job = jobData as JobRow;
+
+  if (job.user_id !== userId) throw new Error("Không có quyền với job này");
+  if (job.status !== "character_ready") throw new Error("Job không ở trạng thái xem trước Character");
+  if (!job.character_image_urls || job.character_image_urls.length === 0) {
+    throw new Error("Job này không có ảnh gốc để tạo lại (đang dùng Character đã lưu từ thư viện)");
+  }
+
+  const { creditCost } = await computeCharacterCreditCost();
+  const deduction = await deductCredit(userId, creditCost, job.mini_app_id, idempotencyKey);
+  if (!deduction.success) throw new InsufficientCreditError();
+
+  try {
+    const body = buildImageRequestBody(CHARACTER_SHEET_MODEL, CHARACTER_SHEET_PROMPT, job.character_image_urls, true, "1:1", undefined);
+    const requestId = await submitFalJob(CHARACTER_SHEET_MODEL, body, `${SITE_URL}/api/story-video/webhook?jobId=${jobId}&stage=character`);
+    await supabase
+      .from("story_video_jobs")
+      .update({
+        status: "generating_character",
+        character_source: "generated",
+        character_credit_tx_id: deduction.txId,
+        character_fal_request_id: requestId,
+      })
+      .eq("id", jobId);
+  } catch (err) {
     if (deduction.txId) await refundCredit(deduction.txId);
     throw err;
   }
 
-  return { jobId: job.id, newBalance: deduction.newBalance };
+  return { newBalance: deduction.newBalance };
+}
+
+export async function saveStoryCharacter(userId: string, imageUrl: string, label?: string): Promise<number> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("story_characters")
+    .insert({ user_id: userId, image_url: imageUrl, label: label?.trim() || null })
+    .select("id")
+    .single();
+  if (error || !data) throw new Error(error?.message ?? "Không lưu được Character");
+  return data.id;
+}
+
+export async function listStoryCharacters(
+  userId: string
+): Promise<{ id: number; imageUrl: string; label: string | null; createdAt: string }[]> {
+  const supabase = getSupabaseAdmin();
+  const { data } = await supabase
+    .from("story_characters")
+    .select("id, image_url, label, created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  return (data ?? []).map((r) => ({ id: r.id, imageUrl: r.image_url, label: r.label, createdAt: r.created_at }));
 }
 
 async function failJob(jobId: number, message: string) {
   const supabase = getSupabaseAdmin();
-  const { data: job } = await supabase.from("story_video_jobs").select("image_credit_tx_id, video_credit_tx_id").eq("id", jobId).single();
+  const { data: job } = await supabase
+    .from("story_video_jobs")
+    .select("image_credit_tx_id, video_credit_tx_id, character_credit_tx_id")
+    .eq("id", jobId)
+    .single();
   await supabase.from("story_video_jobs").update({ status: "failed", error_message: message }).eq("id", jobId);
   if (job?.image_credit_tx_id) await refundCredit(job.image_credit_tx_id);
   if (job?.video_credit_tx_id) await refundCredit(job.video_credit_tx_id);
+  if (job?.character_credit_tx_id) await refundCredit(job.character_credit_tx_id);
 }
 
 async function getScenes(jobId: number): Promise<SceneRow[]> {
@@ -426,6 +624,26 @@ async function getScenes(jobId: number): Promise<SceneRow[]> {
 }
 
 export { getScenes as getStoryVideoScenes };
+
+// Gọi khi Fal.ai tạo xong ảnh Character sheet (job-level, không phải per-scene) -> dừng ở
+// "character_ready" chờ khách xem trước, bấm "Tạo lại" hoặc "Tiếp tục chia cảnh".
+export async function applyCharacterStageResult(jobId: number, falPayload: Record<string, unknown>) {
+  const supabase = getSupabaseAdmin();
+  const isError = falPayload.status === "ERROR" || !!falPayload.error;
+
+  if (isError) {
+    await failJob(jobId, `Lỗi tạo Character: ${String(falPayload.error ?? "")}`);
+    return;
+  }
+
+  const imageUrl = extractImageUrl(falPayload);
+  if (!imageUrl) {
+    await failJob(jobId, "Không tìm thấy URL ảnh Character trong phản hồi Fal.ai");
+    return;
+  }
+
+  await supabase.from("story_video_jobs").update({ status: "character_ready", character_sheet_url: imageUrl }).eq("id", jobId);
+}
 
 // Gọi khi 1 ảnh giữ nhân vật (bước 1) của 1 cảnh tạo xong. Khi TẤT CẢ cảnh xong: nếu job bật
 // auto_video thì chuyển thẳng sang bước video, ngược lại DỪNG ở "images_ready" chờ khách xem trước
@@ -633,9 +851,17 @@ export async function resolveStoryVideoJob(jobId: number): Promise<void> {
   if (!jobData) return;
   const job = jobData as JobRow;
 
-  if (!["generating_images", "generating_videos"].includes(job.status)) return;
+  if (!["generating_character", "generating_images", "generating_videos"].includes(job.status)) return;
   const ageMs = Date.now() - new Date(job.updated_at).getTime();
   if (ageMs < STALE_CHECK_MS) return;
+
+  if (job.status === "generating_character") {
+    if (job.character_fal_request_id) {
+      const result = await pollFalResult(CHARACTER_SHEET_MODEL, job.character_fal_request_id);
+      if (result) await applyCharacterStageResult(jobId, result);
+    }
+    return;
+  }
 
   const scenes = await getScenes(jobId);
 

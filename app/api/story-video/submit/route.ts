@@ -22,6 +22,7 @@ export async function POST(req: Request) {
     resolutionKey,
     durationKey,
     modelChatKey,
+    reuseCharacterId,
   } = await req.json();
 
   if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
@@ -35,11 +36,14 @@ export async function POST(req: Request) {
   if (typeof numScenes !== "number" || numScenes < MIN_SCENES || numScenes > MAX_SCENES) {
     return Response.json({ error: `Cần từ ${MIN_SCENES} đến ${MAX_SCENES} phân cảnh` }, { status: 400 });
   }
+  // Chọn Character từ thư viện đã lưu -> không cần ảnh tải lên mới, bỏ qua validate số lượng ảnh.
+  const hasReuseCharacter = typeof reuseCharacterId === "number";
   if (
-    !Array.isArray(characterImageUrls) ||
-    characterImageUrls.length < MIN_CHARACTER_IMAGES ||
-    characterImageUrls.length > MAX_CHARACTER_IMAGES ||
-    !characterImageUrls.every((u) => typeof u === "string" && u)
+    !hasReuseCharacter &&
+    (!Array.isArray(characterImageUrls) ||
+      characterImageUrls.length < MIN_CHARACTER_IMAGES ||
+      characterImageUrls.length > MAX_CHARACTER_IMAGES ||
+      !characterImageUrls.every((u) => typeof u === "string" && u))
   ) {
     return Response.json({ error: `Cần từ ${MIN_CHARACTER_IMAGES} đến ${MAX_CHARACTER_IMAGES} ảnh nhân vật` }, { status: 400 });
   }
@@ -50,7 +54,7 @@ export async function POST(req: Request) {
       miniAppId,
       storyDescription.trim(),
       numScenes,
-      characterImageUrls,
+      Array.isArray(characterImageUrls) ? characterImageUrls : [],
       typeof imageModelKey === "string" ? imageModelKey : undefined,
       typeof videoModelKey === "string" ? videoModelKey : undefined,
       autoVideo === true,
@@ -58,7 +62,8 @@ export async function POST(req: Request) {
       typeof resolutionKey === "string" ? resolutionKey : undefined,
       typeof durationKey === "string" ? durationKey : undefined,
       typeof modelChatKey === "string" ? modelChatKey : undefined,
-      randomUUID()
+      randomUUID(),
+      hasReuseCharacter ? reuseCharacterId : undefined
     );
     return Response.json({ success: true, jobId: result.jobId, newBalance: result.newBalance });
   } catch (err) {
