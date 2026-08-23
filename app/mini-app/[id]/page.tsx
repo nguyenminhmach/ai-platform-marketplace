@@ -2189,6 +2189,14 @@ export default function MiniAppDetailPage() {
                               >
                                 Bỏ chọn
                               </button>
+                              <button
+                                onClick={() => {
+                                  if (storySelectedSavedCharacterId) handleDeleteSavedCharacter(storySelectedSavedCharacterId);
+                                }}
+                                className="text-sm font-medium text-red-600 underline dark:text-red-400"
+                              >
+                                Xoá
+                              </button>
                             </div>
                           </div>
                         </div>
