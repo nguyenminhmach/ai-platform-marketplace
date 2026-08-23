@@ -1437,7 +1437,7 @@ export default function MiniAppDetailPage() {
       <main
         className={`mx-auto px-6 ${
           isWideLayout ? "max-w-6xl pt-4 pb-10" : "max-w-3xl py-10"
-        }`}
+        } ${app.inputType === "story-video" ? "pb-24" : ""}`}
       >
         {/* Header Mini App — bỏ badge Danh mục/Hot/Mới riêng cho các app video dùng bố cục 2 cột, tên
             app đã chuyển lên thanh Header phía trên rồi nên không cần lặp lại gì ở đây nữa. */}
@@ -2670,31 +2670,36 @@ export default function MiniAppDetailPage() {
               </button>
             </div>
           ) : app.inputType === "story-video" ? (
-            <div className="flex items-center justify-between">
-              <span className="text-base text-zinc-600 dark:text-zinc-400">
-                {storySelectedSavedCharacterId ? (
-                  "Character đã lưu — không tốn credit bước này"
-                ) : (
-                  <>
-                    Bước này tốn tối đa{" "}
-                    <strong className="text-zinc-900 dark:text-zinc-50">{storyCharacterCost ?? "?"} credit</strong> (chỉ khi cần tạo Character mới) — phần ảnh/video (~
-                    {storyAutoVideo ? (storyImageCost ?? 0) + (storyVideoCost ?? 0) : (storyImageCost ?? app.creditCost)} credit,{" "}
-                    {numScenes} phân cảnh) tính ở bước sau, sau khi anh/chị duyệt Character
-                  </>
-                )}
-              </span>
-              <button
-                onClick={handleRunStoryVideo}
-                disabled={
-                  storyRunning ||
-                  (!storySelectedSavedCharacterId && storyCharacterImages.length === 0) ||
-                  !storyImageModelKey ||
-                  !storyVideoModelKey
-                }
-                className="rounded-full bg-zinc-900 px-6 py-2.5 text-base font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
-              >
-                {storyRunning ? "Đang xử lý..." : storyAutoVideo ? "Chạy phân cảnh + ảnh + video" : "Chạy phân cảnh + ảnh"}
-              </button>
+            // Nút này trước đây nằm cuối trang, phải cuộn rất xa mới thấy khi đang thao tác ở khung
+            // "Ảnh nhân vật" phía trên — giờ ghim cố định đáy màn hình (giống thanh action bar) để luôn
+            // bấm được ngay, không cần cuộn tìm. main đã thêm pb-24 để không bị thanh này che nội dung.
+            <div className="fixed inset-x-0 bottom-0 z-40 border-t border-zinc-200 bg-white/95 px-6 py-3 backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/95">
+              <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
+                <span className="text-base text-zinc-600 dark:text-zinc-400">
+                  {storySelectedSavedCharacterId ? (
+                    "Character đã lưu — không tốn credit bước này"
+                  ) : (
+                    <>
+                      Bước này tốn tối đa{" "}
+                      <strong className="text-zinc-900 dark:text-zinc-50">{storyCharacterCost ?? "?"} credit</strong> (chỉ khi cần tạo Character mới) — phần ảnh/video (~
+                      {storyAutoVideo ? (storyImageCost ?? 0) + (storyVideoCost ?? 0) : (storyImageCost ?? app.creditCost)} credit,{" "}
+                      {numScenes} phân cảnh) tính ở bước sau, sau khi anh/chị duyệt Character
+                    </>
+                  )}
+                </span>
+                <button
+                  onClick={handleRunStoryVideo}
+                  disabled={
+                    storyRunning ||
+                    (!storySelectedSavedCharacterId && storyCharacterImages.length === 0) ||
+                    !storyImageModelKey ||
+                    !storyVideoModelKey
+                  }
+                  className="shrink-0 rounded-full bg-zinc-900 px-6 py-2.5 text-base font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                >
+                  {storyRunning ? "Đang xử lý..." : storyAutoVideo ? "Chạy phân cảnh + ảnh + video" : "Chạy phân cảnh + ảnh"}
+                </button>
+              </div>
             </div>
           ) : app.inputType === "outfit-swap" ? (
             <div className={`flex items-center justify-between ${isTwoColumnLayout ? "mt-auto pt-4" : ""}`}>
