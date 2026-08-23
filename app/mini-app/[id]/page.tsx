@@ -2119,14 +2119,23 @@ export default function MiniAppDetailPage() {
                       )}
 
                       {storySelectedSavedCharacterId ? (
-                        <div className="flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800">
-                          <span className="text-sm text-zinc-600 dark:text-zinc-400">Đã chọn Character đã lưu — bỏ qua tải ảnh mới</span>
-                          <button
-                            onClick={() => setStorySelectedSavedCharacterId(null)}
-                            className="text-sm font-medium text-zinc-700 underline dark:text-zinc-300"
-                          >
-                            Bỏ chọn
-                          </button>
+                        <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-2 dark:border-zinc-700 dark:bg-zinc-800">
+                          {(() => {
+                            const selected = storySavedCharacters.find((c) => c.id === storySelectedSavedCharacterId);
+                            return selected ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={selected.imageUrl} alt={selected.label ?? "Character đã chọn"} className="mb-2 w-full rounded-lg" />
+                            ) : null;
+                          })()}
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-zinc-600 dark:text-zinc-400">Đã chọn Character đã lưu — bỏ qua tải ảnh mới</span>
+                            <button
+                              onClick={() => setStorySelectedSavedCharacterId(null)}
+                              className="text-sm font-medium text-zinc-700 underline dark:text-zinc-300"
+                            >
+                              Bỏ chọn
+                            </button>
+                          </div>
                         </div>
                       ) : (
                         <>
