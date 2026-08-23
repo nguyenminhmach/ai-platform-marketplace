@@ -199,9 +199,6 @@ export default function MiniAppDetailPage() {
   const [storyCheckingImage, setStoryCheckingImage] = useState(false);
   const [storyImageCheckResult, setStoryImageCheckResult] = useState<"sheet" | "photo" | null>(null);
   const [storyImageCheckSheetIndex, setStoryImageCheckSheetIndex] = useState<number | null>(null);
-  // Ảnh thường vừa tải lên hiện nhỏ (lưới 2 cột) khó xem chi tiết — bấm vào 1 ảnh để phóng to full-width
-  // ngay tại chỗ (cùng vị trí, không mở tab/modal riêng), bấm lại vào ảnh to để thu nhỏ về lại.
-  const [storyZoomedUploadIndex, setStoryZoomedUploadIndex] = useState<number | null>(null);
   // "Tự động tạo video luôn" (gộp 1 lượt, giống Genful bấm mũi tên ▾) — mặc định TẮT: chỉ chạy chia
   // cảnh + tạo ảnh trước, dừng lại cho khách xem, ưng mới bấm "Tạo video" (đỡ tốn credit video oan
   // nếu ảnh ra không đúng ý).
@@ -218,11 +215,14 @@ export default function MiniAppDetailPage() {
   const storyCharacterPreviewRef = useRef<HTMLDivElement | null>(null);
   const storyScenesPreviewRef = useRef<HTMLDivElement | null>(null);
   const storyResultRef = useRef<HTMLDivElement | null>(null);
-  // Khối "Ảnh nhân vật" (điểm neo cuộn về lại khi thu nhỏ ảnh) + ảnh đang phóng to hiện tại (điểm neo
-  // cuộn tới khi phóng to) — dùng chung cho cả ảnh thường vừa tải lên lẫn Character đã chọn từ thư viện.
+  // Khối "Ảnh nhân vật" (điểm neo cuộn về lại khi đóng xem trước) + khối "Xem trước ảnh" dùng chung
+  // đúng vị trí/kiểu hiển thị với khối kết quả Character thật (storyCharacterPreviewRef phía dưới) —
+  // bấm ảnh nhỏ nào cũng phóng to ở ĐÚNG chỗ đó (không phải phóng to tại chỗ trong khung nhỏ), nên bấm
+  // mới cần cuộn hẳn xuống khu vực khác, bấm đóng lại cuộn ngược lên khung "Ảnh nhân vật".
   const storyCharacterCardRef = useRef<HTMLDivElement | null>(null);
-  const storyZoomedImageRef = useRef<HTMLImageElement | null>(null);
-  const storyWasZoomedRef = useRef(false);
+  const [storyQuickZoomUrl, setStoryQuickZoomUrl] = useState<string | null>(null);
+  const storyQuickZoomRef = useRef<HTMLDivElement | null>(null);
+  const storyQuickZoomWasOpenRef = useRef(false);
 
   // Tự động cuộn xuống khi Character/ảnh phân cảnh xong hoặc video hoàn tất — khách không phải cuộn
   // tay để xem kết quả.
@@ -239,19 +239,14 @@ export default function MiniAppDetailPage() {
     }
   }, [storyResult]);
 
-  // Bấm ảnh nhỏ để phóng to (storyZoomedUploadIndex hoặc storySelectedSavedCharacterId) -> tự cuộn
-  // trang xuống cho ảnh to lọt vào giữa màn hình. Bấm lại để thu nhỏ -> tự cuộn ngược lại lên đúng
-  // khối "Ảnh nhân vật" ban đầu. Dùng ref theo dõi trạng thái trước đó để không tự cuộn ngay lúc mới
-  // vào trang (chỉ cuộn khi thật sự có chuyển đổi phóng to/thu nhỏ).
   useEffect(() => {
-    const isZoomed = storyZoomedUploadIndex !== null || storySelectedSavedCharacterId !== null;
-    if (isZoomed) {
-      storyZoomedImageRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-    } else if (storyWasZoomedRef.current) {
+    if (storyQuickZoomUrl) {
+      storyQuickZoomRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else if (storyQuickZoomWasOpenRef.current) {
       storyCharacterCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-    storyWasZoomedRef.current = isZoomed;
-  }, [storyZoomedUploadIndex, storySelectedSavedCharacterId]);
+    storyQuickZoomWasOpenRef.current = !!storyQuickZoomUrl;
+  }, [storyQuickZoomUrl]);
 
   // Thư viện Character đã lưu — tải khi vào app + sau khi lưu 1 Character mới.
   function loadSavedStoryCharacters(userId: string) {
@@ -2188,7 +2183,6 @@ export default function MiniAppDetailPage() {
                             return selected ? (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img
-                                ref={storyZoomedImageRef}
                                 src={selected.imageUrl}
                                 alt={selected.label ?? "Character đã chọn"}
                                 onClick={() => setStorySelectedSavedCharacterId(null)}
@@ -2231,64 +2225,52 @@ export default function MiniAppDetailPage() {
                         </div>
                       ) : (
                         <>
-                          {storyZoomedUploadIndex !== null && storyCharacterImages[storyZoomedUploadIndex] ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              ref={storyZoomedImageRef}
-                              src={storyCharacterImages[storyZoomedUploadIndex]}
-                              alt={`Ảnh nhân vật ${storyZoomedUploadIndex + 1}`}
-                              onClick={() => setStoryZoomedUploadIndex(null)}
-                              className="w-full cursor-zoom-out rounded-lg"
-                              title="Bấm để thu nhỏ"
-                            />
-                          ) : (
-                            <div className="grid grid-cols-2 gap-3">
-                              {storyCharacterImages.map((img, index) => (
-                                <div key={index} className="relative aspect-square w-full">
-                                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img
-                                    src={img}
-                                    alt={`Ảnh nhân vật ${index + 1}`}
-                                    onClick={() => setStoryZoomedUploadIndex(index)}
-                                    className="h-full w-full cursor-zoom-in rounded-lg object-cover"
-                                    title="Bấm để phóng to"
-                                  />
-                                  <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">@image{index + 1}</span>
-                                  <button
-                                    onClick={() => {
-                                      setStoryCharacterImages((prev) => prev.filter((_, i) => i !== index));
-                                      setStoryImageCheckResult(null);
-                                      setStoryImageCheckSheetIndex(null);
-                                      setStoryZoomedUploadIndex(null);
-                                    }}
-                                    className="absolute -right-2 -top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white hover:bg-black/90"
-                                  >
-                                    ✕
-                                  </button>
-                                </div>
-                              ))}
-                              <label className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800">
-                                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  className="hidden"
-                                  onChange={(e) => {
-                                    const file = e.target.files?.[0];
-                                    e.target.value = "";
-                                    if (!file) return;
-                                    const reader = new FileReader();
-                                    reader.onload = () => {
-                                      setStoryCharacterImages((prev) => [...prev, reader.result as string]);
-                                      setStoryImageCheckResult(null);
-                                      setStoryImageCheckSheetIndex(null);
-                                    };
-                                    reader.readAsDataURL(file);
-                                  }}
+                          <div className="grid grid-cols-2 gap-3">
+                            {storyCharacterImages.map((img, index) => (
+                              <div key={index} className="relative aspect-square w-full">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={img}
+                                  alt={`Ảnh nhân vật ${index + 1}`}
+                                  onClick={() => setStoryQuickZoomUrl(img)}
+                                  className="h-full w-full cursor-zoom-in rounded-lg object-cover"
+                                  title="Bấm để xem to"
                                 />
-                              </label>
-                            </div>
-                          )}
+                                <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">@image{index + 1}</span>
+                                <button
+                                  onClick={() => {
+                                    setStoryCharacterImages((prev) => prev.filter((_, i) => i !== index));
+                                    setStoryImageCheckResult(null);
+                                    setStoryImageCheckSheetIndex(null);
+                                    if (storyQuickZoomUrl === img) setStoryQuickZoomUrl(null);
+                                  }}
+                                  className="absolute -right-2 -top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white hover:bg-black/90"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                            <label className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                              <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  e.target.value = "";
+                                  if (!file) return;
+                                  const reader = new FileReader();
+                                  reader.onload = () => {
+                                    setStoryCharacterImages((prev) => [...prev, reader.result as string]);
+                                    setStoryImageCheckResult(null);
+                                    setStoryImageCheckSheetIndex(null);
+                                  };
+                                  reader.readAsDataURL(file);
+                                }}
+                              />
+                            </label>
+                          </div>
                           <p className="mt-2 text-sm text-zinc-400 dark:text-zinc-500">
                             AI sẽ tự tạo 1 ảnh Character (nhiều góc) từ ảnh anh/chị tải lên, dùng giữ đúng nhân vật xuyên suốt các cảnh
                           </p>
@@ -2531,6 +2513,31 @@ export default function MiniAppDetailPage() {
 
               {storyStatusText && <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{storyStatusText}</p>}
               {storyError && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{storyError}</p>}
+
+              {storyQuickZoomUrl && (
+                <div
+                  ref={storyQuickZoomRef}
+                  className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800"
+                >
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Xem trước ảnh</p>
+                    <button
+                      onClick={() => setStoryQuickZoomUrl(null)}
+                      className="text-sm font-medium text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100"
+                    >
+                      ✕ Đóng
+                    </button>
+                  </div>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={storyQuickZoomUrl}
+                    alt="Xem trước ảnh nhân vật"
+                    onClick={() => setStoryQuickZoomUrl(null)}
+                    className="w-full max-w-xl cursor-zoom-out rounded-lg"
+                    title="Bấm để đóng"
+                  />
+                </div>
+              )}
 
               {storyStatus === "character_ready" && storyCharacterSheetUrl && (
                 <div
