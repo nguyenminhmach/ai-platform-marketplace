@@ -64,14 +64,23 @@ async function classifyCharacterImage(imageUrl: string): Promise<boolean> {
   try {
     const { output } = await callOpenRouter(
       "google/gemini-3-flash-preview",
-      10,
+      30,
       CHARACTER_CLASSIFY_SYSTEM_PROMPT,
       "Phân loại ảnh này.",
       imageUrl
     );
-    return output.trim().toUpperCase().startsWith("SHEET");
-  } catch {
+    // maxTokens nhỏ trước đây (10) có thể cắt cụt câu trả lời trước khi ra hết chữ "SHEET" -> nới token
+    // + so khớp bằng includes (không chỉ startsWith) để không bỏ lỡ khi model có thêm chữ thừa dù đã
+    // yêu cầu trả đúng 1 từ.
+    const cleaned = output.trim().toUpperCase();
+    const isSheet = cleaned.includes("SHEET");
+    if (!isSheet && !cleaned.includes("PHOTO")) {
+      console.error(`[classifyCharacterImage] Phản hồi không rõ ràng, coi như ảnh thường: "${output}"`);
+    }
+    return isSheet;
+  } catch (err) {
     // Lỗi gọi AI phân loại -> coi như ảnh thường, chạy bước Tạo Character cho chắc (an toàn hơn bỏ qua).
+    console.error("[classifyCharacterImage] Lỗi gọi AI phân loại:", err);
     return false;
   }
 }
