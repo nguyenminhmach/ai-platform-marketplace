@@ -194,6 +194,10 @@ export default function MiniAppDetailPage() {
   type SavedCharacter = { id: number; imageUrl: string; label: string | null };
   const [storySavedCharacters, setStorySavedCharacters] = useState<SavedCharacter[]>([]);
   const [storySelectedSavedCharacterId, setStorySelectedSavedCharacterId] = useState<number | null>(null);
+  // "Kiểm tra ảnh" — cho khách tự xem trước AI sẽ nhận ảnh đầu tiên là sheet nhiều góc (bỏ qua tạo mới)
+  // hay ảnh thường (sẽ tốn credit tạo Character), không cần chạy hết cả job mới biết.
+  const [storyCheckingImage, setStoryCheckingImage] = useState(false);
+  const [storyImageCheckResult, setStoryImageCheckResult] = useState<"sheet" | "photo" | null>(null);
   // "Tự động tạo video luôn" (gộp 1 lượt, giống Genful bấm mũi tên ▾) — mặc định TẮT: chỉ chạy chia
   // cảnh + tạo ảnh trước, dừng lại cho khách xem, ưng mới bấm "Tạo video" (đỡ tốn credit video oan
   // nếu ảnh ra không đúng ý).
@@ -765,6 +769,26 @@ export default function MiniAppDetailPage() {
     } catch {
       setStoryError("Không kết nối được tới server");
       setStoryRegeneratingCharacter(false);
+    }
+  }
+
+  async function handleCheckCharacterImage() {
+    if (storyCharacterImages.length === 0) return;
+    setStoryCheckingImage(true);
+    setStoryImageCheckResult(null);
+    try {
+      const imageUrl = await uploadOutfitSwapImage(storyCharacterImages[0]);
+      const res = await fetch("/api/story-video/classify-character", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageUrl }),
+      });
+      const data = await res.json();
+      setStoryImageCheckResult(res.ok && data.isSheet ? "sheet" : "photo");
+    } catch {
+      setStoryImageCheckResult(null);
+    } finally {
+      setStoryCheckingImage(false);
     }
   }
 
@@ -2160,7 +2184,10 @@ export default function MiniAppDetailPage() {
                                 <img src={img} alt={`Ảnh nhân vật ${index + 1}`} className="h-full w-full rounded-lg object-cover" />
                                 <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">@image{index + 1}</span>
                                 <button
-                                  onClick={() => setStoryCharacterImages((prev) => prev.filter((_, i) => i !== index))}
+                                  onClick={() => {
+                                    setStoryCharacterImages((prev) => prev.filter((_, i) => i !== index));
+                                    setStoryImageCheckResult(null);
+                                  }}
                                   className="absolute -right-2 -top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white hover:bg-black/90"
                                 >
                                   ✕
@@ -2178,7 +2205,10 @@ export default function MiniAppDetailPage() {
                                   e.target.value = "";
                                   if (!file) return;
                                   const reader = new FileReader();
-                                  reader.onload = () => setStoryCharacterImages((prev) => [...prev, reader.result as string]);
+                                  reader.onload = () => {
+                                    setStoryCharacterImages((prev) => [...prev, reader.result as string]);
+                                    setStoryImageCheckResult(null);
+                                  };
                                   reader.readAsDataURL(file);
                                 }}
                               />
@@ -2187,6 +2217,27 @@ export default function MiniAppDetailPage() {
                           <p className="mt-2 text-sm text-zinc-400 dark:text-zinc-500">
                             AI sẽ tự tạo 1 ảnh Character (nhiều góc) từ ảnh anh/chị tải lên, dùng giữ đúng nhân vật xuyên suốt các cảnh
                           </p>
+                          {storyCharacterImages.length > 0 && (
+                            <div className="mt-2 flex items-center gap-2">
+                              <button
+                                onClick={handleCheckCharacterImage}
+                                disabled={storyCheckingImage}
+                                className="rounded-full border border-zinc-300 px-3 py-1 text-sm font-medium text-zinc-700 disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-300"
+                              >
+                                {storyCheckingImage ? "Đang kiểm tra..." : "🔍 Kiểm tra ảnh"}
+                              </button>
+                              {storyImageCheckResult === "sheet" && (
+                                <span className="text-sm text-emerald-600 dark:text-emerald-400">
+                                  ✅ Đã là ảnh Character nhiều góc — sẽ không tốn credit tạo mới
+                                </span>
+                              )}
+                              {storyImageCheckResult === "photo" && (
+                                <span className="text-sm text-zinc-500 dark:text-zinc-400">
+                                  📷 Ảnh thường — sẽ tự tạo Character mới (tốn {storyCharacterCost ?? "?"} credit)
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </>
                       )}
                     </div>

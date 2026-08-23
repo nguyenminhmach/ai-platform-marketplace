@@ -60,7 +60,7 @@ const CHARACTER_CLASSIFY_SYSTEM_PROMPT = `Bạn là trợ lý phân loại ảnh
 - "SHEET" nếu ảnh là 1 tấm ghép nhiều ô/panel thể hiện nhiều góc nhìn khác nhau (chính diện, nghiêng, sau lưng...) của CÙNG một người.
 - "PHOTO" nếu ảnh chỉ là 1 bức ảnh chụp thường (1 người, 1 góc, không chia ô).`;
 
-async function classifyCharacterImage(imageUrl: string): Promise<boolean> {
+export async function classifyCharacterImage(imageUrl: string): Promise<boolean> {
   try {
     const { output } = await callOpenRouter(
       "google/gemini-3-flash-preview",
