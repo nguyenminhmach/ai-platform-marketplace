@@ -218,6 +218,11 @@ export default function MiniAppDetailPage() {
   const storyCharacterPreviewRef = useRef<HTMLDivElement | null>(null);
   const storyScenesPreviewRef = useRef<HTMLDivElement | null>(null);
   const storyResultRef = useRef<HTMLDivElement | null>(null);
+  // Khối "Ảnh nhân vật" (điểm neo cuộn về lại khi thu nhỏ ảnh) + ảnh đang phóng to hiện tại (điểm neo
+  // cuộn tới khi phóng to) — dùng chung cho cả ảnh thường vừa tải lên lẫn Character đã chọn từ thư viện.
+  const storyCharacterCardRef = useRef<HTMLDivElement | null>(null);
+  const storyZoomedImageRef = useRef<HTMLImageElement | null>(null);
+  const storyWasZoomedRef = useRef(false);
 
   // Tự động cuộn xuống khi Character/ảnh phân cảnh xong hoặc video hoàn tất — khách không phải cuộn
   // tay để xem kết quả.
@@ -233,6 +238,20 @@ export default function MiniAppDetailPage() {
       storyResultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [storyResult]);
+
+  // Bấm ảnh nhỏ để phóng to (storyZoomedUploadIndex hoặc storySelectedSavedCharacterId) -> tự cuộn
+  // trang xuống cho ảnh to lọt vào giữa màn hình. Bấm lại để thu nhỏ -> tự cuộn ngược lại lên đúng
+  // khối "Ảnh nhân vật" ban đầu. Dùng ref theo dõi trạng thái trước đó để không tự cuộn ngay lúc mới
+  // vào trang (chỉ cuộn khi thật sự có chuyển đổi phóng to/thu nhỏ).
+  useEffect(() => {
+    const isZoomed = storyZoomedUploadIndex !== null || storySelectedSavedCharacterId !== null;
+    if (isZoomed) {
+      storyZoomedImageRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    } else if (storyWasZoomedRef.current) {
+      storyCharacterCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    storyWasZoomedRef.current = isZoomed;
+  }, [storyZoomedUploadIndex, storySelectedSavedCharacterId]);
 
   // Thư viện Character đã lưu — tải khi vào app + sau khi lưu 1 Character mới.
   function loadSavedStoryCharacters(userId: string) {
@@ -2130,7 +2149,7 @@ export default function MiniAppDetailPage() {
                   />
 
                   <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
+                    <div ref={storyCharacterCardRef} className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
                       <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">📷 Ảnh nhân vật</p>
 
                       {storySavedCharacters.length > 0 && (
@@ -2169,6 +2188,7 @@ export default function MiniAppDetailPage() {
                             return selected ? (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img
+                                ref={storyZoomedImageRef}
                                 src={selected.imageUrl}
                                 alt={selected.label ?? "Character đã chọn"}
                                 onClick={() => setStorySelectedSavedCharacterId(null)}
@@ -2214,6 +2234,7 @@ export default function MiniAppDetailPage() {
                           {storyZoomedUploadIndex !== null && storyCharacterImages[storyZoomedUploadIndex] ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img
+                              ref={storyZoomedImageRef}
                               src={storyCharacterImages[storyZoomedUploadIndex]}
                               alt={`Ảnh nhân vật ${storyZoomedUploadIndex + 1}`}
                               onClick={() => setStoryZoomedUploadIndex(null)}
