@@ -2233,13 +2233,31 @@ export default function MiniAppDetailPage() {
                                 {storyCheckingImage ? "Đang kiểm tra..." : "🔍 Kiểm tra ảnh"}
                               </button>
                               {storyImageCheckResult === "sheet" && (
-                                <span className="text-sm text-emerald-600 dark:text-emerald-400">
+                                <span className="flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400">
                                   ✅ Ảnh @image{(storyImageCheckSheetIndex ?? 0) + 1} đã là Character nhiều góc — sẽ không tốn credit tạo mới
+                                  <button
+                                    onClick={() => {
+                                      setStoryImageCheckResult(null);
+                                      setStoryImageCheckSheetIndex(null);
+                                    }}
+                                    className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+                                  >
+                                    ✕
+                                  </button>
                                 </span>
                               )}
                               {storyImageCheckResult === "photo" && (
-                                <span className="text-sm text-zinc-500 dark:text-zinc-400">
+                                <span className="flex items-center gap-1.5 text-sm text-zinc-500 dark:text-zinc-400">
                                   📷 Ảnh thường — sẽ tự tạo Character mới (tốn {storyCharacterCost ?? "?"} credit)
+                                  <button
+                                    onClick={() => {
+                                      setStoryImageCheckResult(null);
+                                      setStoryImageCheckSheetIndex(null);
+                                    }}
+                                    className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+                                  >
+                                    ✕
+                                  </button>
                                 </span>
                               )}
                             </div>
