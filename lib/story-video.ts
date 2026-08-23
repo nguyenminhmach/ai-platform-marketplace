@@ -460,9 +460,12 @@ export async function submitStoryVideoJob(
         .update({ status: "character_ready", character_sheet_url: reusedImageUrl, character_source: "reused" })
         .eq("id", job.id);
     } else {
-      // Dò TẤT CẢ ảnh đã tải (không chỉ ảnh đầu) — khách có thể tải nhiều ảnh, ảnh sheet có sẵn không
-      // nhất thiết là ảnh đầu tiên.
-      const existingSheetUrl = await findExistingCharacterSheet(characterImageUrls);
+      // Chỉ bỏ qua tạo mới khi khách tải ĐÚNG 1 ảnh và ảnh đó đã là sheet sẵn — rõ ràng đây là ý định
+      // "dùng thẳng ảnh này". Từ 2 ảnh trở lên: luôn tạo Character mới dùng TOÀN BỘ ảnh làm tư liệu
+      // (kể cả khi 1 trong số đó trông giống sheet có sẵn) — tránh bỏ sót ảnh thường khách muốn AI
+      // tham chiếu thêm.
+      const existingSheetUrl =
+        characterImageUrls.length === 1 ? await findExistingCharacterSheet(characterImageUrls) : null;
       if (existingSheetUrl) {
         await supabase
           .from("story_video_jobs")
