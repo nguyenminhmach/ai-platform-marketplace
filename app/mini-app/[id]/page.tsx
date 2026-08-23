@@ -820,14 +820,19 @@ export default function MiniAppDetailPage() {
   }
 
   async function handleContinueToScenes() {
-    if (!user || !storyJobId) return;
+    if (!user || !storyJobId || !input.trim()) return;
     setStoryContinuingScenes(true);
     setStoryError(null);
     try {
       const res = await fetch("/api/story-video/continue-to-scenes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user.id, jobId: storyJobId, modelChatKey: storyModelChatKey }),
+        body: JSON.stringify({
+          userId: user.id,
+          jobId: storyJobId,
+          modelChatKey: storyModelChatKey,
+          storyDescription: input.trim(),
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -876,7 +881,8 @@ export default function MiniAppDetailPage() {
   async function handleRunStoryVideo() {
     const images = storyCharacterImages;
     const reuseId = storySelectedSavedCharacterId;
-    if (!user || (!reuseId && images.length === 0) || !input.trim() || !storyImageModelKey || !storyVideoModelKey) return;
+    // Bước này chỉ tạo Character, chưa cần Ý tưởng truyện — thứ đó bắt buộc ở bước "Tiếp tục chia cảnh" sau.
+    if (!user || (!reuseId && images.length === 0) || !storyImageModelKey || !storyVideoModelKey) return;
     setStoryRunning(true);
     setStoryResult(null);
     setStoryError(null);
@@ -2501,12 +2507,18 @@ export default function MiniAppDetailPage() {
                     )}
                     <button
                       onClick={handleContinueToScenes}
-                      disabled={storyContinuingScenes || storyRegeneratingCharacter}
+                      disabled={storyContinuingScenes || storyRegeneratingCharacter || !input.trim()}
+                      title={!input.trim() ? "Nhập Ý tưởng truyện ở ô phía trên trước" : undefined}
                       className="ml-auto rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900"
                     >
                       {storyContinuingScenes ? "Đang gửi..." : "Tiếp tục chia cảnh →"}
                     </button>
                   </div>
+                  {!input.trim() && (
+                    <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
+                      ⚠️ Nhập "Ý tưởng truyện" ở ô phía trên trước khi tiếp tục — bước chia cảnh cần nội dung này.
+                    </p>
+                  )}
                   {storySavedCharacterMsg && <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">{storySavedCharacterMsg}</p>}
                 </div>
               )}
@@ -2634,7 +2646,6 @@ export default function MiniAppDetailPage() {
                 disabled={
                   storyRunning ||
                   (!storySelectedSavedCharacterId && storyCharacterImages.length === 0) ||
-                  !input.trim() ||
                   !storyImageModelKey ||
                   !storyVideoModelKey
                 }

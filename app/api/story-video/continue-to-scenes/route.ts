@@ -8,7 +8,7 @@ import { InsufficientCreditError } from "@/lib/credit-system";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  const { userId, jobId, modelChatKey } = await req.json();
+  const { userId, jobId, modelChatKey, storyDescription } = await req.json();
 
   if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   if (typeof jobId !== "number") return Response.json({ error: "Thiếu jobId" }, { status: 400 });
@@ -18,7 +18,8 @@ export async function POST(req: Request) {
       userId,
       jobId,
       typeof modelChatKey === "string" ? modelChatKey : undefined,
-      randomUUID()
+      randomUUID(),
+      typeof storyDescription === "string" ? storyDescription : undefined
     );
     return Response.json({ success: true, newBalance: result.newBalance });
   } catch (err) {

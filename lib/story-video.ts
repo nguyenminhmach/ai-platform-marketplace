@@ -511,7 +511,8 @@ export async function continueStoryVideoToSceneStage(
   userId: string,
   jobId: number,
   modelChatKey: string | undefined,
-  idempotencyKey: string
+  idempotencyKey: string,
+  storyDescription?: string
 ): Promise<{ newBalance: number }> {
   const supabase = getSupabaseAdmin();
   const { data: jobData } = await supabase.from("story_video_jobs").select("*").eq("id", jobId).single();
@@ -524,6 +525,11 @@ export async function continueStoryVideoToSceneStage(
   if (!job.image_provider_cost_vnd_per_scene || !job.video_provider_cost_vnd_per_scene) {
     throw new Error("Thiếu dữ liệu giá của job");
   }
+  // Bước Tạo Character không cần ý tưởng truyện, nên khách có thể chưa nhập lúc submit — bắt buộc
+  // nhập ở đây trước khi chia cảnh (thứ dùng thật). Cho phép ghi đè/cập nhật nếu khách vừa gõ/sửa lại
+  // ngay tại màn hình xem trước Character.
+  const finalStoryDescription = storyDescription?.trim() || job.story_description?.trim();
+  if (!finalStoryDescription) throw new Error("Thiếu ý tưởng truyện");
 
   const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
   const imageCost = computeDynamicCreditCost(job.image_provider_cost_vnd_per_scene * job.num_scenes, marginPercent, vndPerCredit);
@@ -532,12 +538,15 @@ export async function continueStoryVideoToSceneStage(
   const deduction = await deductCredit(userId, job.auto_video ? imageCost + videoCost : imageCost, job.mini_app_id, idempotencyKey);
   if (!deduction.success) throw new InsufficientCreditError();
 
-  await supabase.from("story_video_jobs").update({ status: "splitting_story", image_credit_tx_id: deduction.txId }).eq("id", jobId);
+  await supabase
+    .from("story_video_jobs")
+    .update({ status: "splitting_story", image_credit_tx_id: deduction.txId, story_description: finalStoryDescription })
+    .eq("id", jobId);
 
   try {
     const miniApp = await getMiniAppModelConfig(job.mini_app_id);
     const imageEntry = miniApp.model_config.image_models.find((m) => m.model === job.image_model);
-    const scenes = await splitStoryIntoScenes(job.story_description, job.num_scenes, miniApp.model_config.prompt_helper_instructions, modelChatKey);
+    const scenes = await splitStoryIntoScenes(finalStoryDescription, job.num_scenes, miniApp.model_config.prompt_helper_instructions, modelChatKey);
 
     const { data: sceneRows, error: sceneError } = await supabase
       .from("story_video_scenes")

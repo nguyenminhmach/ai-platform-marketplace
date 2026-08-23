@@ -27,8 +27,10 @@ export async function POST(req: Request) {
 
   if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   if (typeof miniAppId !== "string" || !miniAppId) return Response.json({ error: "Thiếu miniAppId" }, { status: 400 });
-  if (typeof storyDescription !== "string" || !storyDescription.trim()) {
-    return Response.json({ error: "Thiếu ý tưởng truyện" }, { status: 400 });
+  // Bước này (Tạo Character) chưa cần ý tưởng truyện — khách có thể gõ sau, ở bước "Tiếp tục chia
+  // cảnh" (continueStoryVideoToSceneStage bắt buộc phải có mới cho chạy tiếp).
+  if (typeof storyDescription !== "string") {
+    return Response.json({ error: "storyDescription không hợp lệ" }, { status: 400 });
   }
   if (storyDescription.length > STORY_MAX_LENGTH) {
     return Response.json({ error: `Ý tưởng truyện quá dài (tối đa ${STORY_MAX_LENGTH} ký tự)` }, { status: 400 });
