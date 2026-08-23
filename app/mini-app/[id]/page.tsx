@@ -241,6 +241,17 @@ export default function MiniAppDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id, user?.id]);
 
+  async function handleDeleteSavedCharacter(characterId: number) {
+    if (!user) return;
+    setStorySavedCharacters((prev) => prev.filter((c) => c.id !== characterId));
+    if (storySelectedSavedCharacterId === characterId) setStorySelectedSavedCharacterId(null);
+    try {
+      await fetch(`/api/story-video/characters?userId=${user.id}&id=${characterId}`, { method: "DELETE" });
+    } catch {
+      loadSavedStoryCharacters(user.id);
+    }
+  }
+
   // "Thay trang phục": imageDataUrl dùng chung làm ảnh người mẫu, garmentImages là danh sách trang phục
   // tham chiếu riêng (tối đa 10) — kết quả trả về nhiều ảnh nên dùng state riêng, không dùng chung `result`.
   const [garmentImages, setGarmentImages] = useState<string[]>([]);
@@ -2083,17 +2094,25 @@ export default function MiniAppDetailPage() {
                           <p className="mb-1 text-sm text-zinc-500 dark:text-zinc-400">📂 Character đã lưu</p>
                           <div className="flex flex-wrap gap-2">
                             {storySavedCharacters.map((c) => (
-                              <button
-                                key={c.id}
-                                onClick={() => setStorySelectedSavedCharacterId((prev) => (prev === c.id ? null : c.id))}
-                                className={`relative h-14 w-14 overflow-hidden rounded-lg border-2 ${
-                                  storySelectedSavedCharacterId === c.id ? "border-zinc-900 dark:border-zinc-50" : "border-transparent"
-                                }`}
-                                title={c.label ?? `Character #${c.id}`}
-                              >
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img src={c.imageUrl} alt={c.label ?? `Character #${c.id}`} className="h-full w-full object-cover" />
-                              </button>
+                              <div key={c.id} className="relative h-14 w-14">
+                                <button
+                                  onClick={() => setStorySelectedSavedCharacterId((prev) => (prev === c.id ? null : c.id))}
+                                  className={`h-14 w-14 overflow-hidden rounded-lg border-2 ${
+                                    storySelectedSavedCharacterId === c.id ? "border-zinc-900 dark:border-zinc-50" : "border-transparent"
+                                  }`}
+                                  title={c.label ?? `Character #${c.id}`}
+                                >
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img src={c.imageUrl} alt={c.label ?? `Character #${c.id}`} className="h-full w-full object-cover" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteSavedCharacter(c.id)}
+                                  title="Xoá Character này"
+                                  className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-black/70 text-[10px] font-medium text-white hover:bg-black/90"
+                                >
+                                  ✕
+                                </button>
+                              </div>
                             ))}
                           </div>
                         </div>

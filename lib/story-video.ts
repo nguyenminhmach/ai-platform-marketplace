@@ -615,6 +615,12 @@ export async function listStoryCharacters(
   return (data ?? []).map((r) => ({ id: r.id, imageUrl: r.image_url, label: r.label, createdAt: r.created_at }));
 }
 
+export async function deleteStoryCharacter(userId: string, characterId: number): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase.from("story_characters").delete().eq("id", characterId).eq("user_id", userId);
+  if (error) throw new Error(error.message);
+}
+
 async function failJob(jobId: number, message: string) {
   const supabase = getSupabaseAdmin();
   const { data: job } = await supabase
