@@ -198,7 +198,6 @@ export default function MiniAppDetailPage() {
   // hay ảnh thường (sẽ tốn credit tạo Character), không cần chạy hết cả job mới biết.
   const [storyCheckingImage, setStoryCheckingImage] = useState(false);
   const [storyImageCheckResult, setStoryImageCheckResult] = useState<"sheet" | "photo" | null>(null);
-  const [storyImageCheckSheetIndex, setStoryImageCheckSheetIndex] = useState<number | null>(null);
   // "Tự động tạo video luôn" (gộp 1 lượt, giống Genful bấm mũi tên ▾) — mặc định TẮT: chỉ chạy chia
   // cảnh + tạo ảnh trước, dừng lại cho khách xem, ưng mới bấm "Tạo video" (đỡ tốn credit video oan
   // nếu ảnh ra không đúng ý).
@@ -794,9 +793,8 @@ export default function MiniAppDetailPage() {
     if (storyCharacterImages.length === 0) return;
     setStoryCheckingImage(true);
     setStoryImageCheckResult(null);
-    setStoryImageCheckSheetIndex(null);
     try {
-      // Kiểm tra TẤT CẢ ảnh đã tải (không chỉ ảnh đầu) — ảnh sheet có sẵn không nhất thiết là ảnh đầu tiên.
+      // Kiểm tra TOÀN BỘ ảnh đã tải — chỉ báo "đã là Character" khi TẤT CẢ đều là sheet sẵn.
       const imageUrls = await Promise.all(storyCharacterImages.map((img) => uploadOutfitSwapImage(img)));
       const res = await fetch("/api/story-video/classify-character", {
         method: "POST",
@@ -805,7 +803,6 @@ export default function MiniAppDetailPage() {
       });
       const data = await res.json();
       setStoryImageCheckResult(res.ok && data.isSheet ? "sheet" : "photo");
-      setStoryImageCheckSheetIndex(res.ok && typeof data.sheetIndex === "number" ? data.sheetIndex : null);
     } catch {
       setStoryImageCheckResult(null);
     } finally {
@@ -905,8 +902,13 @@ export default function MiniAppDetailPage() {
   async function handleRunStoryVideo() {
     const images = storyCharacterImages;
     const reuseId = storySelectedSavedCharacterId;
-    // Bước này chỉ tạo Character, chưa cần Ý tưởng truyện — thứ đó bắt buộc ở bước "Tiếp tục chia cảnh" sau.
+    // Bước này thường chỉ tạo Character, chưa cần Ý tưởng truyện — thứ đó bắt buộc ở bước "Tiếp tục
+    // chia cảnh" sau. NGOẠI LỆ: khi dùng Character đã lưu từ thư viện (biết chắc 100%, không cần AI
+    // kiểm tra lại), server sẽ chạy thẳng 1 lượt luôn tới chia cảnh nếu đã có Ý tưởng truyện — nên bắt
+    // buộc nhập trước ở đây để chắc chắn kích hoạt được đường tắt đó (ảnh thường vẫn không cần, vì
+    // server không biết trước có phải toàn bộ ảnh đã là sheet hay không).
     if (!user || (!reuseId && images.length === 0) || !storyImageModelKey || !storyVideoModelKey) return;
+    if (reuseId && !input.trim()) return;
     setStoryRunning(true);
     setStoryResult(null);
     setStoryError(null);
@@ -2244,7 +2246,6 @@ export default function MiniAppDetailPage() {
                                   onClick={() => {
                                     setStoryCharacterImages((prev) => prev.filter((_, i) => i !== index));
                                     setStoryImageCheckResult(null);
-                                    setStoryImageCheckSheetIndex(null);
                                     if (storyQuickZoomUrl === img) setStoryQuickZoomUrl(null);
                                   }}
                                   className="absolute -right-2 -top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white hover:bg-black/90"
@@ -2267,7 +2268,6 @@ export default function MiniAppDetailPage() {
                                   reader.onload = () => {
                                     setStoryCharacterImages((prev) => [...prev, reader.result as string]);
                                     setStoryImageCheckResult(null);
-                                    setStoryImageCheckSheetIndex(null);
                                   };
                                   reader.readAsDataURL(file);
                                 }}
@@ -2288,12 +2288,9 @@ export default function MiniAppDetailPage() {
                               </button>
                               {storyImageCheckResult === "sheet" && (
                                 <span className="flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400">
-                                  ✅ Ảnh @image{(storyImageCheckSheetIndex ?? 0) + 1} đã là Character nhiều góc — sẽ không tốn credit tạo mới
+                                  ✅ Toàn bộ ảnh đã là Character nhiều góc — sẽ không tốn credit tạo mới
                                   <button
-                                    onClick={() => {
-                                      setStoryImageCheckResult(null);
-                                      setStoryImageCheckSheetIndex(null);
-                                    }}
+                                    onClick={() => setStoryImageCheckResult(null)}
                                     className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
                                   >
                                     ✕
@@ -2302,12 +2299,9 @@ export default function MiniAppDetailPage() {
                               )}
                               {storyImageCheckResult === "photo" && (
                                 <span className="flex items-center gap-1.5 text-sm text-zinc-500 dark:text-zinc-400">
-                                  📷 Ảnh thường — sẽ tự tạo Character mới (tốn {storyCharacterCost ?? "?"} credit)
+                                  📷 Có ảnh thường lẫn vào — sẽ tự tạo Character mới (tốn {storyCharacterCost ?? "?"} credit)
                                   <button
-                                    onClick={() => {
-                                      setStoryImageCheckResult(null);
-                                      setStoryImageCheckSheetIndex(null);
-                                    }}
+                                    onClick={() => setStoryImageCheckResult(null)}
                                     className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
                                   >
                                     ✕
@@ -2708,7 +2702,13 @@ export default function MiniAppDetailPage() {
               <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
                 <span className="text-base text-zinc-600 dark:text-zinc-400">
                   {storySelectedSavedCharacterId ? (
-                    "Character đã lưu — không tốn credit bước này"
+                    input.trim() ? (
+                      "Character đã lưu — chạy thẳng luôn chia cảnh + tạo ảnh, không tốn credit bước Character"
+                    ) : (
+                      <span className="text-amber-600 dark:text-amber-400">
+                        ⚠️ Nhập "Ý tưởng truyện" ở ô phía trên trước — Character đã lưu nên sẽ chạy thẳng luôn chia cảnh, cần có ý tưởng truyện ngay từ bước này
+                      </span>
+                    )
                   ) : (
                     <>
                       Bước này tốn tối đa{" "}
@@ -2723,6 +2723,7 @@ export default function MiniAppDetailPage() {
                   disabled={
                     storyRunning ||
                     (!storySelectedSavedCharacterId && storyCharacterImages.length === 0) ||
+                    (!!storySelectedSavedCharacterId && !input.trim()) ||
                     !storyImageModelKey ||
                     !storyVideoModelKey
                   }
