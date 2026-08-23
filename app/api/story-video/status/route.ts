@@ -30,7 +30,9 @@ export async function GET(req: Request) {
   let progressText: string | null = null;
   let scenes: { position: number; imageUrl: string | null; videoUrl: string | null }[] | undefined;
 
-  if (["generating_images", "images_ready", "generating_videos"].includes(data.status)) {
+  // Bao gồm cả "failed" — nếu ảnh phân cảnh đã tạo xong trước khi lỗi (vd lỗi ở bước tạo video sau
+  // đó), khách vẫn cần xem lại được ảnh đã tốn credit tạo ra, không phải tự dưng "biến mất".
+  if (["generating_images", "images_ready", "generating_videos", "stitching", "failed"].includes(data.status)) {
     const { data: sceneRows } = await supabase
       .from("story_video_scenes")
       .select("position, image_url, video_url")

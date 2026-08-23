@@ -2590,12 +2590,16 @@ export default function MiniAppDetailPage() {
                 </div>
               )}
 
-              {storyStatus === "images_ready" && storyScenes && (
+              {(storyStatus === "images_ready" || (storyStatus === "failed" && storyScenes?.some((s) => s.imageUrl))) && storyScenes && (
                 <div
                   ref={storyScenesPreviewRef}
                   className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800"
                 >
-                  <p className="mb-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">Ảnh từng phân cảnh — xem trước rồi mới tạo video</p>
+                  <p className="mb-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                    {storyStatus === "failed"
+                      ? "Ảnh từng phân cảnh — đã tạo thành công trước khi lỗi ở bước sau, không bị mất"
+                      : "Ảnh từng phân cảnh — xem trước rồi mới tạo video"}
+                  </p>
                   <div className="grid grid-cols-4 gap-2">
                     {storyScenes.map((s) => (
                       <div key={s.position} className="aspect-square overflow-hidden rounded-lg bg-zinc-200 dark:bg-zinc-700">
@@ -2606,18 +2610,20 @@ export default function MiniAppDetailPage() {
                       </div>
                     ))}
                   </div>
-                  <div className="mt-3 flex items-center justify-between">
-                    <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                      Tạo video sẽ trừ thêm <strong className="text-zinc-900 dark:text-zinc-50">{storyVideoCost ?? "?"} credit</strong>
-                    </span>
-                    <button
-                      onClick={handleContinueToVideo}
-                      disabled={storyContinuing}
-                      className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900"
-                    >
-                      {storyContinuing ? "Đang gửi..." : "Tạo video"}
-                    </button>
-                  </div>
+                  {storyStatus === "images_ready" && (
+                    <div className="mt-3 flex items-center justify-between">
+                      <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                        Tạo video sẽ trừ thêm <strong className="text-zinc-900 dark:text-zinc-50">{storyVideoCost ?? "?"} credit</strong>
+                      </span>
+                      <button
+                        onClick={handleContinueToVideo}
+                        disabled={storyContinuing}
+                        className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900"
+                      >
+                        {storyContinuing ? "Đang gửi..." : "Tạo video"}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 

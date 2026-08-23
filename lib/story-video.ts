@@ -744,9 +744,19 @@ async function failJob(jobId: number, message: string) {
   // Job đã bị đánh fail bởi 1 lượt gọi khác rồi (race) -> đã hoàn credit xong, không cần làm lại.
   if (job?.status === "failed") return;
   await supabase.from("story_video_jobs").update({ status: "failed", error_message: message }).eq("id", jobId);
-  if (job?.image_credit_tx_id) await safeRefund(job.image_credit_tx_id);
-  if (job?.video_credit_tx_id) await safeRefund(job.video_credit_tx_id);
-  if (job?.character_credit_tx_id) await safeRefund(job.character_credit_tx_id);
+
+  // Chỉ hoàn ĐÚNG phần credit của giai đoạn đang dở dang lúc lỗi — dựa vào status NGAY TRƯỚC KHI lỗi
+  // (job.status đã select ở trên, trước dòng update phía trên). Trước đây hoàn cả 3 loại tx bất kể
+  // đã set hay chưa, nên nếu lỗi xảy ra ở bước VIDEO (sau khi ảnh phân cảnh đã tạo xong, khách đã xem
+  // được) thì credit ảnh cũng bị hoàn nhầm dù ảnh đã giao thành công — không đúng, khách đã nhận đúng
+  // sản phẩm ảnh rồi thì không nên hoàn lại phần đó.
+  if (job?.status === "generating_videos" || job?.status === "stitching") {
+    if (job.video_credit_tx_id) await safeRefund(job.video_credit_tx_id);
+  } else if (job?.status === "splitting_story" || job?.status === "generating_images") {
+    if (job.image_credit_tx_id) await safeRefund(job.image_credit_tx_id);
+  } else {
+    if (job?.character_credit_tx_id) await safeRefund(job.character_credit_tx_id);
+  }
 }
 
 async function getScenes(jobId: number): Promise<SceneRow[]> {
