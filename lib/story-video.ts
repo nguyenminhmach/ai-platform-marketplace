@@ -862,7 +862,14 @@ export async function continueStoryVideoToVideoStage(userId: string, jobId: numb
   const job = jobData as JobRow;
 
   if (job.user_id !== userId) throw new Error("Không có quyền với job này");
-  if (job.status !== "images_ready") throw new Error("Job không ở trạng thái sẵn sàng tạo video");
+  if (job.status !== "images_ready") {
+    // Cho phép THỬ LẠI khi job đã "failed" nhưng ảnh phân cảnh đã tạo xong đầy đủ trước đó (lỗi xảy
+    // ra ở bước tạo VIDEO sau đó, không phải ở bước ảnh) — tránh bắt khách làm lại từ đầu (tải ảnh
+    // nhân vật, tạo Character, chia cảnh...) dù ảnh đã có sẵn và còn dùng được.
+    const scenes = job.status === "failed" ? await getScenes(jobId) : [];
+    const imagesAllReady = scenes.length > 0 && scenes.every((s) => s.image_url);
+    if (!imagesAllReady) throw new Error("Job không ở trạng thái sẵn sàng tạo video");
+  }
   if (!job.video_provider_cost_vnd_per_scene) throw new Error("Thiếu dữ liệu giá video của job");
 
   const { marginPercent, vndPerCredit } = await getMediaPricingSettings();

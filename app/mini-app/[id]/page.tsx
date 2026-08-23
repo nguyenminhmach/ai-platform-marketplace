@@ -2610,17 +2610,23 @@ export default function MiniAppDetailPage() {
                       </div>
                     ))}
                   </div>
-                  {storyStatus === "images_ready" && (
+                  {(storyStatus === "images_ready" || (storyStatus === "failed" && storyScenes.every((s) => s.imageUrl))) && (
                     <div className="mt-3 flex items-center justify-between">
                       <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                        Tạo video sẽ trừ thêm <strong className="text-zinc-900 dark:text-zinc-50">{storyVideoCost ?? "?"} credit</strong>
+                        {storyStatus === "failed" ? (
+                          "Thử tạo video lại từ ảnh phân cảnh đã có — không cần làm lại từ đầu"
+                        ) : (
+                          <>
+                            Tạo video sẽ trừ thêm <strong className="text-zinc-900 dark:text-zinc-50">{storyVideoCost ?? "?"} credit</strong>
+                          </>
+                        )}
                       </span>
                       <button
                         onClick={handleContinueToVideo}
                         disabled={storyContinuing}
                         className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900"
                       >
-                        {storyContinuing ? "Đang gửi..." : "Tạo video"}
+                        {storyContinuing ? "Đang gửi..." : storyStatus === "failed" ? "Thử lại tạo video" : "Tạo video"}
                       </button>
                     </div>
                   )}
