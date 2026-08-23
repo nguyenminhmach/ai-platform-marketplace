@@ -85,6 +85,16 @@ export async function classifyCharacterImage(imageUrl: string): Promise<boolean>
   }
 }
 
+// Dò TẤT CẢ ảnh khách tải lên (không chỉ ảnh đầu) — khách có thể tải nhiều ảnh, trong đó 1 ảnh nào đó
+// (không nhất thiết ảnh đầu tiên) đã là sheet nhiều góc sẵn. Trả về URL ảnh sheet đầu tiên tìm được,
+// hoặc null nếu không ảnh nào là sheet (cần chạy bước Tạo Character từ toàn bộ ảnh).
+export async function findExistingCharacterSheet(imageUrls: string[]): Promise<string | null> {
+  for (const url of imageUrls) {
+    if (await classifyCharacterImage(url)) return url;
+  }
+  return null;
+}
+
 export async function computeCharacterCreditCost(): Promise<{ providerCostVnd: number; creditCost: number }> {
   const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
   const creditCost = computeDynamicCreditCost(CHARACTER_PROVIDER_COST_VND, marginPercent, vndPerCredit);
@@ -450,11 +460,13 @@ export async function submitStoryVideoJob(
         .update({ status: "character_ready", character_sheet_url: reusedImageUrl, character_source: "reused" })
         .eq("id", job.id);
     } else {
-      const isAlreadySheet = await classifyCharacterImage(characterImageUrls[0]);
-      if (isAlreadySheet) {
+      // Dò TẤT CẢ ảnh đã tải (không chỉ ảnh đầu) — khách có thể tải nhiều ảnh, ảnh sheet có sẵn không
+      // nhất thiết là ảnh đầu tiên.
+      const existingSheetUrl = await findExistingCharacterSheet(characterImageUrls);
+      if (existingSheetUrl) {
         await supabase
           .from("story_video_jobs")
-          .update({ status: "character_ready", character_sheet_url: characterImageUrls[0], character_source: "uploaded_sheet" })
+          .update({ status: "character_ready", character_sheet_url: existingSheetUrl, character_source: "uploaded_sheet" })
           .eq("id", job.id);
       } else {
         const { creditCost } = await computeCharacterCreditCost();

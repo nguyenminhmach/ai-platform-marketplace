@@ -198,6 +198,7 @@ export default function MiniAppDetailPage() {
   // hay ảnh thường (sẽ tốn credit tạo Character), không cần chạy hết cả job mới biết.
   const [storyCheckingImage, setStoryCheckingImage] = useState(false);
   const [storyImageCheckResult, setStoryImageCheckResult] = useState<"sheet" | "photo" | null>(null);
+  const [storyImageCheckSheetIndex, setStoryImageCheckSheetIndex] = useState<number | null>(null);
   // "Tự động tạo video luôn" (gộp 1 lượt, giống Genful bấm mũi tên ▾) — mặc định TẮT: chỉ chạy chia
   // cảnh + tạo ảnh trước, dừng lại cho khách xem, ưng mới bấm "Tạo video" (đỡ tốn credit video oan
   // nếu ảnh ra không đúng ý).
@@ -776,15 +777,18 @@ export default function MiniAppDetailPage() {
     if (storyCharacterImages.length === 0) return;
     setStoryCheckingImage(true);
     setStoryImageCheckResult(null);
+    setStoryImageCheckSheetIndex(null);
     try {
-      const imageUrl = await uploadOutfitSwapImage(storyCharacterImages[0]);
+      // Kiểm tra TẤT CẢ ảnh đã tải (không chỉ ảnh đầu) — ảnh sheet có sẵn không nhất thiết là ảnh đầu tiên.
+      const imageUrls = await Promise.all(storyCharacterImages.map((img) => uploadOutfitSwapImage(img)));
       const res = await fetch("/api/story-video/classify-character", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageUrl }),
+        body: JSON.stringify({ imageUrls }),
       });
       const data = await res.json();
       setStoryImageCheckResult(res.ok && data.isSheet ? "sheet" : "photo");
+      setStoryImageCheckSheetIndex(res.ok && typeof data.sheetIndex === "number" ? data.sheetIndex : null);
     } catch {
       setStoryImageCheckResult(null);
     } finally {
@@ -2187,6 +2191,7 @@ export default function MiniAppDetailPage() {
                                   onClick={() => {
                                     setStoryCharacterImages((prev) => prev.filter((_, i) => i !== index));
                                     setStoryImageCheckResult(null);
+                                    setStoryImageCheckSheetIndex(null);
                                   }}
                                   className="absolute -right-2 -top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white hover:bg-black/90"
                                 >
@@ -2208,6 +2213,7 @@ export default function MiniAppDetailPage() {
                                   reader.onload = () => {
                                     setStoryCharacterImages((prev) => [...prev, reader.result as string]);
                                     setStoryImageCheckResult(null);
+                                    setStoryImageCheckSheetIndex(null);
                                   };
                                   reader.readAsDataURL(file);
                                 }}
@@ -2228,7 +2234,7 @@ export default function MiniAppDetailPage() {
                               </button>
                               {storyImageCheckResult === "sheet" && (
                                 <span className="text-sm text-emerald-600 dark:text-emerald-400">
-                                  ✅ Đã là ảnh Character nhiều góc — sẽ không tốn credit tạo mới
+                                  ✅ Ảnh @image{(storyImageCheckSheetIndex ?? 0) + 1} đã là Character nhiều góc — sẽ không tốn credit tạo mới
                                 </span>
                               )}
                               {storyImageCheckResult === "photo" && (
