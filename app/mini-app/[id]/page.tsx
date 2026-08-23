@@ -806,8 +806,15 @@ export default function MiniAppDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: user.id, imageUrl: storyCharacterSheetUrl }),
       });
-      if (res.ok) {
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.id) {
         setStorySavedCharacterMsg("Đã lưu vào thư viện Character.");
+        // Chuyển ô "Ảnh nhân vật" sang hiển thị đúng Character vừa lưu (thay vì còn giữ ảnh thường gốc
+        // đã tải lên) — khách không cần tự chọn lại từ thư viện, thấy ngay đây là Character đang dùng.
+        const sheetUrl = storyCharacterSheetUrl;
+        setStorySavedCharacters((prev) => [...prev, { id: data.id, imageUrl: sheetUrl, label: null }]);
+        setStorySelectedSavedCharacterId(data.id);
+        setStoryCharacterImages([]);
         loadSavedStoryCharacters(user.id);
       } else {
         setStorySavedCharacterMsg("Không lưu được, thử lại.");
