@@ -722,17 +722,31 @@ export async function deleteStoryCharacter(userId: string, characterId: number):
   if (error) throw new Error(error.message);
 }
 
+// refund_credit (RPC) tự chặn hoàn credit trùng qua unique constraint trên idempotency_key
+// "{txId}-refund" — nếu 2 lượt gọi failJob() gần như đồng thời cùng hoàn 1 tx (vd Fal.ai gửi trùng
+// webhook báo lỗi cho cùng 1 cảnh), lượt thua sẽ nhận lỗi 23505 (duplicate key). Đây KHÔNG phải lỗi
+// thật — tx đó đã được hoàn đúng bởi lượt thắng — nên bỏ qua an toàn, không quăng lỗi lên trên.
+async function safeRefund(txId: number) {
+  try {
+    await refundCredit(txId);
+  } catch (err) {
+    if ((err as { code?: string })?.code !== "23505") throw err;
+  }
+}
+
 async function failJob(jobId: number, message: string) {
   const supabase = getSupabaseAdmin();
   const { data: job } = await supabase
     .from("story_video_jobs")
-    .select("image_credit_tx_id, video_credit_tx_id, character_credit_tx_id")
+    .select("status, image_credit_tx_id, video_credit_tx_id, character_credit_tx_id")
     .eq("id", jobId)
     .single();
+  // Job đã bị đánh fail bởi 1 lượt gọi khác rồi (race) -> đã hoàn credit xong, không cần làm lại.
+  if (job?.status === "failed") return;
   await supabase.from("story_video_jobs").update({ status: "failed", error_message: message }).eq("id", jobId);
-  if (job?.image_credit_tx_id) await refundCredit(job.image_credit_tx_id);
-  if (job?.video_credit_tx_id) await refundCredit(job.video_credit_tx_id);
-  if (job?.character_credit_tx_id) await refundCredit(job.character_credit_tx_id);
+  if (job?.image_credit_tx_id) await safeRefund(job.image_credit_tx_id);
+  if (job?.video_credit_tx_id) await safeRefund(job.video_credit_tx_id);
+  if (job?.character_credit_tx_id) await safeRefund(job.character_credit_tx_id);
 }
 
 async function getScenes(jobId: number): Promise<SceneRow[]> {
