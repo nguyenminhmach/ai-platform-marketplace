@@ -2906,7 +2906,7 @@ export default function MiniAppDetailPage() {
                     }
                     className="rounded-full bg-zinc-900 px-6 py-2.5 text-base font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
                   >
-                    {storyRunning ? "Đang xử lý..." : "Tạo ảnh phân cảnh"}
+                    {storyRunning ? "Đang xử lý..." : storyUseOwnSceneImages ? "Viết mô tả chuyển động" : "Tạo ảnh phân cảnh"}
                   </button>
                   <button
                     onClick={handleContinueToVideo}
