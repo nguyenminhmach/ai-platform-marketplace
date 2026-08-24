@@ -2561,6 +2561,31 @@ export default function MiniAppDetailPage() {
                           </>
                         )}
                       </p>
+                      {!storyUseOwnSceneImages && storyScenes && storyScenes.some((s) => s.imageUrl) && (
+                        <div className="mt-3 grid grid-cols-2 gap-3">
+                          {storyScenes.map((s) => (
+                            <div key={s.position} className="relative aspect-square w-full">
+                              {s.imageUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={s.imageUrl}
+                                  alt={`Cảnh ${s.position + 1}`}
+                                  onClick={() => setStoryQuickZoomUrl(s.imageUrl!)}
+                                  className="h-full w-full cursor-zoom-in rounded-lg object-cover"
+                                  title="Bấm để xem to"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center rounded-lg bg-zinc-100 text-xs text-zinc-400 dark:bg-zinc-800">
+                                  Đang tạo...
+                                </div>
+                              )}
+                              <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
+                                Cảnh {s.position + 1}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     <div className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
