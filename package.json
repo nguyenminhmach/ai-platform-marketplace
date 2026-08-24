@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "postinstall": "node node_modules/ffmpeg-static/install.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.0",
