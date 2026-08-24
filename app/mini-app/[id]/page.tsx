@@ -2426,27 +2426,6 @@ export default function MiniAppDetailPage() {
                       </label>
                       {storyUseOwnSceneImages ? (
                         <>
-                          {storySceneImages.length < STORY_MAX_SCENES && (
-                            <label className="mb-3 flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-3 py-3 text-center dark:border-zinc-700 dark:bg-zinc-800">
-                              <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh phân cảnh</span>
-                              <input
-                                type="file"
-                                accept="image/*"
-                                className="hidden"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  e.target.value = "";
-                                  if (!file) return;
-                                  const reader = new FileReader();
-                                  reader.onload = () => {
-                                    setStorySceneImages((prev) => [...prev, reader.result as string]);
-                                    setStorySceneHints((prev) => [...prev, ""]);
-                                  };
-                                  reader.readAsDataURL(file);
-                                }}
-                              />
-                            </label>
-                          )}
                           <div className="grid grid-cols-2 gap-3">
                             {storySceneImages.map((img, index) => (
                               <div key={index} className="space-y-1">
@@ -2484,6 +2463,27 @@ export default function MiniAppDetailPage() {
                                 />
                               </div>
                             ))}
+                            {storySceneImages.length < STORY_MAX_SCENES && (
+                              <label className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    e.target.value = "";
+                                    if (!file) return;
+                                    const reader = new FileReader();
+                                    reader.onload = () => {
+                                      setStorySceneImages((prev) => [...prev, reader.result as string]);
+                                      setStorySceneHints((prev) => [...prev, ""]);
+                                    };
+                                    reader.readAsDataURL(file);
+                                  }}
+                                />
+                              </label>
+                            )}
                           </div>
                           <p className="mt-2 text-sm text-zinc-400 dark:text-zinc-500">
                             Đã tải {storySceneImages.length}/{STORY_MAX_SCENES} ảnh — mỗi ảnh là 1 phân cảnh theo đúng thứ tự tải lên. AI (Agent) sẽ tự viết mô tả chuyển động cho từng ảnh dựa theo ảnh + Ý tưởng truyện — gợi ý ở trên chỉ để hỗ trợ thêm, không bắt buộc. Không tốn credit tạo ảnh.
