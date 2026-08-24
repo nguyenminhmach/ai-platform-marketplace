@@ -168,9 +168,10 @@ export default function MiniAppDetailPage() {
   const [storyVideoModelKey, setStoryVideoModelKey] = useState<string | null>(null);
   // Khách đã có sẵn ảnh cho từng phân cảnh (thay vì để AI tạo) — tải thẳng vào đây, bỏ qua hoàn toàn
   // bước Character + AI tạo ảnh phân cảnh. Agent chỉ đọc ảnh + gợi ý (tuỳ chọn) + Ý tưởng truyện để tự
-  // viết prompt chuyển động khi tạo video, không tốn credit ảnh. Mảng luôn đồng bộ độ dài với numScenes.
+  // viết prompt chuyển động khi tạo video, không tốn credit ảnh. Tải kiểu động (bấm "+ Tải ảnh" thêm
+  // dần từng ảnh, giống hệt "Ảnh nhân vật") — số phân cảnh = số ảnh đã tải, tối đa STORY_MAX_SCENES.
   const [storyUseOwnSceneImages, setStoryUseOwnSceneImages] = useState(false);
-  const [storySceneImages, setStorySceneImages] = useState<(string | null)[]>([]);
+  const [storySceneImages, setStorySceneImages] = useState<string[]>([]);
   const [storySceneHints, setStorySceneHints] = useState<string[]>([]);
   // "Cấu hình media" — tỉ lệ khung hình (luôn có), độ phân giải/thời lượng chỉ hiện khi model đang
   // chọn có bảng giá riêng cho trục đó (không hiện dropdown giả cho model không hỗ trợ).
@@ -252,22 +253,6 @@ export default function MiniAppDetailPage() {
     }
     storyQuickZoomWasOpenRef.current = !!storyQuickZoomUrl;
   }, [storyQuickZoomUrl]);
-
-  // Số ô ảnh phân cảnh tự tải lên luôn khớp đúng "Số phân cảnh" đang chọn — thêm/bớt ô khi đổi số.
-  useEffect(() => {
-    setStorySceneImages((prev) => {
-      if (prev.length === numScenes) return prev;
-      const next = prev.slice(0, numScenes);
-      while (next.length < numScenes) next.push(null);
-      return next;
-    });
-    setStorySceneHints((prev) => {
-      if (prev.length === numScenes) return prev;
-      const next = prev.slice(0, numScenes);
-      while (next.length < numScenes) next.push("");
-      return next;
-    });
-  }, [numScenes]);
 
   // Thư viện Character đã lưu — tải khi vào app + sau khi lưu 1 Character mới.
   function loadSavedStoryCharacters(userId: string) {
@@ -999,7 +984,7 @@ export default function MiniAppDetailPage() {
   // Khách đã có sẵn ảnh cho từng phân cảnh — bỏ qua hoàn toàn bước Character + AI tạo ảnh, chỉ tốn
   // credit video. Agent tự viết mô tả chuyển động cho từng ảnh (gợi ý của khách chỉ là hỗ trợ thêm).
   async function handleRunStoryVideoWithOwnImages() {
-    if (!user || !input.trim() || !storyVideoModelKey || storySceneImages.some((img) => !img)) return;
+    if (!user || !input.trim() || !storyVideoModelKey || storySceneImages.length < STORY_MIN_SCENES) return;
     setStoryRunning(true);
     setStoryResult(null);
     setStoryError(null);
@@ -1013,7 +998,7 @@ export default function MiniAppDetailPage() {
     setStoryStatusText("Đang tải ảnh phân cảnh lên...");
     let sceneImageUrls: string[];
     try {
-      sceneImageUrls = await Promise.all(storySceneImages.map((img) => uploadOutfitSwapImage(img as string)));
+      sceneImageUrls = await Promise.all(storySceneImages.map((img) => uploadOutfitSwapImage(img)));
     } catch (err) {
       setStoryError(err instanceof Error ? err.message : "Không tải được ảnh lên, thử lại");
       setStoryRunning(false);
@@ -2445,50 +2430,27 @@ export default function MiniAppDetailPage() {
                             {storySceneImages.map((img, index) => (
                               <div key={index} className="space-y-1">
                                 <div className="relative aspect-square w-full">
-                                  {img ? (
-                                    <>
-                                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                                      <img
-                                        src={img}
-                                        alt={`Ảnh phân cảnh ${index + 1}`}
-                                        onClick={() => setStoryQuickZoomUrl(img)}
-                                        className="h-full w-full cursor-zoom-in rounded-lg object-cover"
-                                        title="Bấm để xem to"
-                                      />
-                                      <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
-                                        Cảnh {index + 1}
-                                      </span>
-                                      <button
-                                        onClick={() => {
-                                          setStorySceneImages((prev) => prev.map((v, i) => (i === index ? null : v)));
-                                          if (storyQuickZoomUrl === img) setStoryQuickZoomUrl(null);
-                                        }}
-                                        className="absolute -right-2 -top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white hover:bg-black/90"
-                                      >
-                                        ✕
-                                      </button>
-                                    </>
-                                  ) : (
-                                    <label className="flex h-full w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800">
-                                      <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">+ Cảnh {index + 1}</span>
-                                      <input
-                                        type="file"
-                                        accept="image/*"
-                                        className="hidden"
-                                        onChange={(e) => {
-                                          const file = e.target.files?.[0];
-                                          e.target.value = "";
-                                          if (!file) return;
-                                          const reader = new FileReader();
-                                          reader.onload = () => {
-                                            const url = reader.result as string;
-                                            setStorySceneImages((prev) => prev.map((v, i) => (i === index ? url : v)));
-                                          };
-                                          reader.readAsDataURL(file);
-                                        }}
-                                      />
-                                    </label>
-                                  )}
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={img}
+                                    alt={`Ảnh phân cảnh ${index + 1}`}
+                                    onClick={() => setStoryQuickZoomUrl(img)}
+                                    className="h-full w-full cursor-zoom-in rounded-lg object-cover"
+                                    title="Bấm để xem to"
+                                  />
+                                  <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
+                                    Cảnh {index + 1}
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      setStorySceneImages((prev) => prev.filter((_, i) => i !== index));
+                                      setStorySceneHints((prev) => prev.filter((_, i) => i !== index));
+                                      if (storyQuickZoomUrl === img) setStoryQuickZoomUrl(null);
+                                    }}
+                                    className="absolute -right-2 -top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white hover:bg-black/90"
+                                  >
+                                    ✕
+                                  </button>
                                 </div>
                                 <input
                                   type="text"
@@ -2501,9 +2463,30 @@ export default function MiniAppDetailPage() {
                                 />
                               </div>
                             ))}
+                            {storySceneImages.length < STORY_MAX_SCENES && (
+                              <label className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    e.target.value = "";
+                                    if (!file) return;
+                                    const reader = new FileReader();
+                                    reader.onload = () => {
+                                      setStorySceneImages((prev) => [...prev, reader.result as string]);
+                                      setStorySceneHints((prev) => [...prev, ""]);
+                                    };
+                                    reader.readAsDataURL(file);
+                                  }}
+                                />
+                              </label>
+                            )}
                           </div>
                           <p className="mt-2 text-sm text-zinc-400 dark:text-zinc-500">
-                            AI (Agent) sẽ tự viết mô tả chuyển động cho từng ảnh dựa theo ảnh + Ý tưởng truyện — gợi ý ở trên chỉ để hỗ trợ thêm, không bắt buộc. Không tốn credit tạo ảnh.
+                            Đã tải {storySceneImages.length}/{STORY_MAX_SCENES} ảnh — mỗi ảnh là 1 phân cảnh theo đúng thứ tự tải lên. AI (Agent) sẽ tự viết mô tả chuyển động cho từng ảnh dựa theo ảnh + Ý tưởng truyện — gợi ý ở trên chỉ để hỗ trợ thêm, không bắt buộc. Không tốn credit tạo ảnh.
                           </p>
                         </>
                       ) : (
@@ -2652,24 +2635,30 @@ export default function MiniAppDetailPage() {
                 </div>
               </div>
 
-              <div className="mt-3">
-                <p className="mb-1 text-sm font-medium text-zinc-500 dark:text-zinc-400">Số phân cảnh</p>
-                <div className="flex flex-wrap gap-2">
-                  {Array.from({ length: STORY_MAX_SCENES - STORY_MIN_SCENES + 1 }, (_, i) => STORY_MIN_SCENES + i).map((n) => (
-                    <button
-                      key={n}
-                      onClick={() => setNumScenes(n)}
-                      className={`rounded-full border px-4 py-1.5 text-sm font-medium ${
-                        numScenes === n
-                          ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
-                          : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
-                      }`}
-                    >
-                      {n} cảnh
-                    </button>
-                  ))}
+              {storyUseOwnSceneImages ? (
+                <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
+                  Số phân cảnh: <strong className="text-zinc-900 dark:text-zinc-50">{storySceneImages.length || "0"}</strong> (theo đúng số ảnh đã tải ở khung "Ảnh phân cảnh" phía trên)
+                </p>
+              ) : (
+                <div className="mt-3">
+                  <p className="mb-1 text-sm font-medium text-zinc-500 dark:text-zinc-400">Số phân cảnh</p>
+                  <div className="flex flex-wrap gap-2">
+                    {Array.from({ length: STORY_MAX_SCENES - STORY_MIN_SCENES + 1 }, (_, i) => STORY_MIN_SCENES + i).map((n) => (
+                      <button
+                        key={n}
+                        onClick={() => setNumScenes(n)}
+                        className={`rounded-full border px-4 py-1.5 text-sm font-medium ${
+                          numScenes === n
+                            ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
+                            : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
+                        }`}
+                      >
+                        {n} cảnh
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
               <label className="mt-3 flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
                 <input type="checkbox" checked={storyAutoVideo} onChange={(e) => setStoryAutoVideo(e.target.checked)} />
@@ -2916,7 +2905,7 @@ export default function MiniAppDetailPage() {
                     storyRunning ||
                     !storyVideoModelKey ||
                     (storyUseOwnSceneImages
-                      ? !input.trim() || storySceneImages.some((img) => !img)
+                      ? !input.trim() || storySceneImages.length < STORY_MIN_SCENES
                       : (!storySelectedSavedCharacterId && storyCharacterImages.length === 0) ||
                         (!!storySelectedSavedCharacterId && !input.trim()) ||
                         !storyImageModelKey)
