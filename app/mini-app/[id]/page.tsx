@@ -2870,17 +2870,11 @@ export default function MiniAppDetailPage() {
               <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
                 <span className="text-base text-zinc-600 dark:text-zinc-400">
                   {storyUseOwnSceneImages ? (
-                    input.trim() ? (
-                      <>
-                        Ảnh phân cảnh có sẵn — chỉ tốn credit video (~
-                        <strong className="text-zinc-900 dark:text-zinc-50">{storyVideoCost ?? app.creditCost} credit</strong>,{" "}
-                        {storySceneImages.length} phân cảnh), Agent tự viết mô tả chuyển động
-                      </>
-                    ) : (
-                      <span className="text-amber-600 dark:text-amber-400">
-                        ⚠️ Nhập "Ý tưởng truyện" ở ô phía trên trước — Agent cần nội dung này để viết mô tả chuyển động cho từng ảnh
-                      </span>
-                    )
+                    <>
+                      Ảnh phân cảnh có sẵn — chỉ tốn credit video (~
+                      <strong className="text-zinc-900 dark:text-zinc-50">{storyVideoCost ?? app.creditCost} credit</strong>,{" "}
+                      {storySceneImages.length} phân cảnh), Agent tự viết mô tả chuyển động
+                    </>
                   ) : storySelectedSavedCharacterId ? (
                     input.trim() ? (
                       "Character đã lưu — chạy thẳng luôn chia cảnh + tạo ảnh, không tốn credit bước Character"
