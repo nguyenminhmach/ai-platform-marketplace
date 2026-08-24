@@ -2898,29 +2898,44 @@ export default function MiniAppDetailPage() {
                     </>
                   )}
                 </span>
-                <button
-                  onClick={storyUseOwnSceneImages ? handleRunStoryVideoWithOwnImages : handleRunStoryVideo}
-                  disabled={
-                    storyRunning ||
-                    !storyVideoModelKey ||
-                    (storyUseOwnSceneImages
-                      ? !input.trim() || storySceneImages.length < STORY_MIN_SCENES
-                      : (!storySelectedSavedCharacterId && storyCharacterImages.length === 0) ||
-                        (!!storySelectedSavedCharacterId && !input.trim()) ||
-                        !storyImageModelKey)
-                  }
-                  className="shrink-0 rounded-full bg-zinc-900 px-6 py-2.5 text-base font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
-                >
-                  {storyRunning
-                    ? "Đang xử lý..."
-                    : storyUseOwnSceneImages
-                      ? storyAutoVideo
-                        ? "Viết mô tả + tạo video"
-                        : "Viết mô tả chuyển động"
-                      : storyAutoVideo
-                        ? "Chạy phân cảnh + ảnh + video"
-                        : "Chạy phân cảnh + ảnh"}
-                </button>
+                {storyUseOwnSceneImages ? (
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      onClick={handleRunStoryVideo}
+                      disabled={
+                        storyRunning ||
+                        !storyVideoModelKey ||
+                        !storyImageModelKey ||
+                        (!storySelectedSavedCharacterId && storyCharacterImages.length === 0) ||
+                        (!!storySelectedSavedCharacterId && !input.trim())
+                      }
+                      className="rounded-full border border-zinc-300 px-5 py-2.5 text-base font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    >
+                      {storyRunning ? "Đang xử lý..." : "Tạo ảnh phân cảnh và ảnh"}
+                    </button>
+                    <button
+                      onClick={handleRunStoryVideoWithOwnImages}
+                      disabled={storyRunning || !storyVideoModelKey || !input.trim() || storySceneImages.length < STORY_MIN_SCENES}
+                      className="rounded-full bg-zinc-900 px-6 py-2.5 text-base font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                    >
+                      {storyRunning ? "Đang xử lý..." : storyAutoVideo ? "Viết mô tả + tạo video" : "Viết mô tả chuyển động"}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleRunStoryVideo}
+                    disabled={
+                      storyRunning ||
+                      !storyVideoModelKey ||
+                      !storyImageModelKey ||
+                      (!storySelectedSavedCharacterId && storyCharacterImages.length === 0) ||
+                      (!!storySelectedSavedCharacterId && !input.trim())
+                    }
+                    className="shrink-0 rounded-full bg-zinc-900 px-6 py-2.5 text-base font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                  >
+                    {storyRunning ? "Đang xử lý..." : storyAutoVideo ? "Chạy phân cảnh + ảnh + video" : "Chạy phân cảnh + ảnh"}
+                  </button>
+                )}
               </div>
             </div>
           ) : app.inputType === "outfit-swap" ? (
