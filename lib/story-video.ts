@@ -15,6 +15,7 @@
 import { randomUUID } from "crypto";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { chmodSync } from "fs";
 import { mkdtemp, writeFile, readFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
@@ -1044,6 +1045,11 @@ async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
     await failJob(jobId, "Máy chủ chưa hỗ trợ ghép video (thiếu ffmpeg)");
     return;
   }
+  // ffmpeg-static hay bị mất quyền thực thi khi Next.js đóng gói binary vào Vercel serverless function
+  // (chỉ copy file, không giữ nguyên mode) — chủ động cấp lại quyền trước khi spawn, tránh ENOENT/EACCES.
+  try {
+    chmodSync(ffmpegPath, 0o755);
+  } catch {}
 
   const workDir = await mkdtemp(path.join(tmpdir(), "story-video-"));
   const listPath = path.join(workDir, "list.txt");
@@ -1084,6 +1090,9 @@ async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
     await supabase.from("story_video_jobs").update({ status: "done", output_url: publicUrlData.publicUrl }).eq("id", jobId);
     await recordGenerationHistory(job.user_id, job.mini_app_id, "video", publicUrlData.publicUrl);
   } catch (err) {
+    // failJob() chỉ lưu lỗi vào DB (job.error_message), không throw/log — log riêng ra đây để lỗi ghép
+    // video còn xuất hiện trong Vercel error tracking, tránh lặp lại việc dò lỗi mù như lần ffmpeg ENOENT.
+    console.error(`[story-video-stitch] Job #${jobId} lỗi ghép video:`, err);
     await failJob(jobId, err instanceof Error ? err.message : String(err));
   } finally {
     await rm(workDir, { recursive: true, force: true }).catch(() => {});
