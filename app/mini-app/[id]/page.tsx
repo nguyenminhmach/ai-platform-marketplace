@@ -992,7 +992,7 @@ export default function MiniAppDetailPage() {
 
   // Khách đã có sẵn ảnh cho từng phân cảnh — bỏ qua hoàn toàn bước Character + AI tạo ảnh, chỉ tốn
   // credit video. Agent tự viết mô tả chuyển động cho từng ảnh (gợi ý của khách chỉ là hỗ trợ thêm).
-  async function handleRunStoryVideoWithOwnImages() {
+  async function handleRunStoryVideoWithOwnImages(forceAutoVideo?: boolean) {
     if (!user || !input.trim() || !storyVideoModelKey || storySceneImages.length < STORY_MIN_SCENES) return;
     setStoryRunning(true);
     setStoryResult(null);
@@ -1027,7 +1027,7 @@ export default function MiniAppDetailPage() {
           storyDescription: input.trim(),
           sceneImages: sceneImageUrls.map((imageUrl, i) => ({ imageUrl, hint: storySceneHints[i]?.trim() || undefined })),
           videoModelKey: storyVideoModelKey,
-          autoVideo: storyAutoVideo,
+          autoVideo: forceAutoVideo ?? storyAutoVideo,
           aspectRatio: storyAspectRatio,
           durationKey: storyDurationKey,
           modelChatKey: storyModelChatKey,
@@ -2866,15 +2866,12 @@ export default function MiniAppDetailPage() {
             <div className="fixed inset-x-0 bottom-0 z-40 border-t border-zinc-200 bg-white/95 px-6 py-3 backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/95">
               <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
                 <span className="text-base text-zinc-600 dark:text-zinc-400">
-                  {storyUseOwnSceneImages ? (
-                    <>
-                      Ảnh phân cảnh có sẵn — chỉ tốn credit video (~
-                      <strong className="text-zinc-900 dark:text-zinc-50">{storyVideoCost ?? app.creditCost} credit</strong>,{" "}
-                      {storySceneImages.length} phân cảnh), Agent tự viết mô tả chuyển động
-                    </>
-                  ) : storySelectedSavedCharacterId ? (
+                  {storySelectedSavedCharacterId ? (
                     input.trim() ? (
-                      "Character đã lưu — chạy thẳng luôn chia cảnh + tạo ảnh, không tốn credit bước Character"
+                      <>
+                        "Tạo ảnh phân cảnh": Character đã lưu — chạy thẳng luôn chia cảnh + tạo ảnh, không tốn credit bước Character. "Viết mô tả chuyển động để tạo video": cần có ≥1 ảnh phân cảnh (AI tạo hoặc tự tải lên) + Ý tưởng truyện, tốn ~
+                        <strong className="text-zinc-900 dark:text-zinc-50">{storyVideoCost ?? app.creditCost} credit</strong>.
+                      </>
                     ) : (
                       <span className="text-amber-600 dark:text-amber-400">
                         ⚠️ Nhập "Ý tưởng truyện" ở ô phía trên trước — Character đã lưu nên sẽ chạy thẳng luôn chia cảnh, cần có ý tưởng truyện ngay từ bước này
@@ -2882,35 +2879,40 @@ export default function MiniAppDetailPage() {
                     )
                   ) : (
                     <>
-                      Bước này tốn tối đa{" "}
-                      <strong className="text-zinc-900 dark:text-zinc-50">{storyCharacterCost ?? "?"} credit</strong> (chỉ khi cần tạo Character mới) — phần ảnh/video (~
-                      {storyAutoVideo ? (storyImageCost ?? 0) + (storyVideoCost ?? 0) : (storyImageCost ?? app.creditCost)} credit,{" "}
-                      {numScenes} phân cảnh) tính ở bước sau, sau khi anh/chị duyệt Character
+                      "Tạo ảnh phân cảnh" tốn tối đa{" "}
+                      <strong className="text-zinc-900 dark:text-zinc-50">{storyCharacterCost ?? "?"} credit</strong> (chỉ khi cần tạo Character mới, ảnh tính sau). "Viết mô tả chuyển động để tạo video" cần có ≥1 ảnh phân cảnh (AI tạo hoặc tự tải lên) + Ý tưởng truyện, tốn ~
+                      <strong className="text-zinc-900 dark:text-zinc-50">{storyVideoCost ?? app.creditCost} credit</strong>.
                     </>
                   )}
                 </span>
                 <div className="flex shrink-0 gap-2">
                   <button
-                    onClick={storyUseOwnSceneImages ? handleRunStoryVideoWithOwnImages : handleRunStoryVideo}
+                    onClick={handleRunStoryVideo}
                     disabled={
                       storyRunning ||
                       !storyVideoModelKey ||
-                      (storyUseOwnSceneImages
-                        ? !input.trim() || storySceneImages.length < STORY_MIN_SCENES
-                        : !storyImageModelKey ||
-                          (!storySelectedSavedCharacterId && storyCharacterImages.length === 0) ||
-                          (!!storySelectedSavedCharacterId && !input.trim()))
+                      !storyImageModelKey ||
+                      (!storySelectedSavedCharacterId && storyCharacterImages.length === 0) ||
+                      (!!storySelectedSavedCharacterId && !input.trim())
                     }
                     className="rounded-full bg-zinc-900 px-6 py-2.5 text-base font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
                   >
-                    {storyRunning ? "Đang xử lý..." : storyUseOwnSceneImages ? "Viết mô tả chuyển động" : "Tạo ảnh phân cảnh"}
+                    {storyRunning ? "Đang xử lý..." : "Tạo ảnh phân cảnh"}
                   </button>
                   <button
-                    onClick={handleContinueToVideo}
-                    disabled={storyContinuing || storyStatus !== "images_ready"}
+                    onClick={
+                      storyStatus === "images_ready" ? handleContinueToVideo : () => handleRunStoryVideoWithOwnImages(true)
+                    }
+                    disabled={
+                      storyRunning ||
+                      storyContinuing ||
+                      !storyVideoModelKey ||
+                      !input.trim() ||
+                      storySceneImages.length < STORY_MIN_SCENES
+                    }
                     className="rounded-full border border-zinc-300 px-5 py-2.5 text-base font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
                   >
-                    {storyContinuing ? "Đang gửi..." : "Tạo video"}
+                    {storyRunning || storyContinuing ? "Đang xử lý..." : "Viết mô tả chuyển động để tạo video"}
                   </button>
                 </div>
               </div>
