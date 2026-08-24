@@ -2504,7 +2504,6 @@ export default function MiniAppDetailPage() {
                                     reader.onload = () => {
                                       setStorySceneImages((prev) => [...prev, reader.result as string]);
                                       setStorySceneHints((prev) => [...prev, ""]);
-                                      if (!storyUseOwnSceneImages) setStoryUseOwnSceneImages(true);
                                     };
                                     reader.readAsDataURL(file);
                                   }}
