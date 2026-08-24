@@ -170,7 +170,7 @@ export default function MiniAppDetailPage() {
   // bước Character + AI tạo ảnh phân cảnh. Agent chỉ đọc ảnh + gợi ý (tuỳ chọn) + Ý tưởng truyện để tự
   // viết prompt chuyển động khi tạo video, không tốn credit ảnh. Tải kiểu động (bấm "+ Tải ảnh" thêm
   // dần từng ảnh, giống hệt "Ảnh nhân vật") — số phân cảnh = số ảnh đã tải, tối đa STORY_MAX_SCENES.
-  const [storyUseOwnSceneImages, setStoryUseOwnSceneImages] = useState(true);
+  const [storyUseOwnSceneImages, setStoryUseOwnSceneImages] = useState(false);
   const [storySceneImages, setStorySceneImages] = useState<string[]>([]);
   const [storySceneHints, setStorySceneHints] = useState<string[]>([]);
   // "Cấu hình media" — tỉ lệ khung hình (luôn có), độ phân giải/thời lượng chỉ hiện khi model đang
