@@ -2459,6 +2459,15 @@ export default function MiniAppDetailPage() {
                                   >
                                     ✕
                                   </button>
+                                  <a
+                                    href={img.startsWith("http") ? `/api/download?url=${encodeURIComponent(img)}&filename=canh-${index + 1}.jpg` : img}
+                                    download={`canh-${index + 1}.jpg`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="absolute bottom-1 right-1 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white hover:bg-black/80"
+                                    title="Tải ảnh về máy"
+                                  >
+                                    ⬇
+                                  </a>
                                 </div>
                                 {storyUseOwnSceneImages && (
                                   <textarea
