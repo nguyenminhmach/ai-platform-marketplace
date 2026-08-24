@@ -245,6 +245,15 @@ export default function MiniAppDetailPage() {
     }
   }, [storyResult]);
 
+  // Ảnh phân cảnh (dù AI tự vẽ hay khách tự tải) luôn đổ về chung 1 khung "Ảnh phân cảnh" — đồng bộ
+  // ảnh đã tạo xong từ job đang chạy vào storySceneImages để khung đó luôn có đủ nút xoá/tải thêm/zoom,
+  // không bị chuyển sang chế độ chỉ xem sau khi chạy xong.
+  useEffect(() => {
+    if (!storyScenes) return;
+    const urls = storyScenes.map((s) => s.imageUrl).filter((u): u is string => !!u);
+    if (urls.length > 0) setStorySceneImages(urls);
+  }, [storyScenes]);
+
   useEffect(() => {
     if (storyQuickZoomUrl) {
       storyQuickZoomRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -2424,32 +2433,7 @@ export default function MiniAppDetailPage() {
                         />
                         Đã có sẵn ảnh phân cảnh — tải lên thay vì để AI tạo
                       </label>
-                      {storyScenes && storyScenes.length > 0 ? (
-                        <div className="grid grid-cols-2 gap-3">
-                          {storyScenes.map((s) => (
-                            <div key={s.position} className="relative aspect-square w-full">
-                              {s.imageUrl ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img
-                                  src={s.imageUrl}
-                                  alt={`Cảnh ${s.position + 1}`}
-                                  onClick={() => setStoryQuickZoomUrl(s.imageUrl!)}
-                                  className="h-full w-full cursor-zoom-in rounded-lg object-cover"
-                                  title="Bấm để xem to"
-                                />
-                              ) : (
-                                <div className="flex h-full w-full items-center justify-center rounded-lg bg-zinc-100 text-xs text-zinc-400 dark:bg-zinc-800">
-                                  Đang tạo...
-                                </div>
-                              )}
-                              <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
-                                Cảnh {s.position + 1}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <>
+                      <>
                           <div className="grid grid-cols-2 gap-3">
                             {storySceneImages.map((img, index) => (
                               <div key={index} className="space-y-1">
@@ -2517,7 +2501,6 @@ export default function MiniAppDetailPage() {
                               : "Chưa có ảnh — bấm \"Tạo ảnh phân cảnh\" để AI tự vẽ theo Model bên dưới, hoặc tự tải ảnh có sẵn vào đây."}
                           </p>
                         </>
-                      )}
                       {(() => {
                         const selected = storyImageModels.find((m) => m.key === storyImageModelKey);
                         return (
