@@ -170,7 +170,7 @@ export default function MiniAppDetailPage() {
   // bước Character + AI tạo ảnh phân cảnh. Agent chỉ đọc ảnh + gợi ý (tuỳ chọn) + Ý tưởng truyện để tự
   // viết prompt chuyển động khi tạo video, không tốn credit ảnh. Tải kiểu động (bấm "+ Tải ảnh" thêm
   // dần từng ảnh, giống hệt "Ảnh nhân vật") — số phân cảnh = số ảnh đã tải, tối đa STORY_MAX_SCENES.
-  const [storyUseOwnSceneImages, setStoryUseOwnSceneImages] = useState(false);
+  const [storyUseOwnSceneImages, setStoryUseOwnSceneImages] = useState(true);
   const [storySceneImages, setStorySceneImages] = useState<string[]>([]);
   const [storySceneHints, setStorySceneHints] = useState<string[]>([]);
   // "Cấu hình media" — tỉ lệ khung hình (luôn có), độ phân giải/thời lượng chỉ hiện khi model đang
@@ -2473,14 +2473,14 @@ export default function MiniAppDetailPage() {
                                     ✕
                                   </button>
                                 </div>
-                                <input
-                                  type="text"
+                                <textarea
                                   value={storySceneHints[index] ?? ""}
                                   onChange={(e) =>
                                     setStorySceneHints((prev) => prev.map((v, i) => (i === index ? e.target.value : v)))
                                   }
                                   placeholder="Gợi ý chuyển động (tuỳ chọn)"
-                                  className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                                  rows={2}
+                                  className="w-full resize-y rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                                 />
                               </div>
                             ))}
