@@ -2424,7 +2424,7 @@ export default function MiniAppDetailPage() {
                         />
                         Đã có sẵn ảnh phân cảnh — tải lên thay vì để AI tạo
                       </label>
-                      {storyUseOwnSceneImages ? (
+                      {storyUseOwnSceneImages && (
                         <>
                           <div className="grid grid-cols-2 gap-3">
                             {storySceneImages.map((img, index) => (
@@ -2489,8 +2489,8 @@ export default function MiniAppDetailPage() {
                             Đã tải {storySceneImages.length}/{STORY_MAX_SCENES} ảnh — mỗi ảnh là 1 phân cảnh theo đúng thứ tự tải lên. AI (Agent) sẽ tự viết mô tả chuyển động cho từng ảnh dựa theo ảnh + Ý tưởng truyện — gợi ý ở trên chỉ để hỗ trợ thêm, không bắt buộc. Không tốn credit tạo ảnh.
                           </p>
                         </>
-                      ) : (
-                      (() => {
+                      )}
+                      {(() => {
                         const selected = storyImageModels.find((m) => m.key === storyImageModelKey);
                         return (
                           <div className="grid grid-cols-2 gap-2">
@@ -2551,8 +2551,7 @@ export default function MiniAppDetailPage() {
                             )}
                           </div>
                         );
-                      })()
-                      )}
+                      })()}
                       <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
                         {storyUseOwnSceneImages ? (
                           "Không tốn credit ảnh — dùng ảnh khách đã tải lên"
