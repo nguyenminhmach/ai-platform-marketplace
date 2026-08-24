@@ -2423,7 +2423,7 @@ export default function MiniAppDetailPage() {
                 <div>
                   <p className="mb-2 text-base font-medium text-zinc-500 dark:text-zinc-400">⚙️ Cấu hình media</p>
                   <div className="space-y-3">
-                    <div className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
+                    <div ref={storyScenesPreviewRef} className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
                       <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">🖼️ Ảnh phân cảnh</p>
                       <label className="mb-3 flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
                         <input
@@ -2757,46 +2757,23 @@ export default function MiniAppDetailPage() {
                 </div>
               )}
 
-              {(storyStatus === "images_ready" || (storyStatus === "failed" && storyScenes?.some((s) => s.imageUrl))) && storyScenes && (
-                <div
-                  ref={storyScenesPreviewRef}
-                  className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800"
-                >
+              {storyStatus === "failed" && storyScenes && storyScenes.every((s) => s.imageUrl) && (
+                <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800">
                   <p className="mb-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">
-                    {storyStatus === "failed"
-                      ? "Ảnh từng phân cảnh — đã tạo thành công trước khi lỗi ở bước sau, không bị mất"
-                      : "Ảnh từng phân cảnh — xem trước rồi mới tạo video"}
+                    Ảnh phân cảnh đã tạo thành công trước khi lỗi ở bước sau, không bị mất (xem lại ở khung "Ảnh phân cảnh" phía trên)
                   </p>
-                  <div className="grid grid-cols-4 gap-2">
-                    {storyScenes.map((s) => (
-                      <div key={s.position} className="aspect-square overflow-hidden rounded-lg bg-zinc-200 dark:bg-zinc-700">
-                        {s.imageUrl && (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={s.imageUrl} alt={`Cảnh ${s.position + 1}`} className="h-full w-full object-cover" />
-                        )}
-                      </div>
-                    ))}
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                      Thử tạo video lại từ ảnh phân cảnh đã có — không cần làm lại từ đầu
+                    </span>
+                    <button
+                      onClick={handleContinueToVideo}
+                      disabled={storyContinuing}
+                      className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900"
+                    >
+                      {storyContinuing ? "Đang gửi..." : "Thử lại tạo video"}
+                    </button>
                   </div>
-                  {(storyStatus === "images_ready" || (storyStatus === "failed" && storyScenes.every((s) => s.imageUrl))) && (
-                    <div className="mt-3 flex items-center justify-between">
-                      <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                        {storyStatus === "failed" ? (
-                          "Thử tạo video lại từ ảnh phân cảnh đã có — không cần làm lại từ đầu"
-                        ) : (
-                          <>
-                            Tạo video sẽ trừ thêm <strong className="text-zinc-900 dark:text-zinc-50">{storyVideoCost ?? "?"} credit</strong>
-                          </>
-                        )}
-                      </span>
-                      <button
-                        onClick={handleContinueToVideo}
-                        disabled={storyContinuing}
-                        className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900"
-                      >
-                        {storyContinuing ? "Đang gửi..." : storyStatus === "failed" ? "Thử lại tạo video" : "Tạo video"}
-                      </button>
-                    </div>
-                  )}
                 </div>
               )}
 
