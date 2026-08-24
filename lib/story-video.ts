@@ -653,6 +653,110 @@ export async function continueStoryVideoToSceneStage(
   return runSceneStage(userId, job, finalStoryDescription, modelChatKey, idempotencyKey);
 }
 
+const SCENE_PROMPT_FROM_IMAGE_SYSTEM =
+  "You are a screenwriter writing a short motion prompt (1-2 sentences, English) for the given image, to be used as an image-to-video generation prompt. Base it on: what's visible in the image, the overall story context provided, and the customer's hint if given. Return ONLY the motion description, no explanation, no extra text.";
+
+async function generateSceneDescriptionFromImage(
+  imageUrl: string,
+  hint: string | undefined,
+  storyDescription: string,
+  modelChatKey: string | undefined
+): Promise<string> {
+  const userPrompt = `Ý tưởng truyện tổng thể: ${storyDescription}${hint ? `\nGợi ý riêng cho cảnh này: ${hint}` : ""}\nViết mô tả chuyển động ngắn cho ảnh này.`;
+  const { output } = await callOpenRouter(modelChatKey || "google/gemini-3-flash-preview", 120, SCENE_PROMPT_FROM_IMAGE_SYSTEM, userPrompt, imageUrl);
+  return output.trim();
+}
+
+// Khách đã có sẵn ảnh cho từng phân cảnh (tải lên thay vì để AI tạo) -> bỏ qua hoàn toàn bước Character
+// + bước AI tạo ảnh phân cảnh (không cần model ảnh, không tốn credit ảnh) — chỉ cần Agent viết mô tả
+// chuyển động (dựa vào ảnh + gợi ý tuỳ chọn của khách + Ý tưởng truyện) để dùng làm prompt tạo VIDEO.
+// Dừng ở "images_ready" (hoặc chạy thẳng tới video nếu autoVideo) giống hệt luồng AI tự tạo, dùng
+// chung toàn bộ phần hiển thị/tiếp tục phía sau — không cần thêm status hay UI kết quả riêng.
+export async function submitStoryVideoJobWithOwnImages(
+  userId: string,
+  miniAppId: string,
+  storyDescription: string,
+  sceneImages: { imageUrl: string; hint?: string }[],
+  videoModelKey: string | undefined,
+  autoVideo: boolean,
+  aspectRatio: string,
+  durationKey: string | undefined,
+  modelChatKey: string | undefined,
+  idempotencyKey: string
+): Promise<{ jobId: number; newBalance: number }> {
+  const numScenes = sceneImages.length;
+  if (numScenes < MIN_SCENES || numScenes > MAX_SCENES) {
+    throw new Error(`Cần từ ${MIN_SCENES} đến ${MAX_SCENES} phân cảnh`);
+  }
+  const finalStoryDescription = storyDescription.trim();
+  if (!finalStoryDescription) throw new Error("Thiếu ý tưởng truyện");
+
+  const supabase = getSupabaseAdmin();
+  const miniApp = await getMiniAppModelConfig(miniAppId);
+  const videoEntry = resolveModelEntry(miniApp.model_config.video_models, videoModelKey);
+
+  let videoProviderCostVnd = videoEntry.provider_cost_vnd;
+  let resolvedDurationKey: string | undefined;
+  if (videoEntry.duration_price_vnd) {
+    const resolved = resolvePricedKey(videoEntry.duration_price_vnd, durationKey);
+    resolvedDurationKey = resolved.key;
+    videoProviderCostVnd = resolved.costVnd;
+  }
+
+  const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
+  const videoCost = computeDynamicCreditCost(videoProviderCostVnd * numScenes, marginPercent, vndPerCredit);
+
+  const deduction = await deductCredit(userId, videoCost, miniAppId, idempotencyKey);
+  if (!deduction.success) throw new InsufficientCreditError();
+
+  const { data: job, error: insertError } = await supabase
+    .from("story_video_jobs")
+    .insert({
+      user_id: userId,
+      mini_app_id: miniAppId,
+      status: "splitting_story",
+      story_description: finalStoryDescription,
+      num_scenes: numScenes,
+      character_image_urls: [],
+      video_model: videoEntry.model,
+      auto_video: autoVideo,
+      aspect_ratio: aspectRatio,
+      video_duration_key: resolvedDurationKey ?? null,
+      video_provider_cost_vnd_per_scene: videoProviderCostVnd,
+      video_credit_tx_id: deduction.txId,
+    })
+    .select("id")
+    .single();
+
+  if (insertError || !job) {
+    if (deduction.txId) await safeRefund(deduction.txId);
+    throw new Error(insertError?.message ?? "Không tạo được job");
+  }
+
+  try {
+    const scenes = await Promise.all(
+      sceneImages.map(async (s, index) => {
+        const description = await generateSceneDescriptionFromImage(s.imageUrl, s.hint, finalStoryDescription, modelChatKey);
+        return { job_id: job.id, position: index, scene_description: description, image_url: s.imageUrl };
+      })
+    );
+    const { error: sceneError } = await supabase.from("story_video_scenes").insert(scenes);
+    if (sceneError) throw new Error(sceneError.message);
+
+    if (autoVideo) {
+      const sceneRows = await getScenes(job.id);
+      await proceedToVideoStage(job.id, sceneRows);
+    } else {
+      await supabase.from("story_video_jobs").update({ status: "images_ready" }).eq("id", job.id);
+    }
+  } catch (err) {
+    await failJob(job.id, err instanceof Error ? err.message : String(err));
+    throw err;
+  }
+
+  return { jobId: job.id, newBalance: await getCreditBalance(userId) };
+}
+
 // Khách chưa ưng ảnh Character (job đang ở "character_ready") -> ép tạo lại từ đúng ảnh gốc đã tải
 // lên lúc submit. Không hoàn credit lần tạo trước (đã tốn phí gọi model thật, coi là chi phí đã chi
 // để thử) — chỉ tính thêm credit cho lần tạo mới.
@@ -750,6 +854,14 @@ async function failJob(jobId: number, message: string) {
   // đã set hay chưa, nên nếu lỗi xảy ra ở bước VIDEO (sau khi ảnh phân cảnh đã tạo xong, khách đã xem
   // được) thì credit ảnh cũng bị hoàn nhầm dù ảnh đã giao thành công — không đúng, khách đã nhận đúng
   // sản phẩm ảnh rồi thì không nên hoàn lại phần đó.
+  if (!job?.image_credit_tx_id && !job?.character_credit_tx_id && job?.video_credit_tx_id) {
+    // Job "ảnh phân cảnh tự tải lên" (submitStoryVideoJobWithOwnImages) — chỉ trừ duy nhất 1 loại
+    // credit (video) ngay từ đầu, không theo mô hình 3 nấc Character/ảnh/video của luồng AI thường
+    // (không có image/character tx nào để suy theo status) — hoàn thẳng luôn.
+    await safeRefund(job.video_credit_tx_id);
+    return;
+  }
+
   if (job?.status === "generating_videos" || job?.status === "stitching") {
     if (job.video_credit_tx_id) await safeRefund(job.video_credit_tx_id);
   } else if (job?.status === "splitting_story" || job?.status === "generating_images") {
@@ -872,18 +984,27 @@ export async function continueStoryVideoToVideoStage(userId: string, jobId: numb
   }
   if (!job.video_provider_cost_vnd_per_scene) throw new Error("Thiếu dữ liệu giá video của job");
 
-  const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
-  const videoCost = computeDynamicCreditCost(job.video_provider_cost_vnd_per_scene * job.num_scenes, marginPercent, vndPerCredit);
+  // Luồng "ảnh phân cảnh tự tải lên" (submitStoryVideoJobWithOwnImages) đã trừ credit video ngay lúc
+  // submit (không có nấc ảnh riêng để trừ sau) — nếu trừ thêm ở đây sẽ tính tiền 2 lần cho cùng 1 lượt
+  // tạo video. Chỉ trừ credit ở đây khi job CHƯA có video_credit_tx_id (đúng luồng AI tự tạo ảnh).
+  let newBalance: number;
+  if (job.video_credit_tx_id) {
+    newBalance = await getCreditBalance(userId);
+  } else {
+    const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
+    const videoCost = computeDynamicCreditCost(job.video_provider_cost_vnd_per_scene * job.num_scenes, marginPercent, vndPerCredit);
 
-  const deduction = await deductCredit(userId, videoCost, job.mini_app_id, idempotencyKey);
-  if (!deduction.success) throw new InsufficientCreditError();
+    const deduction = await deductCredit(userId, videoCost, job.mini_app_id, idempotencyKey);
+    if (!deduction.success) throw new InsufficientCreditError();
 
-  await supabase.from("story_video_jobs").update({ video_credit_tx_id: deduction.txId }).eq("id", jobId);
+    await supabase.from("story_video_jobs").update({ video_credit_tx_id: deduction.txId }).eq("id", jobId);
+    newBalance = deduction.newBalance;
+  }
 
   const scenes = await getScenes(jobId);
   await proceedToVideoStage(jobId, scenes);
 
-  return { newBalance: deduction.newBalance };
+  return { newBalance };
 }
 
 // Gọi khi 1 clip video (bước 2) của 1 cảnh xong — khi TẤT CẢ cảnh xong mới ghép lại thành video cuối.

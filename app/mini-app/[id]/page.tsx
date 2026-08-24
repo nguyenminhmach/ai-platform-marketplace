@@ -166,6 +166,12 @@ export default function MiniAppDetailPage() {
   const [storyVideoModels, setStoryVideoModels] = useState<StoryModel[]>([]);
   const [storyImageModelKey, setStoryImageModelKey] = useState<string | null>(null);
   const [storyVideoModelKey, setStoryVideoModelKey] = useState<string | null>(null);
+  // Khách đã có sẵn ảnh cho từng phân cảnh (thay vì để AI tạo) — tải thẳng vào đây, bỏ qua hoàn toàn
+  // bước Character + AI tạo ảnh phân cảnh. Agent chỉ đọc ảnh + gợi ý (tuỳ chọn) + Ý tưởng truyện để tự
+  // viết prompt chuyển động khi tạo video, không tốn credit ảnh. Mảng luôn đồng bộ độ dài với numScenes.
+  const [storyUseOwnSceneImages, setStoryUseOwnSceneImages] = useState(false);
+  const [storySceneImages, setStorySceneImages] = useState<(string | null)[]>([]);
+  const [storySceneHints, setStorySceneHints] = useState<string[]>([]);
   // "Cấu hình media" — tỉ lệ khung hình (luôn có), độ phân giải/thời lượng chỉ hiện khi model đang
   // chọn có bảng giá riêng cho trục đó (không hiện dropdown giả cho model không hỗ trợ).
   const [storyAspectRatio, setStoryAspectRatio] = useState("9:16");
@@ -246,6 +252,22 @@ export default function MiniAppDetailPage() {
     }
     storyQuickZoomWasOpenRef.current = !!storyQuickZoomUrl;
   }, [storyQuickZoomUrl]);
+
+  // Số ô ảnh phân cảnh tự tải lên luôn khớp đúng "Số phân cảnh" đang chọn — thêm/bớt ô khi đổi số.
+  useEffect(() => {
+    setStorySceneImages((prev) => {
+      if (prev.length === numScenes) return prev;
+      const next = prev.slice(0, numScenes);
+      while (next.length < numScenes) next.push(null);
+      return next;
+    });
+    setStorySceneHints((prev) => {
+      if (prev.length === numScenes) return prev;
+      const next = prev.slice(0, numScenes);
+      while (next.length < numScenes) next.push("");
+      return next;
+    });
+  }, [numScenes]);
 
   // Thư viện Character đã lưu — tải khi vào app + sau khi lưu 1 Character mới.
   function loadSavedStoryCharacters(userId: string) {
@@ -966,6 +988,69 @@ export default function MiniAppDetailPage() {
       window.dispatchEvent(new Event("balance-updated"));
       setStoryJobId(data.jobId);
       setStoryStatusText("Đang xử lý ảnh Character...");
+      pollStoryVideoStatus(data.jobId);
+    } catch {
+      setStoryError("Không kết nối được tới server");
+      setStoryRunning(false);
+      setStoryStatusText(null);
+    }
+  }
+
+  // Khách đã có sẵn ảnh cho từng phân cảnh — bỏ qua hoàn toàn bước Character + AI tạo ảnh, chỉ tốn
+  // credit video. Agent tự viết mô tả chuyển động cho từng ảnh (gợi ý của khách chỉ là hỗ trợ thêm).
+  async function handleRunStoryVideoWithOwnImages() {
+    if (!user || !input.trim() || !storyVideoModelKey || storySceneImages.some((img) => !img)) return;
+    setStoryRunning(true);
+    setStoryResult(null);
+    setStoryError(null);
+    setStoryScenes(null);
+    setStoryStatus(null);
+    setStoryJobId(null);
+    setStoryCharacterSheetUrl(null);
+    setStoryCharacterSource(null);
+    setStorySavedCharacterMsg(null);
+
+    setStoryStatusText("Đang tải ảnh phân cảnh lên...");
+    let sceneImageUrls: string[];
+    try {
+      sceneImageUrls = await Promise.all(storySceneImages.map((img) => uploadOutfitSwapImage(img as string)));
+    } catch (err) {
+      setStoryError(err instanceof Error ? err.message : "Không tải được ảnh lên, thử lại");
+      setStoryRunning(false);
+      setStoryStatusText(null);
+      return;
+    }
+
+    setStoryStatusText("Agent đang viết mô tả chuyển động cho từng ảnh...");
+
+    try {
+      const res = await fetch("/api/story-video/submit-own-scenes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: user.id,
+          miniAppId: app!.id,
+          storyDescription: input.trim(),
+          sceneImages: sceneImageUrls.map((imageUrl, i) => ({ imageUrl, hint: storySceneHints[i]?.trim() || undefined })),
+          videoModelKey: storyVideoModelKey,
+          autoVideo: storyAutoVideo,
+          aspectRatio: storyAspectRatio,
+          durationKey: storyDurationKey,
+          modelChatKey: storyModelChatKey,
+        }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setStoryError(data.error ?? "Có lỗi xảy ra");
+        setStoryRunning(false);
+        setStoryStatusText(null);
+        return;
+      }
+
+      window.dispatchEvent(new Event("balance-updated"));
+      setStoryJobId(data.jobId);
+      setStoryStatusText("Agent đang viết mô tả chuyển động cho từng ảnh...");
       pollStoryVideoStatus(data.jobId);
     } catch {
       setStoryError("Không kết nối được tới server");
@@ -2346,7 +2431,83 @@ export default function MiniAppDetailPage() {
                   <div className="space-y-3">
                     <div className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
                       <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">🖼️ Ảnh phân cảnh</p>
-                      {(() => {
+                      <label className="mb-3 flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+                        <input
+                          type="checkbox"
+                          checked={storyUseOwnSceneImages}
+                          onChange={(e) => setStoryUseOwnSceneImages(e.target.checked)}
+                        />
+                        Đã có sẵn ảnh phân cảnh — tải lên thay vì để AI tạo
+                      </label>
+                      {storyUseOwnSceneImages ? (
+                        <>
+                          <div className="grid grid-cols-2 gap-3">
+                            {storySceneImages.map((img, index) => (
+                              <div key={index} className="space-y-1">
+                                <div className="relative aspect-square w-full">
+                                  {img ? (
+                                    <>
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img
+                                        src={img}
+                                        alt={`Ảnh phân cảnh ${index + 1}`}
+                                        onClick={() => setStoryQuickZoomUrl(img)}
+                                        className="h-full w-full cursor-zoom-in rounded-lg object-cover"
+                                        title="Bấm để xem to"
+                                      />
+                                      <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
+                                        Cảnh {index + 1}
+                                      </span>
+                                      <button
+                                        onClick={() => {
+                                          setStorySceneImages((prev) => prev.map((v, i) => (i === index ? null : v)));
+                                          if (storyQuickZoomUrl === img) setStoryQuickZoomUrl(null);
+                                        }}
+                                        className="absolute -right-2 -top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white hover:bg-black/90"
+                                      >
+                                        ✕
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <label className="flex h-full w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                                      <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">+ Cảnh {index + 1}</span>
+                                      <input
+                                        type="file"
+                                        accept="image/*"
+                                        className="hidden"
+                                        onChange={(e) => {
+                                          const file = e.target.files?.[0];
+                                          e.target.value = "";
+                                          if (!file) return;
+                                          const reader = new FileReader();
+                                          reader.onload = () => {
+                                            const url = reader.result as string;
+                                            setStorySceneImages((prev) => prev.map((v, i) => (i === index ? url : v)));
+                                          };
+                                          reader.readAsDataURL(file);
+                                        }}
+                                      />
+                                    </label>
+                                  )}
+                                </div>
+                                <input
+                                  type="text"
+                                  value={storySceneHints[index] ?? ""}
+                                  onChange={(e) =>
+                                    setStorySceneHints((prev) => prev.map((v, i) => (i === index ? e.target.value : v)))
+                                  }
+                                  placeholder="Gợi ý chuyển động (tuỳ chọn)"
+                                  className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                          <p className="mt-2 text-sm text-zinc-400 dark:text-zinc-500">
+                            AI (Agent) sẽ tự viết mô tả chuyển động cho từng ảnh dựa theo ảnh + Ý tưởng truyện — gợi ý ở trên chỉ để hỗ trợ thêm, không bắt buộc. Không tốn credit tạo ảnh.
+                          </p>
+                        </>
+                      ) : (
+                      (() => {
                         const selected = storyImageModels.find((m) => m.key === storyImageModelKey);
                         return (
                           <div className="grid grid-cols-2 gap-2">
@@ -2407,9 +2568,16 @@ export default function MiniAppDetailPage() {
                             )}
                           </div>
                         );
-                      })()}
+                      })()
+                      )}
                       <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-                        Đơn giá đã chọn: <strong className="text-zinc-900 dark:text-zinc-50">{storyImageCost ?? "?"} credit</strong>
+                        {storyUseOwnSceneImages ? (
+                          "Không tốn credit ảnh — dùng ảnh khách đã tải lên"
+                        ) : (
+                          <>
+                            Đơn giá đã chọn: <strong className="text-zinc-900 dark:text-zinc-50">{storyImageCost ?? "?"} credit</strong>
+                          </>
+                        )}
                       </p>
                     </div>
 
@@ -2713,7 +2881,19 @@ export default function MiniAppDetailPage() {
             <div className="fixed inset-x-0 bottom-0 z-40 border-t border-zinc-200 bg-white/95 px-6 py-3 backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/95">
               <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
                 <span className="text-base text-zinc-600 dark:text-zinc-400">
-                  {storySelectedSavedCharacterId ? (
+                  {storyUseOwnSceneImages ? (
+                    input.trim() ? (
+                      <>
+                        Ảnh phân cảnh có sẵn — chỉ tốn credit video (~
+                        <strong className="text-zinc-900 dark:text-zinc-50">{storyVideoCost ?? app.creditCost} credit</strong>,{" "}
+                        {storySceneImages.length} phân cảnh), Agent tự viết mô tả chuyển động
+                      </>
+                    ) : (
+                      <span className="text-amber-600 dark:text-amber-400">
+                        ⚠️ Nhập "Ý tưởng truyện" ở ô phía trên trước — Agent cần nội dung này để viết mô tả chuyển động cho từng ảnh
+                      </span>
+                    )
+                  ) : storySelectedSavedCharacterId ? (
                     input.trim() ? (
                       "Character đã lưu — chạy thẳng luôn chia cảnh + tạo ảnh, không tốn credit bước Character"
                     ) : (
@@ -2731,17 +2911,27 @@ export default function MiniAppDetailPage() {
                   )}
                 </span>
                 <button
-                  onClick={handleRunStoryVideo}
+                  onClick={storyUseOwnSceneImages ? handleRunStoryVideoWithOwnImages : handleRunStoryVideo}
                   disabled={
                     storyRunning ||
-                    (!storySelectedSavedCharacterId && storyCharacterImages.length === 0) ||
-                    (!!storySelectedSavedCharacterId && !input.trim()) ||
-                    !storyImageModelKey ||
-                    !storyVideoModelKey
+                    !storyVideoModelKey ||
+                    (storyUseOwnSceneImages
+                      ? !input.trim() || storySceneImages.some((img) => !img)
+                      : (!storySelectedSavedCharacterId && storyCharacterImages.length === 0) ||
+                        (!!storySelectedSavedCharacterId && !input.trim()) ||
+                        !storyImageModelKey)
                   }
                   className="shrink-0 rounded-full bg-zinc-900 px-6 py-2.5 text-base font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
                 >
-                  {storyRunning ? "Đang xử lý..." : storyAutoVideo ? "Chạy phân cảnh + ảnh + video" : "Chạy phân cảnh + ảnh"}
+                  {storyRunning
+                    ? "Đang xử lý..."
+                    : storyUseOwnSceneImages
+                      ? storyAutoVideo
+                        ? "Viết mô tả + tạo video"
+                        : "Viết mô tả chuyển động"
+                      : storyAutoVideo
+                        ? "Chạy phân cảnh + ảnh + video"
+                        : "Chạy phân cảnh + ảnh"}
                 </button>
               </div>
             </div>
