@@ -211,6 +211,10 @@ export default function MiniAppDetailPage() {
   const [storyAutoVideo, setStoryAutoVideo] = useState(false);
   const [storyRunning, setStoryRunning] = useState(false);
   const [storyContinuing, setStoryContinuing] = useState(false);
+  // 2 nút "Tạo ảnh phân cảnh" / "Viết mô tả chuyển động để tạo video" độc lập nhau, nhưng vẫn dùng
+  // chung storyRunning để khoá nhau tránh chạy đè job (storyJobId/storyScenes dùng chung 1 chỗ) — cờ
+  // này chỉ để nhãn nút hiện đúng "Đang xử lý..." trên nút khách vừa bấm, không hiện nhầm sang nút kia.
+  const [storyActiveButton, setStoryActiveButton] = useState<"images" | "video" | null>(null);
   const [storyStatusText, setStoryStatusText] = useState<string | null>(null);
   const [storyStatus, setStoryStatus] = useState<string | null>(null);
   const [storyJobId, setStoryJobId] = useState<number | null>(null);
@@ -890,6 +894,7 @@ export default function MiniAppDetailPage() {
 
   async function handleContinueToVideo() {
     if (!user || !storyJobId) return;
+    setStoryActiveButton("video");
     setStoryContinuing(true);
     setStoryError(null);
     try {
@@ -925,6 +930,7 @@ export default function MiniAppDetailPage() {
     // server không biết trước có phải toàn bộ ảnh đã là sheet hay không).
     if (!user || (!reuseId && images.length === 0) || !storyImageModelKey || !storyVideoModelKey) return;
     if (reuseId && !input.trim()) return;
+    setStoryActiveButton("images");
     setStoryRunning(true);
     setStoryResult(null);
     setStoryError(null);
@@ -994,6 +1000,7 @@ export default function MiniAppDetailPage() {
   // credit video. Agent tự viết mô tả chuyển động cho từng ảnh (gợi ý của khách chỉ là hỗ trợ thêm).
   async function handleRunStoryVideoWithOwnImages(forceAutoVideo?: boolean) {
     if (!user || !input.trim() || !storyVideoModelKey || storySceneImages.length < STORY_MIN_SCENES) return;
+    setStoryActiveButton("video");
     setStoryRunning(true);
     setStoryResult(null);
     setStoryError(null);
@@ -2899,7 +2906,7 @@ export default function MiniAppDetailPage() {
                     }
                     className="rounded-full bg-zinc-900 px-6 py-2.5 text-base font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
                   >
-                    {storyRunning ? "Đang xử lý..." : "Tạo ảnh phân cảnh"}
+                    {storyRunning && storyActiveButton === "images" ? "Đang xử lý..." : "Tạo ảnh phân cảnh"}
                   </button>
                   <button
                     onClick={
@@ -2914,7 +2921,7 @@ export default function MiniAppDetailPage() {
                     }
                     className="rounded-full border border-zinc-300 px-5 py-2.5 text-base font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
                   >
-                    {storyRunning || storyContinuing ? "Đang xử lý..." : "Viết mô tả chuyển động để tạo video"}
+                    {(storyRunning && storyActiveButton === "video") || storyContinuing ? "Đang xử lý..." : "Viết mô tả chuyển động để tạo video"}
                   </button>
                 </div>
               </div>
