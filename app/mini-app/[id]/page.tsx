@@ -1007,7 +1007,9 @@ export default function MiniAppDetailPage() {
     setStoryStatusText("Đang tải ảnh phân cảnh lên...");
     let sceneImageUrls: string[];
     try {
-      sceneImageUrls = await Promise.all(storySceneImages.map((img) => uploadOutfitSwapImage(img)));
+      // Ảnh đã là URL thật (vd đồng bộ từ 1 job trước qua storyScenes) thì dùng thẳng, không tải lại —
+      // uploadOutfitSwapImage chỉ nhận đúng ảnh còn ở dạng base64 mới từ máy (chưa có URL thật).
+      sceneImageUrls = await Promise.all(storySceneImages.map((img) => (img.startsWith("http") ? img : uploadOutfitSwapImage(img))));
     } catch (err) {
       setStoryError(err instanceof Error ? err.message : "Không tải được ảnh lên, thử lại");
       setStoryRunning(false);
