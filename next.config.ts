@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/video/add-music": ["./node_modules/ffmpeg-static/**/*"],
     "/api/dialogue-video/webhook": ["./node_modules/ffmpeg-static/**/*"],
+    "/api/story-video/webhook": ["./node_modules/ffmpeg-static/**/*"],
+    "/api/story-video/status": ["./node_modules/ffmpeg-static/**/*"],
   },
 };
 
