@@ -2424,7 +2424,31 @@ export default function MiniAppDetailPage() {
                         />
                         Đã có sẵn ảnh phân cảnh — tải lên thay vì để AI tạo
                       </label>
-                      {storyUseOwnSceneImages && (
+                      {storyScenes && storyScenes.length > 0 ? (
+                        <div className="grid grid-cols-2 gap-3">
+                          {storyScenes.map((s) => (
+                            <div key={s.position} className="relative aspect-square w-full">
+                              {s.imageUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={s.imageUrl}
+                                  alt={`Cảnh ${s.position + 1}`}
+                                  onClick={() => setStoryQuickZoomUrl(s.imageUrl!)}
+                                  className="h-full w-full cursor-zoom-in rounded-lg object-cover"
+                                  title="Bấm để xem to"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center rounded-lg bg-zinc-100 text-xs text-zinc-400 dark:bg-zinc-800">
+                                  Đang tạo...
+                                </div>
+                              )}
+                              <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
+                                Cảnh {s.position + 1}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
                         <>
                           <div className="grid grid-cols-2 gap-3">
                             {storySceneImages.map((img, index) => (
@@ -2452,15 +2476,17 @@ export default function MiniAppDetailPage() {
                                     ✕
                                   </button>
                                 </div>
-                                <textarea
-                                  value={storySceneHints[index] ?? ""}
-                                  onChange={(e) =>
-                                    setStorySceneHints((prev) => prev.map((v, i) => (i === index ? e.target.value : v)))
-                                  }
-                                  placeholder="Gợi ý chuyển động (tuỳ chọn)"
-                                  rows={2}
-                                  className="w-full resize-y rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-                                />
+                                {storyUseOwnSceneImages && (
+                                  <textarea
+                                    value={storySceneHints[index] ?? ""}
+                                    onChange={(e) =>
+                                      setStorySceneHints((prev) => prev.map((v, i) => (i === index ? e.target.value : v)))
+                                    }
+                                    placeholder="Gợi ý chuyển động (tuỳ chọn)"
+                                    rows={2}
+                                    className="w-full resize-y rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                                  />
+                                )}
                               </div>
                             ))}
                             {storySceneImages.length < STORY_MAX_SCENES && (
@@ -2478,6 +2504,7 @@ export default function MiniAppDetailPage() {
                                     reader.onload = () => {
                                       setStorySceneImages((prev) => [...prev, reader.result as string]);
                                       setStorySceneHints((prev) => [...prev, ""]);
+                                      if (!storyUseOwnSceneImages) setStoryUseOwnSceneImages(true);
                                     };
                                     reader.readAsDataURL(file);
                                   }}
@@ -2486,7 +2513,9 @@ export default function MiniAppDetailPage() {
                             )}
                           </div>
                           <p className="mt-2 text-sm text-zinc-400 dark:text-zinc-500">
-                            Đã tải {storySceneImages.length}/{STORY_MAX_SCENES} ảnh — mỗi ảnh là 1 phân cảnh theo đúng thứ tự tải lên. AI (Agent) sẽ tự viết mô tả chuyển động cho từng ảnh dựa theo ảnh + Ý tưởng truyện — gợi ý ở trên chỉ để hỗ trợ thêm, không bắt buộc. Không tốn credit tạo ảnh.
+                            {storyUseOwnSceneImages
+                              ? `Đã tải ${storySceneImages.length}/${STORY_MAX_SCENES} ảnh — mỗi ảnh là 1 phân cảnh theo đúng thứ tự tải lên. AI (Agent) sẽ tự viết mô tả chuyển động cho từng ảnh dựa theo ảnh + Ý tưởng truyện — gợi ý ở trên chỉ để hỗ trợ thêm, không bắt buộc. Không tốn credit tạo ảnh.`
+                              : "Chưa có ảnh — bấm \"Tạo ảnh phân cảnh\" để AI tự vẽ theo Model bên dưới, hoặc tự tải ảnh có sẵn vào đây."}
                           </p>
                         </>
                       )}
@@ -2561,31 +2590,6 @@ export default function MiniAppDetailPage() {
                           </>
                         )}
                       </p>
-                      {!storyUseOwnSceneImages && storyScenes && storyScenes.some((s) => s.imageUrl) && (
-                        <div className="mt-3 grid grid-cols-2 gap-3">
-                          {storyScenes.map((s) => (
-                            <div key={s.position} className="relative aspect-square w-full">
-                              {s.imageUrl ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img
-                                  src={s.imageUrl}
-                                  alt={`Cảnh ${s.position + 1}`}
-                                  onClick={() => setStoryQuickZoomUrl(s.imageUrl!)}
-                                  className="h-full w-full cursor-zoom-in rounded-lg object-cover"
-                                  title="Bấm để xem to"
-                                />
-                              ) : (
-                                <div className="flex h-full w-full items-center justify-center rounded-lg bg-zinc-100 text-xs text-zinc-400 dark:bg-zinc-800">
-                                  Đang tạo...
-                                </div>
-                              )}
-                              <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
-                                Cảnh {s.position + 1}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
 
                     <div className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
