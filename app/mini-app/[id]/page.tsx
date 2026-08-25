@@ -473,6 +473,55 @@ export default function MiniAppDetailPage() {
       .catch(() => {});
   }, [params.id]);
 
+  // "Video từ ý tưởng truyện": tự khôi phục job gần nhất còn dở dang khi khách quay lại trang (đóng
+  // tab/tắt máy giữa chừng) — trước đây mọi tiến trình chỉ nằm trong state trình duyệt nên tắt đi là
+  // mất, dù job vẫn đang chạy/đã hoàn thành phía server. Bao gồm cả "failed" vì job này có 2 lượt trừ
+  // credit riêng (ảnh/video) — lỗi ở bước video không có nghĩa ảnh đã tạo (đã trả tiền) cũng mất theo.
+  useEffect(() => {
+    if (params.id !== "video-tu-y-tuong" || !user || storyJobId) return;
+    fetch(`/api/story-video/active?userId=${user.id}`)
+      .then((res) => res.json())
+      .then(async (data) => {
+        const job = data.job;
+        if (!job) return;
+        setStoryJobId(job.id);
+        if (job.storyDescription) setInput(job.storyDescription);
+        if (Array.isArray(job.characterImageUrls) && job.characterImageUrls.length > 0) {
+          setStoryCharacterImages(job.characterImageUrls);
+        }
+        setStoryRunning(true);
+        setStoryStatusText("Đang khôi phục công việc đang làm dở...");
+        try {
+          const res = await fetch(`/api/story-video/status?jobId=${job.id}`);
+          const statusData = await res.json();
+          if (Array.isArray(statusData.scenes)) setStoryScenes(statusData.scenes);
+          setStoryStatus(statusData.status ?? null);
+          if (statusData.characterSheetUrl) setStoryCharacterSheetUrl(statusData.characterSheetUrl);
+          if (statusData.characterSource) setStoryCharacterSource(statusData.characterSource);
+          if (statusData.status === "done" && statusData.outputUrl) {
+            setStoryResult(statusData.outputUrl);
+            setStoryRunning(false);
+            setStoryStatusText(null);
+          } else if (statusData.status === "character_ready" || statusData.status === "images_ready") {
+            setStoryRunning(false);
+            setStoryStatusText(statusData.statusText ?? null);
+          } else if (statusData.status === "failed") {
+            setStoryError(statusData.errorMessage ?? "Tạo video thất bại, credit đã được hoàn");
+            setStoryRunning(false);
+            setStoryStatusText(null);
+          } else {
+            setStoryStatusText(statusData.statusText ?? "Đang xử lý...");
+            pollStoryVideoStatus(job.id);
+          }
+        } catch {
+          setStoryRunning(false);
+          setStoryStatusText(null);
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.id, user?.id]);
+
   // "Video từ ý tưởng truyện": giá tăng theo số phân cảnh (2-8) + model/tỉ lệ/độ phân giải/thời
   // lượng đã chọn — tính lại mỗi khi đổi.
   useEffect(() => {
