@@ -501,7 +501,8 @@ export async function submitStoryVideoJob(
   durationKey: string | undefined,
   modelChatKey: string | undefined,
   idempotencyKey: string,
-  reuseCharacterId?: number
+  reuseCharacterId?: number,
+  skipCharacterCreation?: boolean
 ): Promise<{ jobId: number; newBalance: number }> {
   if (numScenes < MIN_SCENES || numScenes > MAX_SCENES) {
     throw new Error(`Cần từ ${MIN_SCENES} đến ${MAX_SCENES} phân cảnh`);
@@ -576,15 +577,24 @@ export async function submitStoryVideoJob(
         return { jobId: job.id, ...(await runSceneStage(userId, sceneStageJob, finalStoryDescription, modelChatKey, idempotencyKey)) };
       }
     } else {
+      // Khách chủ động tick "Bỏ qua tạo Character" — dùng thẳng ảnh đầu tiên đã tải làm tham chiếu
+      // duy nhất cho mọi cảnh sau này, bỏ qua hẳn bước phân loại + tạo sheet mới (tiết kiệm credit,
+      // nhưng chỉ có đúng 1 góc ảnh nên các cảnh cần góc khác dễ kém đồng nhất hơn — đã cảnh báo
+      // khách ở giao diện trước khi tick).
+      const skipEntirely = skipCharacterCreation === true;
       // Kiểm tra TOÀN BỘ ảnh tải lên (không chỉ ảnh đầu) — chỉ dùng thẳng khi TẤT CẢ đều đã là sheet
       // sẵn (rõ ràng không cần tạo mới). Nếu có lẫn dù chỉ 1 ảnh thường: luôn tạo Character mới dùng
       // TOÀN BỘ ảnh làm tư liệu — tránh bỏ sót ảnh thường khách muốn AI tham chiếu thêm.
-      const allAreSheets = await classifyAllAreSheets(characterImageUrls);
+      const allAreSheets = skipEntirely ? true : await classifyAllAreSheets(characterImageUrls);
       if (allAreSheets) {
         const sheetUrl = characterImageUrls[0];
         await supabase
           .from("story_video_jobs")
-          .update({ status: "character_ready", character_sheet_url: sheetUrl, character_source: "uploaded_sheet" })
+          .update({
+            status: "character_ready",
+            character_sheet_url: sheetUrl,
+            character_source: skipEntirely ? "skipped" : "uploaded_sheet",
+          })
           .eq("id", job.id);
         if (finalStoryDescription) {
           sceneStageJob.character_sheet_url = sheetUrl;

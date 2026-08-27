@@ -174,6 +174,10 @@ export default function MiniAppDetailPage() {
   const STORY_MAX_SCENES = 8;
   const [numScenes, setNumScenes] = useState(3);
   const [storyCharacterImages, setStoryCharacterImages] = useState<string[]>([]);
+  // Khách chủ động chọn bỏ qua bước tạo Character (AI vẽ sheet nhiều góc) — dùng thẳng ảnh đầu tiên đã
+  // tải làm tham chiếu duy nhất, tiết kiệm ~18 credit nhưng các cảnh cần góc khác (quay lưng, nghiêng)
+  // dễ kém đồng nhất hơn vì chỉ có đúng 1 góc ảnh để AI tham chiếu, không phải sheet đủ 6 góc.
+  const [storySkipCharacterCreation, setStorySkipCharacterCreation] = useState(false);
   type StoryModel = {
     key: string;
     provider: string;
@@ -1045,6 +1049,7 @@ export default function MiniAppDetailPage() {
           durationKey: storyDurationKey,
           modelChatKey: storyModelChatKey,
           reuseCharacterId: reuseId ?? undefined,
+          skipCharacterCreation: !reuseId && storySkipCharacterCreation,
         }),
       });
       const data = await res.json();
@@ -2429,7 +2434,19 @@ export default function MiniAppDetailPage() {
                           <p className="mt-2 text-sm text-zinc-400 dark:text-zinc-500">
                             AI sẽ tự tạo 1 ảnh Character (nhiều góc) từ ảnh anh/chị tải lên, dùng giữ đúng nhân vật xuyên suốt các cảnh
                           </p>
-                          {storyCharacterImages.length > 0 && (
+                          <label className="mt-2 flex items-start gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+                            <input
+                              type="checkbox"
+                              checked={storySkipCharacterCreation}
+                              onChange={(e) => setStorySkipCharacterCreation(e.target.checked)}
+                              className="mt-0.5"
+                            />
+                            <span>
+                              Bỏ qua tạo Character, dùng thẳng ảnh đã tải (tiết kiệm ~{storyCharacterCost ?? 18} credit, nhưng có
+                              thể kém đồng nhất khi đổi góc quay)
+                            </span>
+                          </label>
+                          {storyCharacterImages.length > 0 && !storySkipCharacterCreation && (
                             <div className="mt-2 flex items-center gap-2">
                               <button
                                 onClick={handleCheckCharacterImage}
