@@ -2270,20 +2270,9 @@ export default function MiniAppDetailPage() {
             </div>
           ) : app.inputType === "story-video" ? (
             <div className="mb-4">
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                <div>
-                  <p className="mb-1 text-base font-medium text-zinc-500 dark:text-zinc-400">Ý tưởng truyện</p>
-                  <textarea
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    placeholder="Mô tả mạch truyện, bối cảnh — AI sẽ chia thành phân cảnh"
-                    rows={8}
-                    maxLength={2000}
-                    className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-base text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-                  />
-
-                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div ref={storyCharacterCardRef} className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
+              {/* Hàng 1: Ảnh nhân vật + Agent xử lý */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div ref={storyCharacterCardRef} className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
                       <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">📷 Ảnh nhân vật</p>
 
                       {storySavedCharacters.length > 0 && (
@@ -2367,7 +2356,7 @@ export default function MiniAppDetailPage() {
                         </div>
                       ) : (
                         <>
-                          <div className="grid grid-cols-2 gap-3">
+                          <div className="grid grid-cols-3 gap-3">
                             {storyCharacterImages.map((img, index) => (
                               <div key={index} className="relative aspect-square w-full">
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -2474,13 +2463,24 @@ export default function MiniAppDetailPage() {
                         ))}
                       </select>
                       <p className="mt-1 text-sm text-zinc-400 dark:text-zinc-500">Admin chỉnh hướng dẫn Agent trong /admin.</p>
-                    </div>
-                  </div>
                 </div>
+              </div>
 
-                <div>
-                  <p className="mb-2 text-base font-medium text-zinc-500 dark:text-zinc-400">⚙️ Cấu hình media</p>
-                  <div className="space-y-3">
+              {/* Hàng 2: Ý tưởng truyện */}
+              <div className="mt-4">
+                <p className="mb-1 text-base font-medium text-zinc-500 dark:text-zinc-400">Ý tưởng truyện</p>
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="Mô tả mạch truyện, bối cảnh — AI sẽ chia thành phân cảnh"
+                  rows={8}
+                  maxLength={2000}
+                  className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-base text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                />
+              </div>
+
+              {/* Hàng 3: Ảnh phân cảnh + Model/Tỉ lệ ảnh + Video phân cảnh */}
+              <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
                     <div ref={storyScenesPreviewRef} className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
                       <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">🖼️ Ảnh phân cảnh</p>
                       <label className="mb-3 flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
@@ -2492,7 +2492,7 @@ export default function MiniAppDetailPage() {
                         Đã có sẵn ảnh phân cảnh — tải lên thay vì để AI tạo
                       </label>
                       <>
-                          <div className="grid grid-cols-2 gap-3">
+                          <div className="grid grid-cols-3 gap-3">
                             {storySceneImages.map((img, index) => (
                               <div key={index} className="space-y-1">
                                 <div className="relative aspect-square w-full">
@@ -2568,6 +2568,11 @@ export default function MiniAppDetailPage() {
                               : "Chưa có ảnh — bấm \"Tạo ảnh phân cảnh\" để AI tự vẽ theo Model bên dưới, hoặc tự tải ảnh có sẵn vào đây."}
                           </p>
                         </>
+                    </div>
+
+                    <div className="space-y-3">
+                    <div className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
+                      <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">Model tạo ảnh phân cảnh</p>
                       {(() => {
                         const selected = storyImageModels.find((m) => m.key === storyImageModelKey);
                         return (
@@ -2709,7 +2714,6 @@ export default function MiniAppDetailPage() {
                       </p>
                     </div>
                   </div>
-                </div>
               </div>
 
               {storyUseOwnSceneImages ? (
