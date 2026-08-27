@@ -1643,12 +1643,27 @@ export default function MiniAppDetailPage() {
             <div className={`flex items-center justify-between ${app.inputType === "story-video" ? "mb-4" : "mb-2"}`}>
               <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">{app.name}</h1>
               {app.inputType === "story-video" && (
-                <button
-                  onClick={handleShareResult}
-                  className="rounded-full border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-                >
-                  {shareCopied ? "Đã sao chép liên kết!" : "🔗 Chia sẻ"}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleShareResult}
+                    className="rounded-full border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                  >
+                    {shareCopied ? "Đã sao chép liên kết!" : "🔗 Chia sẻ"}
+                  </button>
+                  <button
+                    onClick={() =>
+                      window.open(
+                        `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}`,
+                        "_blank",
+                        "noopener,noreferrer,width=600,height=500"
+                      )
+                    }
+                    title="Chia sẻ lên Facebook"
+                    className="rounded-full border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                  >
+                    Facebook
+                  </button>
+                </div>
               )}
             </div>
             {app.inputType !== "story-video" && (
