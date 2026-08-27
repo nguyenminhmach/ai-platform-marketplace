@@ -1635,13 +1635,17 @@ export default function MiniAppDetailPage() {
         )}
         {!isTwoColumnLayout && (
           <>
-            <h1
-              className={`text-2xl font-semibold text-zinc-900 dark:text-zinc-50 ${
-                app.inputType === "story-video" ? "mb-4" : "mb-2"
-              }`}
-            >
-              {app.name}
-            </h1>
+            <div className={`flex items-center justify-between ${app.inputType === "story-video" ? "mb-4" : "mb-2"}`}>
+              <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">{app.name}</h1>
+              {app.inputType === "story-video" && (
+                <button
+                  onClick={handleShareResult}
+                  className="rounded-full border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                >
+                  {shareCopied ? "Đã sao chép liên kết!" : "🔗 Chia sẻ"}
+                </button>
+              )}
+            </div>
             {app.inputType !== "story-video" && (
               <>
                 <p className="mb-4 text-zinc-600 dark:text-zinc-400">{app.description}</p>
