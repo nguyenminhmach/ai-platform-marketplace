@@ -2270,9 +2270,9 @@ export default function MiniAppDetailPage() {
             </div>
           ) : app.inputType === "story-video" ? (
             <div className="mb-4">
-              {/* Hàng 1: Ảnh nhân vật + Agent xử lý */}
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div ref={storyCharacterCardRef} className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
+              {/* Hàng 1: Ảnh nhân vật + Agent xử lý (tỉ lệ 3/4 - 1/4) */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+                <div ref={storyCharacterCardRef} className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700 sm:col-span-3">
                       <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">📷 Ảnh nhân vật</p>
 
                       {storySavedCharacters.length > 0 && (
@@ -2440,7 +2440,7 @@ export default function MiniAppDetailPage() {
                       )}
                     </div>
 
-                    <div className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
+                    <div className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700 sm:col-span-1">
                       <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">🤖 Agent xử lý</p>
                       <label className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">Agent</label>
                       <select
@@ -2479,9 +2479,9 @@ export default function MiniAppDetailPage() {
                 />
               </div>
 
-              {/* Hàng 3: Ảnh phân cảnh + Model/Tỉ lệ ảnh + Video phân cảnh */}
-              <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-                    <div ref={storyScenesPreviewRef} className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
+              {/* Hàng 3: Ảnh phân cảnh + Model/Tỉ lệ ảnh + Video phân cảnh (tỉ lệ 3/4 - 1/4) */}
+              <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-4">
+                    <div ref={storyScenesPreviewRef} className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700 lg:col-span-3">
                       <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">🖼️ Ảnh phân cảnh</p>
                       <label className="mb-3 flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
                         <input
@@ -2570,7 +2570,7 @@ export default function MiniAppDetailPage() {
                         </>
                     </div>
 
-                    <div className="space-y-3">
+                    <div className="space-y-3 lg:col-span-1">
                     <div className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
                       <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">Model tạo ảnh phân cảnh</p>
                       {(() => {
