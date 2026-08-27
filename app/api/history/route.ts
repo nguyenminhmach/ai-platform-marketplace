@@ -3,15 +3,18 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const userId = searchParams.get("userId");
+  const miniAppId = searchParams.get("miniAppId");
   if (!userId) return Response.json({ error: "Thiếu userId" }, { status: 400 });
 
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
+  let query = supabase
     .from("generation_history")
     .select("id, mini_app_id, output_type, output_url, created_at, mini_apps(name)")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(100);
+  if (miniAppId) query = query.eq("mini_app_id", miniAppId);
+  const { data, error } = await query;
 
   if (error) return Response.json({ error: error.message }, { status: 500 });
 

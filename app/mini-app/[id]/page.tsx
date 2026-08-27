@@ -102,6 +102,28 @@ export default function MiniAppDetailPage() {
   const [youtubePublishedUrl, setYoutubePublishedUrl] = useState<string | null>(null);
   const [youtubeError, setYoutubeError] = useState<string | null>(null);
 
+  // "Lịch sử" riêng của đúng app đang xem — lọc theo miniAppId, không lẫn kết quả app khác (khác với
+  // trang /wallet vốn gộp chung lịch sử mọi app cho khách xem tổng quan toàn tài khoản).
+  type HistoryItem = { id: number; outputType: string; outputUrl: string; createdAt: string };
+  const [appHistory, setAppHistory] = useState<HistoryItem[]>([]);
+  function loadAppHistory() {
+    if (!user || !app) return;
+    fetch(`/api/history?userId=${user.id}&miniAppId=${app.id}`)
+      .then((res) => res.json())
+      .then((data) => setAppHistory(data.items ?? []))
+      .catch(() => {});
+  }
+  useEffect(loadAppHistory, [user, app?.id]);
+  async function handleDeleteAppHistory(id: number) {
+    if (!user) return;
+    setAppHistory((items) => items.filter((item) => item.id !== id));
+    await fetch(`/api/history/${id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: user.id }),
+    }).catch(() => {});
+  }
+
   // Ghép nhạc nền vào video kết quả — thư viện nhạc do admin upload sẵn (đã có bản quyền hợp lệ),
   // user chỉ chọn 1 bài trong danh sách này rồi gọi /api/video/add-music (dùng ffmpeg phía server).
   const [currentVideoJobId, setCurrentVideoJobId] = useState<number | null>(null);
@@ -3435,6 +3457,41 @@ export default function MiniAppDetailPage() {
           </div>
         </section>
 
+        {/* Lịch sử tạo của riêng app này — không lẫn kết quả từ app khác */}
+        {appHistory.length > 0 && (
+          <section className="mb-8">
+            <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              Lịch sử
+            </h2>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
+              {appHistory.map((item) => (
+                <div key={item.id} className="group relative aspect-square overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
+                  {item.outputType === "video" ? (
+                    <video src={item.outputUrl} className="h-full w-full object-cover" muted />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={item.outputUrl} alt="Kết quả cũ" className="h-full w-full object-cover" />
+                  )}
+                  <a
+                    href={item.outputUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="absolute inset-0"
+                    title={new Date(item.createdAt).toLocaleString("vi-VN")}
+                  />
+                  <button
+                    onClick={() => handleDeleteAppHistory(item.id)}
+                    title="Xoá khỏi lịch sử"
+                    className="absolute right-1 top-1 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white opacity-0 hover:bg-black/90 group-hover:opacity-100"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Gợi ý Mini App liên quan — Tập 5 mục 4.1 */}
         {relatedApps.length > 0 && (
           <section>
@@ -3498,6 +3555,26 @@ function CommunityMiniAppRunner({ miniAppId }: { miniAppId: string }) {
 
   const [shareCopied, setShareCopied] = useState(false);
   const [feedbackRating, setFeedbackRating] = useState<"up" | "down" | null>(null);
+
+  // "Lịch sử" riêng của đúng app cộng đồng này — lọc theo miniAppId, không lẫn kết quả app khác.
+  type HistoryItem = { id: number; outputType: string; outputUrl: string; createdAt: string };
+  const [appHistory, setAppHistory] = useState<HistoryItem[]>([]);
+  useEffect(() => {
+    if (!user) return;
+    fetch(`/api/history?userId=${user.id}&miniAppId=${miniAppId}`)
+      .then((res) => res.json())
+      .then((data) => setAppHistory(data.items ?? []))
+      .catch(() => {});
+  }, [user, miniAppId]);
+  async function handleDeleteAppHistory(id: number) {
+    if (!user) return;
+    setAppHistory((items) => items.filter((item) => item.id !== id));
+    await fetch(`/api/history/${id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: user.id }),
+    }).catch(() => {});
+  }
 
   async function handleShareResult() {
     try {
@@ -4085,6 +4162,41 @@ function CommunityMiniAppRunner({ miniAppId }: { miniAppId: string }) {
             </div>
           )}
         </section>
+
+        {/* Lịch sử tạo của riêng app này — không lẫn kết quả từ app khác */}
+        {appHistory.length > 0 && (
+          <section className="mb-8">
+            <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              Lịch sử
+            </h2>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
+              {appHistory.map((item) => (
+                <div key={item.id} className="group relative aspect-square overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
+                  {item.outputType === "video" ? (
+                    <video src={item.outputUrl} className="h-full w-full object-cover" muted />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={item.outputUrl} alt="Kết quả cũ" className="h-full w-full object-cover" />
+                  )}
+                  <a
+                    href={item.outputUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="absolute inset-0"
+                    title={new Date(item.createdAt).toLocaleString("vi-VN")}
+                  />
+                  <button
+                    onClick={() => handleDeleteAppHistory(item.id)}
+                    title="Xoá khỏi lịch sử"
+                    className="absolute right-1 top-1 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white opacity-0 hover:bg-black/90 group-hover:opacity-100"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
       </main>
       <Footer />
     </div>
