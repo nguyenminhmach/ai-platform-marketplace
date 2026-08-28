@@ -244,7 +244,10 @@ export default function MiniAppDetailPage() {
   const [storyStatusText, setStoryStatusText] = useState<string | null>(null);
   const [storyStatus, setStoryStatus] = useState<string | null>(null);
   const [storyJobId, setStoryJobId] = useState<number | null>(null);
-  const [storyScenes, setStoryScenes] = useState<{ position: number; imageUrl: string | null; videoUrl: string | null }[] | null>(null);
+  const [storyScenes, setStoryScenes] = useState<
+    { id: number; position: number; imageUrl: string | null; videoUrl: string | null }[] | null
+  >(null);
+  const [storyRegeneratingSceneId, setStoryRegeneratingSceneId] = useState<number | null>(null);
   const [storyResult, setStoryResult] = useState<string | null>(null);
   const [storyError, setStoryError] = useState<string | null>(null);
   const storyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -854,6 +857,59 @@ export default function MiniAppDetailPage() {
         // bỏ qua lỗi mạng tạm thời, vòng poll tiếp theo sẽ thử lại
       }
     }, 4000);
+  }
+
+  // Poll riêng cho tạo lại 1 cảnh — khác pollStoryVideoStatus vì job.status đã ở "images_ready"/"failed"
+  // từ trước (không đổi khi tạo lại 1 cảnh), nên không thể dùng chung vòng poll đó (nó dừng ngay lập
+  // tức khi thấy status "images_ready"). CHỈ cập nhật storyScenes khi ảnh cảnh này đã có url mới —
+  // không cập nhật lúc còn null, tránh làm lệch storySceneImages (effect đồng bộ lọc bỏ null nên 1
+  // cảnh null giữa chừng sẽ làm co mảng, dịch chuyển sai vị trí các ảnh khác). Ảnh cũ vẫn hiện nguyên
+  // (kèm overlay đang xử lý) cho tới khi có ảnh mới thay hẳn.
+  function pollSceneRegenerate(jobId: number, sceneId: number) {
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/story-video/status?jobId=${jobId}`);
+        const data = await res.json();
+        const scene = Array.isArray(data.scenes)
+          ? data.scenes.find((s: { id: number; imageUrl: string | null }) => s.id === sceneId)
+          : null;
+        if (scene?.imageUrl) {
+          setStoryScenes(data.scenes);
+          clearInterval(interval);
+          setStoryRegeneratingSceneId((cur) => (cur === sceneId ? null : cur));
+        }
+      } catch {
+        // bỏ qua lỗi mạng tạm thời, vòng poll tiếp theo sẽ thử lại
+      }
+    }, 4000);
+    setTimeout(() => {
+      clearInterval(interval);
+      setStoryRegeneratingSceneId((cur) => (cur === sceneId ? null : cur));
+    }, 120000);
+  }
+
+  async function handleRegenerateScene(sceneId: number) {
+    if (!user || !storyJobId) return;
+    setStoryRegeneratingSceneId(sceneId);
+    setStoryError(null);
+    try {
+      const res = await fetch("/api/story-video/regenerate-scene", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, sceneId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStoryError(data.error ?? "Có lỗi xảy ra");
+        setStoryRegeneratingSceneId(null);
+        return;
+      }
+      window.dispatchEvent(new Event("balance-updated"));
+      pollSceneRegenerate(storyJobId, sceneId);
+    } catch {
+      setStoryError("Không kết nối được tới server");
+      setStoryRegeneratingSceneId(null);
+    }
   }
 
   async function handleRegenerateCharacter() {
@@ -2558,7 +2614,10 @@ export default function MiniAppDetailPage() {
                       </label>
                       <>
                           <div className="grid grid-cols-3 gap-3">
-                            {storySceneImages.map((img, index) => (
+                            {storySceneImages.map((img, index) => {
+                              const aiScene = !storyUseOwnSceneImages ? storyScenes?.[index] : undefined;
+                              const isRegeneratingThis = aiScene && storyRegeneratingSceneId === aiScene.id;
+                              return (
                               <div key={index} className="space-y-1">
                                 <div className="relative w-full" style={{ aspectRatio: storyAspectRatio.replace(":", " / ") }}>
                                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -2569,9 +2628,27 @@ export default function MiniAppDetailPage() {
                                     className="h-full w-full cursor-zoom-in rounded-lg object-cover"
                                     title="Bấm để xem to"
                                   />
+                                  {isRegeneratingThis && (
+                                    <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/60 text-xs text-white">
+                                      Đang tạo lại...
+                                    </div>
+                                  )}
                                   <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
                                     Cảnh {index + 1}
                                   </span>
+                                  {aiScene && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (!isRegeneratingThis) handleRegenerateScene(aiScene.id);
+                                      }}
+                                      disabled={!!storyRegeneratingSceneId}
+                                      title="Tạo lại đúng cảnh này (tốn thêm credit như 1 ảnh phân cảnh)"
+                                      className="absolute right-1 top-1 rounded-full bg-black/70 px-1.5 py-1 text-xs text-white hover:bg-black/90 disabled:cursor-not-allowed disabled:opacity-40"
+                                    >
+                                      🔄
+                                    </button>
+                                  )}
                                   <button
                                     onClick={() => {
                                       setStorySceneImages((prev) => prev.filter((_, i) => i !== index));
@@ -2604,7 +2681,8 @@ export default function MiniAppDetailPage() {
                                   />
                                 )}
                               </div>
-                            ))}
+                              );
+                            })}
                             {storySceneImages.length < STORY_MAX_SCENES && (
                               <label
                                 className="flex w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800"

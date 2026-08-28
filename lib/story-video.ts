@@ -473,6 +473,62 @@ function selectReferenceImagesForScene(
   return [sheetUrl];
 }
 
+type ImageSceneRefRow = {
+  id: number;
+  scene_description: string | null;
+  camera_view: string | null;
+  outfit_override: string | null;
+  face_view: string | null;
+};
+
+// Build prompt + chọn ảnh tham chiếu + submit Fal.ai cho ĐÚNG 1 cảnh — dùng chung cho batch tạo lần
+// đầu (runSceneStage) và tạo lại riêng lẻ 1 cảnh (regenerateSceneImage), tránh lặp logic ở 2 nơi
+// (từng gây lệch bug multi_image trước đây khi chỉ sửa 1 chỗ). regen=true thêm cờ &regen=1 vào
+// webhook URL để applyImageStageResult biết không cần chờ/kiểm tra các cảnh khác.
+async function submitSceneImageForRow(
+  job: Pick<JobRow, "id" | "character_angle_urls" | "character_sheet_url" | "image_model" | "aspect_ratio" | "image_resolution_key">,
+  row: ImageSceneRefRow,
+  imageEntry: ImageModelEntry | undefined,
+  regen: boolean
+): Promise<string> {
+  const referenceImages = selectReferenceImagesForScene(
+    row.camera_view,
+    job.character_angle_urls,
+    job.character_sheet_url as string,
+    row.face_view
+  );
+  // Tầng 2 (Appearance) — chỉ cảnh có outfit_override mới chèn thêm chỉ dẫn đổi đồ vào cuối prompt,
+  // đè lên đồ trong ảnh tham chiếu (Tầng 1 mặt/tóc/dáng người vẫn giữ nguyên qua ảnh tham chiếu như
+  // bình thường). Không đổi gì với cảnh không có outfit_override.
+  let scenePrompt = row.outfit_override
+    ? `${row.scene_description} Change the character's outfit to: ${row.outfit_override}. Keep the exact same face, hairstyle, and body proportions as shown in the reference image — only the clothing changes.`
+    : row.scene_description;
+  // 2 ảnh tham chiếu (thử nghiệm): ảnh 1 = hướng thân, ảnh 2 = mặt. Câu chỉ dẫn khác nhau tuỳ trường
+  // hợp: Priority 3 (face_view lệch hướng camera_view) cần model đổi HƯỚNG mặt theo ảnh 2; Rule 28
+  // (mặc định, mọi cảnh còn thấy mặt) chỉ cần model GIỮ ĐÚNG danh tính khuôn mặt theo ảnh 2, không đổi
+  // hướng (đã cùng hướng với ảnh 1 rồi). CHỈ thêm câu chỉ dẫn này khi model THẬT SỰ hỗ trợ đa ảnh
+  // (multi_image) — model không hỗ trợ (vd Flux Kontext) chỉ nhận đúng ảnh đầu tiên (xem
+  // buildImageRequestBody), nói về "ảnh thứ 2" mà model không hề nhận được là vô nghĩa.
+  if (referenceImages.length === 2 && imageEntry?.multi_image) {
+    scenePrompt += row.face_view && row.face_view !== row.camera_view
+      ? ` Two reference images are provided: the FIRST shows the body pose/angle to follow, the SECOND shows the face/gaze direction to follow — combine them: keep the body pose from the first image, but the face orientation and eye direction from the second image.`
+      : ` Two reference images are provided: the FIRST shows the body pose/angle to follow, the SECOND is a close-up reference for the character's face — use it to keep facial identity accurate and consistent while following the body pose from the first image.`;
+  }
+  const body = buildImageRequestBody(
+    job.image_model as string,
+    scenePrompt,
+    referenceImages,
+    imageEntry?.multi_image ?? false,
+    job.aspect_ratio ?? "9:16",
+    job.image_resolution_key ?? undefined
+  );
+  return submitFalJob(
+    job.image_model as string,
+    body,
+    `${SITE_URL}/api/story-video/webhook?jobId=${job.id}&sceneId=${row.id}&stage=image${regen ? "&regen=1" : ""}`
+  );
+}
+
 // Trừ credit phần ảnh (+ video nếu auto_video) rồi chạy chia cảnh (LLM) + submit ảnh cho từng cảnh,
 // dùng character_sheet_url làm tham chiếu chung — tách riêng để dùng chung cho 2 nơi gọi: (1)
 // continueStoryVideoToSceneStage (khách bấm "Tiếp tục chia cảnh" sau khi duyệt Character mới tạo),
@@ -525,43 +581,7 @@ async function runSceneStage(
 
     await Promise.all(
       sceneRows.map(async (row) => {
-        const referenceImages = selectReferenceImagesForScene(
-          row.camera_view,
-          job.character_angle_urls,
-          job.character_sheet_url as string,
-          row.face_view
-        );
-        // Tầng 2 (Appearance) — chỉ cảnh có outfit_override mới chèn thêm chỉ dẫn đổi đồ vào cuối
-        // prompt, đè lên đồ trong ảnh tham chiếu (Tầng 1 mặt/tóc/dáng người vẫn giữ nguyên qua ảnh
-        // tham chiếu như bình thường). Không đổi gì với cảnh không có outfit_override.
-        let scenePrompt = row.outfit_override
-          ? `${row.scene_description} Change the character's outfit to: ${row.outfit_override}. Keep the exact same face, hairstyle, and body proportions as shown in the reference image — only the clothing changes.`
-          : row.scene_description;
-        // 2 ảnh tham chiếu (thử nghiệm): ảnh 1 = hướng thân, ảnh 2 = mặt. Câu chỉ dẫn khác nhau tuỳ
-        // trường hợp: Priority 3 (face_view lệch hướng camera_view) cần model đổi HƯỚNG mặt theo ảnh 2;
-        // Rule 28 (mặc định, mọi cảnh còn thấy mặt) chỉ cần model GIỮ ĐÚNG danh tính khuôn mặt theo ảnh
-        // 2, không đổi hướng (đã cùng hướng với ảnh 1 rồi). CHỈ thêm câu chỉ dẫn này khi model THẬT SỰ
-        // hỗ trợ đa ảnh (multi_image) — model không hỗ trợ (vd Flux Kontext) chỉ nhận đúng ảnh đầu tiên
-        // (xem buildImageRequestBody), nói về "ảnh thứ 2" mà model không hề nhận được là vô nghĩa, thậm
-        // chí gây nhiễu vô ích cho prompt.
-        if (referenceImages.length === 2 && imageEntry?.multi_image) {
-          scenePrompt += row.face_view && row.face_view !== row.camera_view
-            ? ` Two reference images are provided: the FIRST shows the body pose/angle to follow, the SECOND shows the face/gaze direction to follow — combine them: keep the body pose from the first image, but the face orientation and eye direction from the second image.`
-            : ` Two reference images are provided: the FIRST shows the body pose/angle to follow, the SECOND is a close-up reference for the character's face — use it to keep facial identity accurate and consistent while following the body pose from the first image.`;
-        }
-        const body = buildImageRequestBody(
-          job.image_model as string,
-          scenePrompt,
-          referenceImages,
-          imageEntry?.multi_image ?? false,
-          job.aspect_ratio ?? "9:16",
-          job.image_resolution_key ?? undefined
-        );
-        const requestId = await submitFalJob(
-          job.image_model as string,
-          body,
-          `${SITE_URL}/api/story-video/webhook?jobId=${job.id}&sceneId=${row.id}&stage=image`
-        );
+        const requestId = await submitSceneImageForRow(job, row, imageEntry, false);
         await supabase.from("story_video_scenes").update({ image_fal_request_id: requestId }).eq("id", row.id);
       })
     );
@@ -872,6 +892,43 @@ export async function submitStoryVideoJobWithOwnImages(
   return { jobId: job.id, newBalance: await getCreditBalance(userId) };
 }
 
+// Khách chỉ ưng 1 phần ảnh phân cảnh — tạo lại ĐÚNG 1 cảnh (không đụng các cảnh khác), trừ credit
+// đúng bằng giá 1 ảnh (không phải cả N cảnh). Dùng lại nguyên description/camera_view/outfit_override/
+// face_view đã có sẵn của cảnh đó, chỉ đổi ảnh xuất ra — không gọi lại Agent chia cảnh.
+export async function regenerateSceneImage(userId: string, sceneId: number, idempotencyKey: string): Promise<{ newBalance: number }> {
+  const supabase = getSupabaseAdmin();
+  const { data: sceneData } = await supabase
+    .from("story_video_scenes")
+    .select("id, job_id, scene_description, camera_view, outfit_override, face_view")
+    .eq("id", sceneId)
+    .single();
+  if (!sceneData) throw new Error("Không tìm thấy phân cảnh");
+
+  const { data: jobData } = await supabase.from("story_video_jobs").select("*").eq("id", sceneData.job_id).single();
+  if (!jobData) throw new Error("Không tìm thấy job");
+  const job = jobData as JobRow;
+
+  if (job.user_id !== userId) throw new Error("Không có quyền với phân cảnh này");
+  if (!job.image_provider_cost_vnd_per_scene) throw new Error("Thiếu dữ liệu giá của job");
+
+  const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
+  const cost = computeDynamicCreditCost(job.image_provider_cost_vnd_per_scene, marginPercent, vndPerCredit);
+  const deduction = await deductCredit(userId, cost, job.mini_app_id, idempotencyKey);
+  if (!deduction.success) throw new InsufficientCreditError();
+
+  try {
+    const miniApp = await getMiniAppModelConfig(job.mini_app_id);
+    const imageEntry = miniApp.model_config.image_models.find((m) => m.model === job.image_model);
+    const requestId = await submitSceneImageForRow(job, sceneData, imageEntry, true);
+    await supabase.from("story_video_scenes").update({ image_fal_request_id: requestId, image_url: null }).eq("id", sceneId);
+  } catch (err) {
+    if (deduction.txId) await refundCredit(deduction.txId);
+    throw err;
+  }
+
+  return { newBalance: deduction.newBalance };
+}
+
 // Khách chưa ưng ảnh Character (job đang ở "character_ready") -> ép tạo lại từ đúng ảnh gốc đã tải
 // lên lúc submit. Không hoàn credit lần tạo trước (đã tốn phí gọi model thật, coi là chi phí đã chi
 // để thử) — chỉ tính thêm credit cho lần tạo mới.
@@ -1090,22 +1147,40 @@ export async function applyCharacterStageResult(jobId: number, falPayload: Recor
 // Gọi khi 1 ảnh giữ nhân vật (bước 1) của 1 cảnh tạo xong. Khi TẤT CẢ cảnh xong: nếu job bật
 // auto_video thì chuyển thẳng sang bước video, ngược lại DỪNG ở "images_ready" chờ khách xem trước
 // rồi tự bấm "Tạo video" (continueStoryVideoToVideoStage).
-export async function applyImageStageResult(jobId: number, sceneId: number, falPayload: Record<string, unknown>) {
+// isRegenerate=true khi webhook này đến từ regenerateSceneImage (tạo lại riêng 1 cảnh, xem
+// &regen=1 trong URL webhook) — job lúc đó đã ở "images_ready"/"failed" từ trước, KHÔNG được đụng vào
+// status job hay chạy failJob (sẽ hoàn nhầm toàn bộ credit job + xoá mất kết quả các cảnh khác) chỉ vì
+// 1 lượt tạo lại lỗi/xong — chỉ cập nhật đúng ảnh của cảnh đó rồi dừng.
+export async function applyImageStageResult(
+  jobId: number,
+  sceneId: number,
+  falPayload: Record<string, unknown>,
+  isRegenerate = false
+) {
   const supabase = getSupabaseAdmin();
   const isError = falPayload.status === "ERROR" || !!falPayload.error;
 
   if (isError) {
+    if (isRegenerate) {
+      console.error(`[story-video] Lỗi tạo lại ảnh cho cảnh #${sceneId}:`, falPayload.error ?? "unknown");
+      return;
+    }
     await failJob(jobId, `Lỗi tạo ảnh cảnh: ${String(falPayload.error ?? "")}`);
     return;
   }
 
   const imageUrl = extractImageUrl(falPayload);
   if (!imageUrl) {
+    if (isRegenerate) {
+      console.error(`[story-video] Không tìm thấy URL ảnh khi tạo lại cảnh #${sceneId}`);
+      return;
+    }
     await failJob(jobId, "Không tìm thấy URL ảnh trong phản hồi Fal.ai");
     return;
   }
 
   await supabase.from("story_video_scenes").update({ image_url: imageUrl }).eq("id", sceneId);
+  if (isRegenerate) return;
 
   const scenes = await getScenes(jobId);
   if (scenes.length === 0 || scenes.some((s) => !s.image_url)) return; // chờ cảnh còn lại

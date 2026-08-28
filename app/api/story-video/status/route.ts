@@ -28,18 +28,18 @@ export async function GET(req: Request) {
   if (error || !data) return Response.json({ error: "Không tìm thấy job" }, { status: 404 });
 
   let progressText: string | null = null;
-  let scenes: { position: number; imageUrl: string | null; videoUrl: string | null }[] | undefined;
+  let scenes: { id: number; position: number; imageUrl: string | null; videoUrl: string | null }[] | undefined;
 
   // Bao gồm cả "failed" — nếu ảnh phân cảnh đã tạo xong trước khi lỗi (vd lỗi ở bước tạo video sau
   // đó), khách vẫn cần xem lại được ảnh đã tốn credit tạo ra, không phải tự dưng "biến mất".
   if (["generating_images", "images_ready", "generating_videos", "stitching", "failed"].includes(data.status)) {
     const { data: sceneRows } = await supabase
       .from("story_video_scenes")
-      .select("position, image_url, video_url")
+      .select("id, position, image_url, video_url")
       .eq("job_id", jobId)
       .order("position", { ascending: true });
     if (sceneRows) {
-      scenes = sceneRows.map((s) => ({ position: s.position, imageUrl: s.image_url, videoUrl: s.video_url }));
+      scenes = sceneRows.map((s) => ({ id: s.id, position: s.position, imageUrl: s.image_url, videoUrl: s.video_url }));
       if (data.status === "generating_images" || data.status === "generating_videos") {
         const doneCount = sceneRows.filter((s) => (data.status === "generating_images" ? s.image_url : s.video_url)).length;
         progressText = `${STAGE_LABEL[data.status]} (${doneCount}/${sceneRows.length})`;
