@@ -890,7 +890,10 @@ export default function MiniAppDetailPage() {
     setStoryImageCheckResult(null);
     try {
       // Kiểm tra TOÀN BỘ ảnh đã tải — chỉ báo "đã là Character" khi TẤT CẢ đều là sheet sẵn.
-      const imageUrls = await Promise.all(storyCharacterImages.map((img) => uploadOutfitSwapImage(img)));
+      // Ảnh đã có URL thật (vd job dở dang được khôi phục) thì dùng thẳng, chỉ upload ảnh base64 mới.
+      const imageUrls = await Promise.all(
+        storyCharacterImages.map((img) => (img.startsWith("http") ? img : uploadOutfitSwapImage(img)))
+      );
       const res = await fetch("/api/story-video/classify-character", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1020,7 +1023,8 @@ export default function MiniAppDetailPage() {
     if (!reuseId) {
       setStoryStatusText("Đang tải ảnh lên...");
       try {
-        characterImageUrls = await Promise.all(images.map((img) => uploadOutfitSwapImage(img)));
+        // Ảnh đã có URL thật (vd job dở dang được khôi phục) thì dùng thẳng, chỉ upload ảnh base64 mới.
+        characterImageUrls = await Promise.all(images.map((img) => (img.startsWith("http") ? img : uploadOutfitSwapImage(img))));
       } catch (err) {
         setStoryError(err instanceof Error ? err.message : "Không tải được ảnh lên, thử lại");
         setStoryRunning(false);
