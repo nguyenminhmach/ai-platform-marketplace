@@ -913,7 +913,7 @@ export default function MiniAppDetailPage() {
       const res = await fetch("/api/story-video/characters", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user.id, imageUrl: storyCharacterSheetUrl }),
+        body: JSON.stringify({ userId: user.id, imageUrl: storyCharacterSheetUrl, jobId: storyJobId ?? undefined }),
       });
       const data = await res.json().catch(() => null);
       if (res.ok && data?.id) {

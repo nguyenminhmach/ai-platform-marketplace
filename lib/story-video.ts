@@ -20,6 +20,7 @@ import { mkdtemp, writeFile, readFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import ffmpegPath from "ffmpeg-static";
+import sharp from "sharp";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { deductCredit, refundCredit, getCreditBalance, InsufficientCreditError } from "@/lib/credit-system";
 import { callOpenRouter, recordGenerationHistory } from "@/lib/ai-router";
@@ -513,14 +514,16 @@ export async function submitStoryVideoJob(
   // Chọn từ thư viện đã lưu -> biết chắc 100% đây là Character chuẩn (chính hệ thống tạo ra trước
   // đó), bỏ qua hoàn toàn bước validate/phân loại ảnh tải lên mới.
   let reusedImageUrl: string | null = null;
+  let reusedAngleUrls: CharacterAngleUrls | null = null;
   if (reuseCharacterId) {
     const { data: saved } = await supabase
       .from("story_characters")
-      .select("id, user_id, image_url")
+      .select("id, user_id, image_url, angle_urls")
       .eq("id", reuseCharacterId)
       .single();
     if (!saved || saved.user_id !== userId) throw new Error("Không tìm thấy Character đã lưu");
     reusedImageUrl = saved.image_url;
+    reusedAngleUrls = (saved.angle_urls as CharacterAngleUrls | null) ?? null;
   } else if (characterImageUrls.length < MIN_CHARACTER_IMAGES || characterImageUrls.length > MAX_CHARACTER_IMAGES) {
     throw new Error(`Cần từ ${MIN_CHARACTER_IMAGES} đến ${MAX_CHARACTER_IMAGES} ảnh nhân vật`);
   }
@@ -570,7 +573,12 @@ export async function submitStoryVideoJob(
     if (reusedImageUrl) {
       await supabase
         .from("story_video_jobs")
-        .update({ status: "character_ready", character_sheet_url: reusedImageUrl, character_source: "reused" })
+        .update({
+          status: "character_ready",
+          character_sheet_url: reusedImageUrl,
+          character_source: "reused",
+          character_angle_urls: reusedAngleUrls,
+        })
         .eq("id", job.id);
       if (finalStoryDescription) {
         sceneStageJob.character_sheet_url = reusedImageUrl;
@@ -808,11 +816,22 @@ export async function regenerateCharacter(userId: string, jobId: number, idempot
   return { newBalance: deduction.newBalance };
 }
 
-export async function saveStoryCharacter(userId: string, imageUrl: string, label?: string): Promise<number> {
+// jobId (tuỳ chọn): nếu có, lấy luôn character_angle_urls đã cắt sẵn từ job đó gán vào Character lưu
+// mới — tránh phải cắt lại từ đầu mỗi lần dùng lại Character này sau này.
+export async function saveStoryCharacter(userId: string, imageUrl: string, label?: string, jobId?: number): Promise<number> {
   const supabase = getSupabaseAdmin();
+  let angleUrls: CharacterAngleUrls | null = null;
+  if (jobId) {
+    const { data: job } = await supabase
+      .from("story_video_jobs")
+      .select("user_id, character_angle_urls")
+      .eq("id", jobId)
+      .single();
+    if (job && job.user_id === userId) angleUrls = (job.character_angle_urls as CharacterAngleUrls | null) ?? null;
+  }
   const { data, error } = await supabase
     .from("story_characters")
-    .insert({ user_id: userId, image_url: imageUrl, label: label?.trim() || null })
+    .insert({ user_id: userId, image_url: imageUrl, label: label?.trim() || null, angle_urls: angleUrls })
     .select("id")
     .single();
   if (error || !data) throw new Error(error?.message ?? "Không lưu được Character");
@@ -890,6 +909,50 @@ async function getScenes(jobId: number): Promise<SceneRow[]> {
 
 export { getScenes as getStoryVideoScenes };
 
+const CHARACTER_ANGLE_LABELS = ["front", "three_quarter_left", "three_quarter_right", "side", "back", "face"] as const;
+export type CharacterAngleKey = (typeof CHARACTER_ANGLE_LABELS)[number];
+export type CharacterAngleUrls = Record<CharacterAngleKey, string>;
+
+// Cắt Character sheet (1 ảnh gộp 6 ô, bố cục CỐ ĐỊNH 3 cột x 2 hàng đúng theo CHARACTER_SHEET_PROMPT:
+// hàng 1 = front/3-4 trái/3-4 phải, hàng 2 = nghiêng/sau lưng/cận mặt) thành 6 ảnh riêng theo toạ độ
+// cố định — không cần AI "nhìn" ảnh để tìm vị trí từng góc, vì bố cục luôn giống nhau khi CHÍNH APP
+// tự vẽ ra sheet này. CHỈ dùng cho sheet do app tạo (character_source = 'generated') — sheet khách tự
+// tải lên (uploaded_sheet) không đảm bảo đúng bố cục 3x2 này nên không cắt, để null.
+async function cropCharacterSheetIntoAngles(sheetUrl: string, userId: string): Promise<CharacterAngleUrls | null> {
+  try {
+    const res = await fetch(sheetUrl);
+    if (!res.ok) return null;
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const metadata = await sharp(buffer).metadata();
+    if (!metadata.width || !metadata.height) return null;
+
+    const cellWidth = Math.floor(metadata.width / 3);
+    const cellHeight = Math.floor(metadata.height / 2);
+    const supabase = getSupabaseAdmin();
+    const urls: Partial<CharacterAngleUrls> = {};
+
+    for (let i = 0; i < CHARACTER_ANGLE_LABELS.length; i++) {
+      const label = CHARACTER_ANGLE_LABELS[i];
+      const col = i % 3;
+      const row = Math.floor(i / 3);
+      const cropped = await sharp(buffer)
+        .extract({ left: col * cellWidth, top: row * cellHeight, width: cellWidth, height: cellHeight })
+        .jpeg({ quality: 90 })
+        .toBuffer();
+      const filePath = `${userId}/${label}-${randomUUID()}.jpg`;
+      const { error } = await supabase.storage
+        .from("story-video-character-angles")
+        .upload(filePath, cropped, { contentType: "image/jpeg", upsert: true });
+      if (error) return null;
+      const { data: publicUrlData } = supabase.storage.from("story-video-character-angles").getPublicUrl(filePath);
+      urls[label] = publicUrlData.publicUrl;
+    }
+    return urls as CharacterAngleUrls;
+  } catch {
+    return null;
+  }
+}
+
 // Gọi khi Fal.ai tạo xong ảnh Character sheet (job-level, không phải per-scene) -> dừng ở
 // "character_ready" chờ khách xem trước, bấm "Tạo lại" hoặc "Tiếp tục chia cảnh".
 export async function applyCharacterStageResult(jobId: number, falPayload: Record<string, unknown>) {
@@ -907,7 +970,13 @@ export async function applyCharacterStageResult(jobId: number, falPayload: Recor
     return;
   }
 
-  await supabase.from("story_video_jobs").update({ status: "character_ready", character_sheet_url: imageUrl }).eq("id", jobId);
+  const { data: jobRow } = await supabase.from("story_video_jobs").select("user_id").eq("id", jobId).single();
+  const angleUrls = jobRow ? await cropCharacterSheetIntoAngles(imageUrl, jobRow.user_id) : null;
+
+  await supabase
+    .from("story_video_jobs")
+    .update({ status: "character_ready", character_sheet_url: imageUrl, character_angle_urls: angleUrls })
+    .eq("id", jobId);
 }
 
 // Gọi khi 1 ảnh giữ nhân vật (bước 1) của 1 cảnh tạo xong. Khi TẤT CẢ cảnh xong: nếu job bật

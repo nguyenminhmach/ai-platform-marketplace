@@ -16,12 +16,17 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const { userId, imageUrl, label } = await req.json();
+  const { userId, imageUrl, label, jobId } = await req.json();
   if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   if (typeof imageUrl !== "string" || !imageUrl) return Response.json({ error: "Thiếu imageUrl" }, { status: 400 });
 
   try {
-    const id = await saveStoryCharacter(userId, imageUrl, typeof label === "string" ? label : undefined);
+    const id = await saveStoryCharacter(
+      userId,
+      imageUrl,
+      typeof label === "string" ? label : undefined,
+      typeof jobId === "number" ? jobId : undefined
+    );
     return Response.json({ success: true, id });
   } catch (err) {
     return Response.json({ error: err instanceof Error ? err.message : "Có lỗi xảy ra" }, { status: 500 });
