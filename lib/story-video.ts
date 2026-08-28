@@ -176,6 +176,7 @@ type JobRow = {
   aspect_ratio: string | null;
   image_resolution_key: string | null;
   video_duration_key: string | null;
+  character_angle_urls: CharacterAngleUrls | null;
 };
 
 async function getMiniAppModelConfig(miniAppId: string) {
@@ -425,7 +426,23 @@ type SceneStageInput = Pick<
   | "aspect_ratio"
   | "image_resolution_key"
   | "character_sheet_url"
+  | "character_angle_urls"
 >;
+
+// Reference Selector — TRA BẢNG BẰNG CODE (key -> URL), không dùng AI: chọn đúng 1 ảnh góc đã cắt sẵn
+// (xem cropCharacterSheetIntoAngles) khớp camera_view AI vừa gán cho cảnh, thay vì luôn gửi cả tấm
+// Character sheet gộp cho mọi cảnh. Fallback về sheet gộp khi thiếu dữ liệu góc (sheet khách tự tải
+// lên "uploaded_sheet", ảnh đơn "skipped", hoặc bước cắt trước đó lỗi/chưa chạy migration).
+function selectReferenceImagesForScene(
+  cameraView: string | null,
+  angleUrls: CharacterAngleUrls | null,
+  sheetUrl: string
+): string[] {
+  if (angleUrls && cameraView && cameraView in angleUrls) {
+    return [angleUrls[cameraView as CharacterAngleKey]];
+  }
+  return [sheetUrl];
+}
 
 // Trừ credit phần ảnh (+ video nếu auto_video) rồi chạy chia cảnh (LLM) + submit ảnh cho từng cảnh,
 // dùng character_sheet_url làm tham chiếu chung — tách riêng để dùng chung cho 2 nơi gọi: (1)
@@ -472,15 +489,20 @@ async function runSceneStage(
           camera_view: scene.camera_view,
         }))
       )
-      .select("id, position, scene_description");
+      .select("id, position, scene_description, camera_view");
     if (sceneError || !sceneRows) throw new Error(sceneError?.message ?? "Không tạo được phân cảnh");
 
     await Promise.all(
       sceneRows.map(async (row) => {
+        const referenceImages = selectReferenceImagesForScene(
+          row.camera_view,
+          job.character_angle_urls,
+          job.character_sheet_url as string
+        );
         const body = buildImageRequestBody(
           job.image_model as string,
           row.scene_description,
-          [job.character_sheet_url as string],
+          referenceImages,
           imageEntry?.multi_image ?? false,
           job.aspect_ratio ?? "9:16",
           job.image_resolution_key ?? undefined
@@ -588,6 +610,7 @@ export async function submitStoryVideoJob(
     aspect_ratio: aspectRatio,
     image_resolution_key: resolvedResolutionKey ?? null,
     character_sheet_url: null,
+    character_angle_urls: null,
   };
 
   let characterTxId: number | null = null;
@@ -604,6 +627,7 @@ export async function submitStoryVideoJob(
         .eq("id", job.id);
       if (finalStoryDescription) {
         sceneStageJob.character_sheet_url = reusedImageUrl;
+        sceneStageJob.character_angle_urls = reusedAngleUrls;
         return { jobId: job.id, ...(await runSceneStage(userId, sceneStageJob, finalStoryDescription, modelChatKey, idempotencyKey)) };
       }
     } else {
