@@ -38,8 +38,10 @@ export const MAX_CHARACTER_IMAGES = 20;
 
 const SCENE_SPLIT_SYSTEM_PROMPT = `Bạn là đạo diễn dựng phân cảnh. Người dùng đưa 1 ý tưởng truyện/kịch bản ngắn.
 Nhiệm vụ: chia thành ĐÚNG N phân cảnh liên tục, mỗi cảnh là 1 khoảnh khắc hình ảnh cụ thể (nhân vật đang làm gì, ở đâu, bối cảnh gì), giữ nguyên nhân vật chính xuyên suốt các cảnh.
-Chỉ trả về DUY NHẤT 1 mảng JSON gồm đúng N chuỗi tiếng Anh, mỗi chuỗi mô tả 1 cảnh (dùng để tạo ảnh AI), không kèm markdown fence, không giải thích, không đánh số.
-Ví dụ format: ["a young woman walking into a coffee shop, morning light", "she sits by the window, smiling while looking outside"]`;
+Với MỖI cảnh, xác định thêm góc camera đang nhìn thấy nhân vật rõ nhất, chỉ được chọn ĐÚNG 1 trong 6 giá trị sau (viết y hệt, chữ thường): "front" (chính diện), "three_quarter_left" (nghiêng 3/4 trái), "three_quarter_right" (nghiêng 3/4 phải), "side" (nhìn ngang hẳn 1 bên), "back" (quay lưng lại camera), "face" (cận mặt).
+Quy tắc khi mô tả không nói rõ góc quay: nếu không nói gì đặc biệt về hướng, mặc định "front". Nếu chỉ nói "quay đầu"/"nhìn sang" (không nói "quay người"/"quay lưng"), coi là góc "three_quarter_left" hoặc "three_quarter_right" tương ứng hướng nhìn, KHÔNG phải "back". Chỉ chọn "back" khi mô tả rõ ràng nhân vật quay LƯNG/CẢ NGƯỜI lại camera.
+Chỉ trả về DUY NHẤT 1 mảng JSON gồm đúng N phần tử, mỗi phần tử là 1 object có 2 khoá "description" (chuỗi tiếng Anh mô tả cảnh, dùng để tạo ảnh AI) và "camera_view" (1 trong 6 giá trị ở trên) — không kèm markdown fence, không giải thích, không đánh số.
+Ví dụ format: [{"description": "a young woman walking into a coffee shop, morning light", "camera_view": "front"}, {"description": "she turns her head and looks outside the window, smiling", "camera_view": "three_quarter_left"}]`;
 
 // Bước "Tạo Character" — chạy trước khi chia cảnh: biến (các) ảnh gốc khách tải lên (thường 1 góc,
 // ánh sáng/nền lộn xộn) thành 1 ảnh sheet nhiều góc chuẩn (chính diện/3-4 trái/3-4 phải/nghiêng/sau
@@ -357,21 +359,23 @@ function extractImageUrl(falPayload: Record<string, unknown>): string | undefine
 // không cho truyền chuỗi model tuỳ ý từ client để tránh gọi nhầm model lạ/tốn phí ngoài ý muốn.
 const ALLOWED_CHAT_MODELS = ["google/gemini-3-flash-preview", "anthropic/claude-sonnet-4.6"];
 
+export type SceneSplitResult = { description: string; camera_view: CharacterAngleKey };
+
 export async function splitStoryIntoScenes(
   storyDescription: string,
   numScenes: number,
   customInstructions?: string,
   modelChatKey?: string
-): Promise<string[]> {
+): Promise<SceneSplitResult[]> {
   const chatModel = modelChatKey && ALLOWED_CHAT_MODELS.includes(modelChatKey) ? modelChatKey : ALLOWED_CHAT_MODELS[0];
   // "Agent xử lý" — admin thêm hướng dẫn phong cách/chủ đề qua model_config.prompt_helper_instructions
   // (đúng field/UI đã dùng cho nút "AI viết giúp mô tả" ở app video-gen). Nối THÊM vào cuối, không
   // thay hẳn — bắt buộc giữ nguyên yêu cầu "chỉ trả JSON đúng N phần tử" để pipeline không gãy.
   const basePrompt = SCENE_SPLIT_SYSTEM_PROMPT.replace("N phân cảnh", `${numScenes} phân cảnh`);
   const systemPrompt = customInstructions?.trim() ? `${basePrompt}\n\nGhi chú thêm từ admin: ${customInstructions.trim()}` : basePrompt;
-  async function attempt(reminder?: string): Promise<string[]> {
+  async function attempt(reminder?: string): Promise<SceneSplitResult[]> {
     const userInput = reminder
-      ? `${storyDescription}\n\n(Lưu ý: lần trước bạn trả sai định dạng. Chỉ trả về mảng JSON gồm đúng ${numScenes} chuỗi, không thêm gì khác.)`
+      ? `${storyDescription}\n\n(Lưu ý: lần trước bạn trả sai định dạng. Chỉ trả về mảng JSON gồm đúng ${numScenes} object {description, camera_view}, không thêm gì khác.)`
       : storyDescription;
     const { output } = await callOpenRouter(chatModel, 800, systemPrompt, userInput);
     const cleaned = output.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
@@ -381,10 +385,21 @@ export async function splitStoryIntoScenes(
     } catch {
       throw new Error("not-json");
     }
-    if (!Array.isArray(parsed) || parsed.length !== numScenes || !parsed.every((s) => typeof s === "string" && s.trim())) {
+    if (
+      !Array.isArray(parsed) ||
+      parsed.length !== numScenes ||
+      !parsed.every(
+        (s) =>
+          s &&
+          typeof s === "object" &&
+          typeof (s as { description?: unknown }).description === "string" &&
+          (s as { description: string }).description.trim() &&
+          CHARACTER_ANGLE_LABELS.includes((s as { camera_view?: unknown }).camera_view as CharacterAngleKey)
+      )
+    ) {
       throw new Error("wrong-shape");
     }
-    return parsed as string[];
+    return parsed as SceneSplitResult[];
   }
 
   try {
@@ -449,7 +464,14 @@ async function runSceneStage(
 
     const { data: sceneRows, error: sceneError } = await supabase
       .from("story_video_scenes")
-      .insert(scenes.map((description, index) => ({ job_id: job.id, position: index, scene_description: description })))
+      .insert(
+        scenes.map((scene, index) => ({
+          job_id: job.id,
+          position: index,
+          scene_description: scene.description,
+          camera_view: scene.camera_view,
+        }))
+      )
       .select("id, position, scene_description");
     if (sceneError || !sceneRows) throw new Error(sceneError?.message ?? "Không tạo được phân cảnh");
 
