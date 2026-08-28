@@ -919,12 +919,20 @@ export type CharacterAngleUrls = Record<CharacterAngleKey, string>;
 // tự vẽ ra sheet này. CHỈ dùng cho sheet do app tạo (character_source = 'generated') — sheet khách tự
 // tải lên (uploaded_sheet) không đảm bảo đúng bố cục 3x2 này nên không cắt, để null.
 async function cropCharacterSheetIntoAngles(sheetUrl: string, userId: string): Promise<CharacterAngleUrls | null> {
+  // Log rõ từng lý do fail — không để im lặng trả null như failJob() từng làm với ffmpeg trước đây,
+  // khiến không biết bucket chưa tạo (migration chưa chạy) hay lỗi thật khác đang xảy ra.
   try {
     const res = await fetch(sheetUrl);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.error(`[crop-character] Tải ảnh sheet thất bại: ${res.status} ${sheetUrl}`);
+      return null;
+    }
     const buffer = Buffer.from(await res.arrayBuffer());
     const metadata = await sharp(buffer).metadata();
-    if (!metadata.width || !metadata.height) return null;
+    if (!metadata.width || !metadata.height) {
+      console.error(`[crop-character] Không đọc được kích thước ảnh sheet: ${sheetUrl}`);
+      return null;
+    }
 
     const cellWidth = Math.floor(metadata.width / 3);
     const cellHeight = Math.floor(metadata.height / 2);
@@ -943,12 +951,16 @@ async function cropCharacterSheetIntoAngles(sheetUrl: string, userId: string): P
       const { error } = await supabase.storage
         .from("story-video-character-angles")
         .upload(filePath, cropped, { contentType: "image/jpeg", upsert: true });
-      if (error) return null;
+      if (error) {
+        console.error(`[crop-character] Upload "${label}" lỗi (có thể do chưa chạy migration tạo bucket): ${error.message}`);
+        return null;
+      }
       const { data: publicUrlData } = supabase.storage.from("story-video-character-angles").getPublicUrl(filePath);
       urls[label] = publicUrlData.publicUrl;
     }
     return urls as CharacterAngleUrls;
-  } catch {
+  } catch (err) {
+    console.error(`[crop-character] Lỗi cắt Character sheet:`, err);
     return null;
   }
 }
