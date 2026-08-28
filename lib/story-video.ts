@@ -41,10 +41,11 @@ Nhiệm vụ: chia thành ĐÚNG N phân cảnh liên tục, mỗi cảnh là 1 
 Với MỖI cảnh, xác định thêm góc camera đang nhìn thấy nhân vật rõ nhất, chỉ được chọn ĐÚNG 1 trong 6 giá trị sau (viết y hệt, chữ thường): "front" (chính diện), "three_quarter_left" (nghiêng 3/4 trái), "three_quarter_right" (nghiêng 3/4 phải), "side" (nhìn ngang hẳn 1 bên), "back" (quay lưng lại camera), "face" (cận mặt).
 Quy tắc khi mô tả không nói rõ góc quay: nếu không nói gì đặc biệt về hướng, mặc định "front". Nếu chỉ nói "quay đầu"/"nhìn sang" (không nói "quay người"/"quay lưng"), coi là góc "three_quarter_left" hoặc "three_quarter_right" tương ứng hướng nhìn, KHÔNG phải "back". Chỉ chọn "back" khi mô tả rõ ràng nhân vật quay LƯNG/CẢ NGƯỜI lại camera.
 Khi viết "description" (tiếng Anh): viết như 1 đạo diễn hình ảnh thật sự — có thể thêm chi tiết điện ảnh phù hợp với bối cảnh gốc (ánh sáng, loại khung hình/shot size, không khí, chất liệu/kết cấu môi trường xung quanh) để ảnh tạo ra sống động hơn, nhưng KHÔNG bịa thêm tình tiết, hành động, hay địa điểm không có trong ý tưởng gốc.
-Rào chắn giữ đúng danh tính nhân vật (bắt buộc, không được vi phạm dù thêm chi tiết điện ảnh): giữ nguyên giới tính, độ tuổi, kiểu tóc, màu tóc, trang phục của nhân vật chính xuyên suốt mọi cảnh — không tự đổi trang phục/kiểu tóc giữa các cảnh trừ khi ý tưởng gốc nói rõ; không tự thêm nhân vật phụ mới nếu ý tưởng gốc không nhắc; nếu ý tưởng gốc mô tả 1 địa điểm liên tục thì không tự đổi bối cảnh giữa các cảnh.
+Rào chắn giữ đúng danh tính nhân vật (bắt buộc, không được vi phạm dù thêm chi tiết điện ảnh): giữ nguyên giới tính, độ tuổi, kiểu tóc, màu tóc của nhân vật chính xuyên suốt mọi cảnh (đây là phần KHÔNG BAO GIỜ được đổi); trang phục thì giữ nguyên xuyên suốt TRỪ KHI ý tưởng gốc nói rõ có đổi đồ (xem mục "Đổi trang phục" bên dưới); không tự thêm nhân vật phụ mới nếu ý tưởng gốc không nhắc; nếu ý tưởng gốc mô tả 1 địa điểm liên tục thì không tự đổi bối cảnh giữa các cảnh.
 Trạng thái liên tục giữa các cảnh (quan trọng): MỖI cảnh được gửi cho model tạo ảnh RIÊNG BIỆT, độc lập — model đó KHÔNG thấy ảnh của cảnh trước, chỉ thấy đúng "description" của cảnh đang xét. Vì vậy mỗi "description" phải TỰ ĐẦY ĐỦ ngữ cảnh (self-contained): nếu nhiều cảnh liên tiếp cùng diễn ra ở 1 địa điểm/trang phục/tư thế kế thừa từ cảnh trước, PHẢI nhắc lại rõ các chi tiết đó trong CHÍNH cảnh đang viết (địa điểm, trang phục, ai/cái gì xung quanh), không được viết cụt lủn kiểu chỉ nối tiếp hành động (ví dụ SAI: "she turns and smiles" — thiếu ngữ cảnh; ĐÚNG: "still sitting at the same coffee shop table by the window, wearing the same beige dress, she turns and smiles").
-Chỉ trả về DUY NHẤT 1 mảng JSON gồm đúng N phần tử, mỗi phần tử là 1 object có 2 khoá "description" (chuỗi tiếng Anh mô tả cảnh, dùng để tạo ảnh AI) và "camera_view" (1 trong 6 giá trị ở trên) — không kèm markdown fence, không giải thích, không đánh số.
-Ví dụ format: [{"description": "a young woman walking into a coffee shop, morning light", "camera_view": "front"}, {"description": "she turns her head and looks outside the window, smiling", "camera_view": "three_quarter_left"}]`;
+Đổi trang phục (chỉ áp dụng khi ý tưởng gốc NÓI RÕ, ví dụ "mặc đồ ngủ ở nhà, sau đó ra ngoài khoác áo len"): với cảnh ĐẦU TIÊN xuất hiện bộ đồ mới, thêm khoá "outfit_override" (chuỗi tiếng Anh mô tả NGẮN GỌN bộ đồ mới, ví dụ "a beige knit cardigan over a white t-shirt") — mọi cảnh SAU ĐÓ vẫn mặc bộ đồ này thì PHẢI lặp lại ĐÚNG y hệt "outfit_override" đó (không đổi cách viết) cho đến khi truyện lại nói đổi đồ tiếp; các cảnh mặc đồ gốc (chưa đổi) thì KHÔNG có khoá "outfit_override" (bỏ hẳn khoá này, không để rỗng/null). Khuôn mặt, kiểu tóc, dáng người vẫn phải giữ y hệt dù đổi đồ.
+Chỉ trả về DUY NHẤT 1 mảng JSON gồm đúng N phần tử, mỗi phần tử là 1 object có khoá "description" (chuỗi tiếng Anh mô tả cảnh, dùng để tạo ảnh AI), "camera_view" (1 trong 6 giá trị ở trên), và "outfit_override" (tuỳ chọn, chỉ thêm khi có đổi đồ như hướng dẫn trên) — không kèm markdown fence, không giải thích, không đánh số.
+Ví dụ format: [{"description": "a young woman walking into a coffee shop, morning light", "camera_view": "front"}, {"description": "still at the coffee shop, she turns her head and looks outside the window, smiling", "camera_view": "three_quarter_left"}, {"description": "later, standing by her front door at home, about to head out", "camera_view": "front", "outfit_override": "a beige knit cardigan over a white t-shirt"}]`;
 
 // Bước "Tạo Character" — chạy trước khi chia cảnh: biến (các) ảnh gốc khách tải lên (thường 1 góc,
 // ánh sáng/nền lộn xộn) thành 1 ảnh sheet nhiều góc chuẩn (chính diện/3-4 trái/3-4 phải/nghiêng/sau
@@ -363,7 +364,7 @@ function extractImageUrl(falPayload: Record<string, unknown>): string | undefine
 // không cho truyền chuỗi model tuỳ ý từ client để tránh gọi nhầm model lạ/tốn phí ngoài ý muốn.
 const ALLOWED_CHAT_MODELS = ["google/gemini-3-flash-preview", "anthropic/claude-sonnet-4.6"];
 
-export type SceneSplitResult = { description: string; camera_view: CharacterAngleKey };
+export type SceneSplitResult = { description: string; camera_view: CharacterAngleKey; outfit_override?: string };
 
 export async function splitStoryIntoScenes(
   storyDescription: string,
@@ -398,7 +399,10 @@ export async function splitStoryIntoScenes(
           typeof s === "object" &&
           typeof (s as { description?: unknown }).description === "string" &&
           (s as { description: string }).description.trim() &&
-          CHARACTER_ANGLE_LABELS.includes((s as { camera_view?: unknown }).camera_view as CharacterAngleKey)
+          CHARACTER_ANGLE_LABELS.includes((s as { camera_view?: unknown }).camera_view as CharacterAngleKey) &&
+          ((s as { outfit_override?: unknown }).outfit_override === undefined ||
+            (typeof (s as { outfit_override?: unknown }).outfit_override === "string" &&
+              (s as { outfit_override: string }).outfit_override.trim()))
       )
     ) {
       throw new Error("wrong-shape");
@@ -490,9 +494,10 @@ async function runSceneStage(
           position: index,
           scene_description: scene.description,
           camera_view: scene.camera_view,
+          outfit_override: scene.outfit_override ?? null,
         }))
       )
-      .select("id, position, scene_description, camera_view");
+      .select("id, position, scene_description, camera_view, outfit_override");
     if (sceneError || !sceneRows) throw new Error(sceneError?.message ?? "Không tạo được phân cảnh");
 
     await Promise.all(
@@ -502,9 +507,15 @@ async function runSceneStage(
           job.character_angle_urls,
           job.character_sheet_url as string
         );
+        // Tầng 2 (Appearance) — chỉ cảnh có outfit_override mới chèn thêm chỉ dẫn đổi đồ vào cuối
+        // prompt, đè lên đồ trong ảnh tham chiếu (Tầng 1 mặt/tóc/dáng người vẫn giữ nguyên qua ảnh
+        // tham chiếu như bình thường). Không đổi gì với cảnh không có outfit_override.
+        const scenePrompt = row.outfit_override
+          ? `${row.scene_description} Change the character's outfit to: ${row.outfit_override}. Keep the exact same face, hairstyle, and body proportions as shown in the reference image — only the clothing changes.`
+          : row.scene_description;
         const body = buildImageRequestBody(
           job.image_model as string,
-          row.scene_description,
+          scenePrompt,
           referenceImages,
           imageEntry?.multi_image ?? false,
           job.aspect_ratio ?? "9:16",
