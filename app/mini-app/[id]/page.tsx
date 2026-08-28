@@ -2404,7 +2404,7 @@ export default function MiniAppDetailPage() {
                         <>
                           <div className="grid grid-cols-3 gap-3">
                             {storyCharacterImages.map((img, index) => (
-                              <div key={index} className="relative aspect-square w-full">
+                              <div key={index} className="relative w-full" style={{ aspectRatio: storyAspectRatio.replace(":", " / ") }}>
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img
                                   src={img}
@@ -2426,7 +2426,10 @@ export default function MiniAppDetailPage() {
                                 </button>
                               </div>
                             ))}
-                            <label className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                            <label
+                              className="flex w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800"
+                              style={{ aspectRatio: storyAspectRatio.replace(":", " / ") }}
+                            >
                               <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
                               <input
                                 type="file"
