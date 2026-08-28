@@ -44,7 +44,9 @@ Khi viết "description" (tiếng Anh): viết như 1 đạo diễn hình ảnh 
 Rào chắn giữ đúng danh tính nhân vật (bắt buộc, không được vi phạm dù thêm chi tiết điện ảnh): giữ nguyên giới tính, độ tuổi, kiểu tóc, màu tóc của nhân vật chính xuyên suốt mọi cảnh (đây là phần KHÔNG BAO GIỜ được đổi); trang phục thì giữ nguyên xuyên suốt TRỪ KHI ý tưởng gốc nói rõ có đổi đồ (xem mục "Đổi trang phục" bên dưới); không tự thêm nhân vật phụ mới nếu ý tưởng gốc không nhắc; nếu ý tưởng gốc mô tả 1 địa điểm liên tục thì không tự đổi bối cảnh giữa các cảnh.
 Trạng thái liên tục giữa các cảnh (quan trọng): MỖI cảnh được gửi cho model tạo ảnh RIÊNG BIỆT, độc lập — model đó KHÔNG thấy ảnh của cảnh trước, chỉ thấy đúng "description" của cảnh đang xét. Vì vậy mỗi "description" phải TỰ ĐẦY ĐỦ ngữ cảnh (self-contained): nếu nhiều cảnh liên tiếp cùng diễn ra ở 1 địa điểm/trang phục/tư thế kế thừa từ cảnh trước, PHẢI nhắc lại rõ các chi tiết đó trong CHÍNH cảnh đang viết (địa điểm, trang phục, ai/cái gì xung quanh), không được viết cụt lủn kiểu chỉ nối tiếp hành động (ví dụ SAI: "she turns and smiles" — thiếu ngữ cảnh; ĐÚNG: "still sitting at the same coffee shop table by the window, wearing the same beige dress, she turns and smiles").
 Đổi trang phục (chỉ áp dụng khi ý tưởng gốc NÓI RÕ, ví dụ "mặc đồ ngủ ở nhà, sau đó ra ngoài khoác áo len"): với cảnh ĐẦU TIÊN xuất hiện bộ đồ mới, thêm khoá "outfit_override" (chuỗi tiếng Anh mô tả NGẮN GỌN bộ đồ mới, ví dụ "a beige knit cardigan over a white t-shirt") — mọi cảnh SAU ĐÓ vẫn mặc bộ đồ này thì PHẢI lặp lại ĐÚNG y hệt "outfit_override" đó (không đổi cách viết) cho đến khi truyện lại nói đổi đồ tiếp; các cảnh mặc đồ gốc (chưa đổi) thì KHÔNG có khoá "outfit_override" (bỏ hẳn khoá này, không để rỗng/null). Khuôn mặt, kiểu tóc, dáng người vẫn phải giữ y hệt dù đổi đồ.
-Chỉ trả về DUY NHẤT 1 mảng JSON gồm đúng N phần tử, mỗi phần tử là 1 object có khoá "description" (chuỗi tiếng Anh mô tả cảnh, dùng để tạo ảnh AI), "camera_view" (1 trong 6 giá trị ở trên), và "outfit_override" (tuỳ chọn, chỉ thêm khi có đổi đồ như hướng dẫn trên) — không kèm markdown fence, không giải thích, không đánh số.
+Thân người và mặt/ánh nhìn lệch hướng nhau (chỉ áp dụng khi ý tưởng gốc NÓI RÕ 2 hướng khác nhau, ví dụ "thân quay sang phải nhưng mắt vẫn nhìn thẳng camera"): "camera_view" LUÔN đại diện cho hướng THÂN NGƯỜI như bình thường; nếu mặt/ánh nhìn của nhân vật đang hướng KHÁC với thân, thêm khoá "face_view" (1 trong 6 giá trị góc như "camera_view", đại diện cho hướng MẶT) — ví dụ thân quay "three_quarter_right" nhưng mặt nhìn thẳng thì "camera_view": "three_quarter_right", "face_view": "front". Nếu mặt và thân cùng hướng (đa số trường hợp — mặc định), KHÔNG thêm khoá "face_view" (bỏ hẳn khoá này). Không tự suy diễn thêm hướng nhìn nếu ý tưởng gốc không nói.
+Không tự bịa chi tiết không có trong ý tưởng gốc: nếu ý tưởng gốc không nhắc phụ kiện (túi, kính, mũ...) thì không tự thêm; nếu không nhắc biểu cảm thì giữ biểu cảm trung tính tự nhiên theo hành động, không tự thêm "cười"/"buồn" nếu không có căn cứ.
+Chỉ trả về DUY NHẤT 1 mảng JSON gồm đúng N phần tử, mỗi phần tử là 1 object có khoá "description" (chuỗi tiếng Anh mô tả cảnh, dùng để tạo ảnh AI), "camera_view" (1 trong 6 giá trị ở trên), "outfit_override" (tuỳ chọn) và "face_view" (tuỳ chọn) như hướng dẫn trên — không kèm markdown fence, không giải thích, không đánh số.
 Ví dụ format: [{"description": "a young woman walking into a coffee shop, morning light", "camera_view": "front"}, {"description": "still at the coffee shop, she turns her head and looks outside the window, smiling", "camera_view": "three_quarter_left"}, {"description": "later, standing by her front door at home, about to head out", "camera_view": "front", "outfit_override": "a beige knit cardigan over a white t-shirt"}]`;
 
 // Bước "Tạo Character" — chạy trước khi chia cảnh: biến (các) ảnh gốc khách tải lên (thường 1 góc,
@@ -364,7 +366,12 @@ function extractImageUrl(falPayload: Record<string, unknown>): string | undefine
 // không cho truyền chuỗi model tuỳ ý từ client để tránh gọi nhầm model lạ/tốn phí ngoài ý muốn.
 const ALLOWED_CHAT_MODELS = ["google/gemini-3-flash-preview", "anthropic/claude-sonnet-4.6"];
 
-export type SceneSplitResult = { description: string; camera_view: CharacterAngleKey; outfit_override?: string };
+export type SceneSplitResult = {
+  description: string;
+  camera_view: CharacterAngleKey;
+  outfit_override?: string;
+  face_view?: CharacterAngleKey;
+};
 
 export async function splitStoryIntoScenes(
   storyDescription: string,
@@ -402,7 +409,9 @@ export async function splitStoryIntoScenes(
           CHARACTER_ANGLE_LABELS.includes((s as { camera_view?: unknown }).camera_view as CharacterAngleKey) &&
           ((s as { outfit_override?: unknown }).outfit_override === undefined ||
             (typeof (s as { outfit_override?: unknown }).outfit_override === "string" &&
-              (s as { outfit_override: string }).outfit_override.trim()))
+              (s as { outfit_override: string }).outfit_override.trim())) &&
+          ((s as { face_view?: unknown }).face_view === undefined ||
+            CHARACTER_ANGLE_LABELS.includes((s as { face_view?: unknown }).face_view as CharacterAngleKey))
       )
     ) {
       throw new Error("wrong-shape");
@@ -440,13 +449,22 @@ type SceneStageInput = Pick<
 // (xem cropCharacterSheetIntoAngles) khớp camera_view AI vừa gán cho cảnh, thay vì luôn gửi cả tấm
 // Character sheet gộp cho mọi cảnh. Fallback về sheet gộp khi thiếu dữ liệu góc (sheet khách tự tải
 // lên "uploaded_sheet", ảnh đơn "skipped", hoặc bước cắt trước đó lỗi/chưa chạy migration).
+// faceView (tuỳ chọn, thử nghiệm — Priority 3): khi mặt/ánh nhìn nhân vật lệch hướng với thân người,
+// gửi THÊM 1 ảnh góc thứ 2 khớp hướng mặt cùng lúc với ảnh góc thân, để model tạo ảnh có căn cứ giữ
+// đúng hướng mặt riêng biệt với hướng thân — không đảm bảo 100% (model tự pha trộn theo text hướng
+// dẫn), chỉ áp dụng khi có đủ dữ liệu ảnh góc đã cắt (angleUrls) và faceView khác cameraView.
 function selectReferenceImagesForScene(
   cameraView: string | null,
   angleUrls: CharacterAngleUrls | null,
-  sheetUrl: string
+  sheetUrl: string,
+  faceView?: string | null
 ): string[] {
   if (angleUrls && cameraView && cameraView in angleUrls) {
-    return [angleUrls[cameraView as CharacterAngleKey]];
+    const bodyImage = angleUrls[cameraView as CharacterAngleKey];
+    if (faceView && faceView !== cameraView && faceView in angleUrls) {
+      return [bodyImage, angleUrls[faceView as CharacterAngleKey]];
+    }
+    return [bodyImage];
   }
   return [sheetUrl];
 }
@@ -495,9 +513,10 @@ async function runSceneStage(
           scene_description: scene.description,
           camera_view: scene.camera_view,
           outfit_override: scene.outfit_override ?? null,
+          face_view: scene.face_view ?? null,
         }))
       )
-      .select("id, position, scene_description, camera_view, outfit_override");
+      .select("id, position, scene_description, camera_view, outfit_override, face_view");
     if (sceneError || !sceneRows) throw new Error(sceneError?.message ?? "Không tạo được phân cảnh");
 
     await Promise.all(
@@ -505,14 +524,20 @@ async function runSceneStage(
         const referenceImages = selectReferenceImagesForScene(
           row.camera_view,
           job.character_angle_urls,
-          job.character_sheet_url as string
+          job.character_sheet_url as string,
+          row.face_view
         );
         // Tầng 2 (Appearance) — chỉ cảnh có outfit_override mới chèn thêm chỉ dẫn đổi đồ vào cuối
         // prompt, đè lên đồ trong ảnh tham chiếu (Tầng 1 mặt/tóc/dáng người vẫn giữ nguyên qua ảnh
         // tham chiếu như bình thường). Không đổi gì với cảnh không có outfit_override.
-        const scenePrompt = row.outfit_override
+        let scenePrompt = row.outfit_override
           ? `${row.scene_description} Change the character's outfit to: ${row.outfit_override}. Keep the exact same face, hairstyle, and body proportions as shown in the reference image — only the clothing changes.`
           : row.scene_description;
+        // Priority 3 (thử nghiệm) — 2 ảnh tham chiếu: ảnh 1 = hướng thân, ảnh 2 = hướng mặt/ánh nhìn.
+        // Chỉ thêm câu chỉ dẫn khi thật sự có 2 ảnh (referenceImages.length === 2).
+        if (referenceImages.length === 2) {
+          scenePrompt += ` Two reference images are provided: the FIRST shows the body pose/angle to follow, the SECOND shows the face/gaze direction to follow — combine them: keep the body pose from the first image, but the face orientation and eye direction from the second image.`;
+        }
         const body = buildImageRequestBody(
           job.image_model as string,
           scenePrompt,
