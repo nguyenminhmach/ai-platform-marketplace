@@ -540,8 +540,11 @@ async function runSceneStage(
         // 2 ảnh tham chiếu (thử nghiệm): ảnh 1 = hướng thân, ảnh 2 = mặt. Câu chỉ dẫn khác nhau tuỳ
         // trường hợp: Priority 3 (face_view lệch hướng camera_view) cần model đổi HƯỚNG mặt theo ảnh 2;
         // Rule 28 (mặc định, mọi cảnh còn thấy mặt) chỉ cần model GIỮ ĐÚNG danh tính khuôn mặt theo ảnh
-        // 2, không đổi hướng (đã cùng hướng với ảnh 1 rồi).
-        if (referenceImages.length === 2) {
+        // 2, không đổi hướng (đã cùng hướng với ảnh 1 rồi). CHỈ thêm câu chỉ dẫn này khi model THẬT SỰ
+        // hỗ trợ đa ảnh (multi_image) — model không hỗ trợ (vd Flux Kontext) chỉ nhận đúng ảnh đầu tiên
+        // (xem buildImageRequestBody), nói về "ảnh thứ 2" mà model không hề nhận được là vô nghĩa, thậm
+        // chí gây nhiễu vô ích cho prompt.
+        if (referenceImages.length === 2 && imageEntry?.multi_image) {
           scenePrompt += row.face_view && row.face_view !== row.camera_view
             ? ` Two reference images are provided: the FIRST shows the body pose/angle to follow, the SECOND shows the face/gaze direction to follow — combine them: keep the body pose from the first image, but the face orientation and eye direction from the second image.`
             : ` Two reference images are provided: the FIRST shows the body pose/angle to follow, the SECOND is a close-up reference for the character's face — use it to keep facial identity accurate and consistent while following the body pose from the first image.`;
