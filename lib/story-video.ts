@@ -450,9 +450,10 @@ type SceneStageInput = Pick<
 // Character sheet gộp cho mọi cảnh. Fallback về sheet gộp khi thiếu dữ liệu góc (sheet khách tự tải
 // lên "uploaded_sheet", ảnh đơn "skipped", hoặc bước cắt trước đó lỗi/chưa chạy migration).
 // faceView (tuỳ chọn, thử nghiệm — Priority 3): khi mặt/ánh nhìn nhân vật lệch hướng với thân người,
-// gửi THÊM 1 ảnh góc thứ 2 khớp hướng mặt cùng lúc với ảnh góc thân, để model tạo ảnh có căn cứ giữ
-// đúng hướng mặt riêng biệt với hướng thân — không đảm bảo 100% (model tự pha trộn theo text hướng
-// dẫn), chỉ áp dụng khi có đủ dữ liệu ảnh góc đã cắt (angleUrls) và faceView khác cameraView.
+// gửi ảnh góc khớp đúng hướng mặt đó làm ảnh tham chiếu thứ 2. Mặc định (Rule 28, không cần faceView
+// riêng): MỌI cảnh còn thấy mặt (camera_view khác "back") đều gửi kèm THÊM face.png làm ảnh tham
+// chiếu thứ 2, để model tạo ảnh có căn cứ giữ đúng khuôn mặt ổn định hơn — không đảm bảo 100% (model
+// tự pha trộn theo text hướng dẫn), chỉ áp dụng khi có đủ dữ liệu ảnh góc đã cắt (angleUrls).
 function selectReferenceImagesForScene(
   cameraView: string | null,
   angleUrls: CharacterAngleUrls | null,
@@ -463,6 +464,9 @@ function selectReferenceImagesForScene(
     const bodyImage = angleUrls[cameraView as CharacterAngleKey];
     if (faceView && faceView !== cameraView && faceView in angleUrls) {
       return [bodyImage, angleUrls[faceView as CharacterAngleKey]];
+    }
+    if (cameraView !== "back" && cameraView !== "face" && "face" in angleUrls) {
+      return [bodyImage, angleUrls.face];
     }
     return [bodyImage];
   }
@@ -533,10 +537,14 @@ async function runSceneStage(
         let scenePrompt = row.outfit_override
           ? `${row.scene_description} Change the character's outfit to: ${row.outfit_override}. Keep the exact same face, hairstyle, and body proportions as shown in the reference image — only the clothing changes.`
           : row.scene_description;
-        // Priority 3 (thử nghiệm) — 2 ảnh tham chiếu: ảnh 1 = hướng thân, ảnh 2 = hướng mặt/ánh nhìn.
-        // Chỉ thêm câu chỉ dẫn khi thật sự có 2 ảnh (referenceImages.length === 2).
+        // 2 ảnh tham chiếu (thử nghiệm): ảnh 1 = hướng thân, ảnh 2 = mặt. Câu chỉ dẫn khác nhau tuỳ
+        // trường hợp: Priority 3 (face_view lệch hướng camera_view) cần model đổi HƯỚNG mặt theo ảnh 2;
+        // Rule 28 (mặc định, mọi cảnh còn thấy mặt) chỉ cần model GIỮ ĐÚNG danh tính khuôn mặt theo ảnh
+        // 2, không đổi hướng (đã cùng hướng với ảnh 1 rồi).
         if (referenceImages.length === 2) {
-          scenePrompt += ` Two reference images are provided: the FIRST shows the body pose/angle to follow, the SECOND shows the face/gaze direction to follow — combine them: keep the body pose from the first image, but the face orientation and eye direction from the second image.`;
+          scenePrompt += row.face_view && row.face_view !== row.camera_view
+            ? ` Two reference images are provided: the FIRST shows the body pose/angle to follow, the SECOND shows the face/gaze direction to follow — combine them: keep the body pose from the first image, but the face orientation and eye direction from the second image.`
+            : ` Two reference images are provided: the FIRST shows the body pose/angle to follow, the SECOND is a close-up reference for the character's face — use it to keep facial identity accurate and consistent while following the body pose from the first image.`;
         }
         const body = buildImageRequestBody(
           job.image_model as string,
