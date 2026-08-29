@@ -20,6 +20,21 @@ type Stats = {
   recentUsers: { user_id: string; credit_balance: number; created_at: string }[];
 };
 
+type StoryVideoCostRow = {
+  id: number;
+  userId: string;
+  status: string;
+  createdAt: string;
+  numScenes: number;
+  imageModel: string | null;
+  videoModel: string | null;
+  characterCostVnd: number;
+  imageCostVnd: number;
+  videoCostVnd: number;
+  totalCostVnd: number;
+};
+type StoryVideoCostsData = { rows: StoryVideoCostRow[]; grandTotalVnd: number };
+
 const TYPE_LABEL: Record<string, string> = {
   topup: "Nạp credit",
   usage: "Sử dụng",
@@ -192,6 +207,8 @@ export default function AdminPage() {
   const [musicError, setMusicError] = useState<string | null>(null);
   const [deletingMusicId, setDeletingMusicId] = useState<number | null>(null);
 
+  const [storyVideoCosts, setStoryVideoCosts] = useState<StoryVideoCostsData | null>(null);
+
   async function loadStats() {
     const res = await fetch("/api/admin/stats");
     if (res.status === 401) {
@@ -239,6 +256,13 @@ export default function AdminPage() {
     setMusicTracks(data.tracks ?? []);
   }
 
+  async function loadStoryVideoCosts() {
+    const res = await fetch("/api/admin/story-video-costs");
+    if (!res.ok) return;
+    const data = await res.json();
+    setStoryVideoCosts(data);
+  }
+
   useEffect(() => {
     loadStats();
     loadSettings();
@@ -246,6 +270,7 @@ export default function AdminPage() {
     loadDeveloperReview();
     loadHomepageChips();
     loadBackgroundMusic();
+    loadStoryVideoCosts();
   }, []);
 
   // Nhạc nền do admin tự cung cấp (đã có bản quyền hợp lệ) — user chọn 1 bài trong danh sách này
@@ -1568,6 +1593,66 @@ export default function AdminPage() {
                       ))
                     )}
                   </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="mb-10">
+              <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Chi phí Fal.ai thật — Video từ ý tưởng truyện
+              </h2>
+              <p className="mb-3 text-xs text-zinc-400 dark:text-zinc-500">
+                Giá gốc app trả cho Fal.ai (KHÔNG phải giá bán đã cộng margin cho khách) — tính theo mức giá đã snapshot lúc tạo job,
+                CHƯA cộng thêm các lần khách bấm "Tạo lại" riêng lẻ từng ảnh/video sau đó.
+              </p>
+              <div className="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800">
+                <table className="w-full text-sm">
+                  <thead className="bg-zinc-100 text-left text-xs uppercase text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
+                    <tr>
+                      <th className="px-4 py-3 font-medium">Job</th>
+                      <th className="px-4 py-3 font-medium">User</th>
+                      <th className="px-4 py-3 font-medium">Ngày tạo</th>
+                      <th className="px-4 py-3 font-medium">Trạng thái</th>
+                      <th className="px-4 py-3 font-medium">Số cảnh</th>
+                      <th className="px-4 py-3 font-medium">Model ảnh / video</th>
+                      <th className="px-4 py-3 text-right font-medium">Chi phí Fal.ai</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                    {!storyVideoCosts || storyVideoCosts.rows.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-6 text-center text-zinc-500 dark:text-zinc-400">
+                          Chưa có job nào.
+                        </td>
+                      </tr>
+                    ) : (
+                      storyVideoCosts.rows.map((r) => (
+                        <tr key={r.id} className="bg-white dark:bg-zinc-950">
+                          <td className="px-4 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-400">#{r.id}</td>
+                          <td className="px-4 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-400">{shortId(r.userId)}</td>
+                          <td className="px-4 py-3 text-zinc-500 dark:text-zinc-400">{formatDate(r.createdAt)}</td>
+                          <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">{r.status}</td>
+                          <td className="px-4 py-3 text-zinc-900 dark:text-zinc-50">{r.numScenes}</td>
+                          <td className="px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400">
+                            {r.imageModel ?? "—"} / {r.videoModel ?? "—"}
+                          </td>
+                          <td className="px-4 py-3 text-right font-medium text-zinc-900 dark:text-zinc-50">{formatVnd(r.totalCostVnd)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                  {storyVideoCosts && storyVideoCosts.rows.length > 0 && (
+                    <tfoot>
+                      <tr className="bg-zinc-100 dark:bg-zinc-900">
+                        <td colSpan={6} className="px-4 py-3 text-right text-xs font-semibold uppercase text-zinc-500 dark:text-zinc-400">
+                          Tổng {storyVideoCosts.rows.length} job gần nhất
+                        </td>
+                        <td className="px-4 py-3 text-right font-semibold text-zinc-900 dark:text-zinc-50">
+                          {formatVnd(storyVideoCosts.grandTotalVnd)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
             </section>

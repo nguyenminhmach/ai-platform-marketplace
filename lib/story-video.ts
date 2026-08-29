@@ -60,7 +60,7 @@ const CHARACTER_SHEET_MODEL = "fal-ai/gpt-image-2/edit";
 // Giá GPT Image 2 @1024px đã tra fal.ai (xem migration-story-video-gpt-image2-resolution.sql) — cố
 // định 1 mức giá, không cho khách chọn độ phân giải riêng cho bước này (giữ đơn giản, đủ dùng làm
 // ảnh tham chiếu nội bộ, không phải ảnh xuất bản cuối cùng).
-const CHARACTER_PROVIDER_COST_VND = 5700;
+export const CHARACTER_PROVIDER_COST_VND = 5700;
 const CHARACTER_SHEET_PROMPT =
   "You are given one or more reference images of the SAME person — they may be ordinary photos and/or an existing multi-panel character sheet. Do NOT simply copy, crop, or pass through any single input image as-is, even if one of them already looks like a finished sheet. Always render a brand-new single image from scratch: one wide landscape canvas on a neutral light-gray studio background, divided into 6 equal panels labeled 1) FRONT VIEW (full body), 2) 3/4 LEFT VIEW (full body), 3) 3/4 RIGHT VIEW (full body), 4) SIDE VIEW (full body), 5) BACK VIEW (full body), 6) FACE CLOSE-UP. Extract the person's face, hairstyle, outfit, and body proportions by combining evidence from ALL provided reference images equally, and keep them identical and consistent across all six panels — do not invent a different person. Even, soft studio lighting, photorealistic, sharp focus.";
 
