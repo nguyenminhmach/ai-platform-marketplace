@@ -24,6 +24,7 @@ export async function POST(req: Request) {
     modelChatKey,
     reuseCharacterId,
     skipCharacterCreation,
+    genreKey,
   } = await req.json();
 
   if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
@@ -67,7 +68,8 @@ export async function POST(req: Request) {
       typeof modelChatKey === "string" ? modelChatKey : undefined,
       randomUUID(),
       hasReuseCharacter ? reuseCharacterId : undefined,
-      skipCharacterCreation === true
+      skipCharacterCreation === true,
+      typeof genreKey === "string" ? genreKey : undefined
     );
     return Response.json({ success: true, jobId: result.jobId, newBalance: result.newBalance });
   } catch (err) {

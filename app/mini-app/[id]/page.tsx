@@ -211,6 +211,19 @@ export default function MiniAppDetailPage() {
     { value: "anthropic/claude-sonnet-4.6", label: "Claude Sonnet" },
   ];
   const [storyModelChatKey, setStoryModelChatKey] = useState(STORY_MODEL_CHAT_OPTIONS[0].value);
+  // Thể loại — chỉ là 1 khoá tra bảng (xem GENRE_STYLE_GUIDES trong lib/story-video.ts), nối thêm 1
+  // đoạn hướng dẫn phong cách cố định vào system prompt Agent chia cảnh, không phải AI tự "hiểu" thể
+  // loại. "default" = không chọn gì, không nối thêm.
+  const STORY_GENRE_OPTIONS = [
+    { value: "default", label: "Mặc định" },
+    { value: "romance", label: "Tình cảm" },
+    { value: "comedy", label: "Hài hước" },
+    { value: "horror", label: "Kinh dị" },
+    { value: "scifi", label: "Khoa học viễn tưởng" },
+    { value: "slice_of_life", label: "Đời thường" },
+    { value: "mystery", label: "Bí ẩn" },
+  ];
+  const [storyGenreKey, setStoryGenreKey] = useState(STORY_GENRE_OPTIONS[0].value);
   const [storyImageCost, setStoryImageCost] = useState<number | null>(null);
   const [storyVideoCost, setStoryVideoCost] = useState<number | null>(null);
   const [storyCharacterCost, setStoryCharacterCost] = useState<number | null>(null);
@@ -1110,6 +1123,7 @@ export default function MiniAppDetailPage() {
           modelChatKey: storyModelChatKey,
           reuseCharacterId: reuseId ?? undefined,
           skipCharacterCreation: !reuseId && storySkipCharacterCreation,
+          genreKey: storyGenreKey !== "default" ? storyGenreKey : undefined,
         }),
       });
       const data = await res.json();
@@ -2563,13 +2577,17 @@ export default function MiniAppDetailPage() {
 
                     <div className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700 sm:col-span-1">
                       <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">🤖 Agent xử lý</p>
-                      <label className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">Agent</label>
+                      <label className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">Thể loại</label>
                       <select
-                        disabled
-                        value="default"
-                        className="mb-2 w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2.5 text-base text-zinc-500 outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
+                        value={storyGenreKey}
+                        onChange={(e) => setStoryGenreKey(e.target.value)}
+                        className="mb-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                       >
-                        <option value="default">Mặc định</option>
+                        {STORY_GENRE_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
                       </select>
                       <label className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">Model chat</label>
                       <select

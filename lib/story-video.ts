@@ -184,6 +184,7 @@ type JobRow = {
   image_resolution_key: string | null;
   video_duration_key: string | null;
   character_angle_urls: CharacterAngleUrls | null;
+  genre_key: string | null;
 };
 
 async function getMiniAppModelConfig(miniAppId: string) {
@@ -444,6 +445,7 @@ type SceneStageInput = Pick<
   | "image_resolution_key"
   | "character_sheet_url"
   | "character_angle_urls"
+  | "genre_key"
 >;
 
 // Reference Selector — TRA BẢNG BẰNG CODE (key -> URL), không dùng AI: chọn đúng 1 ảnh góc đã cắt sẵn
@@ -530,6 +532,32 @@ async function submitSceneImageForRow(
   );
 }
 
+// Thể loại — mỗi key ứng với 1 đoạn hướng dẫn phong cách CỐ ĐỊNH, viết sẵn 1 lần, nối THÊM vào cuối
+// system prompt Agent chia cảnh (đúng cơ chế customInstructions/prompt_helper_instructions đã có sẵn)
+// — không phải Agent "hiểu" khái niệm thể loại, chỉ là tra bảng lấy đúng đoạn text rồi nối vào prompt.
+// "default"/không có key -> không nối gì thêm.
+export const STORY_GENRE_KEYS = ["romance", "comedy", "horror", "scifi", "slice_of_life", "mystery"] as const;
+export type StoryGenreKey = (typeof STORY_GENRE_KEYS)[number];
+const GENRE_STYLE_GUIDES: Record<StoryGenreKey, string> = {
+  romance:
+    "Phong cách hình ảnh thể loại Tình cảm: ánh sáng ấm (hoàng hôn, đèn vàng, nắng sớm), tông màu ấm/pastel, ưu tiên khoảnh khắc gần gũi và biểu cảm dịu dàng, bối cảnh lãng mạn (quán cà phê, công viên, ban công).",
+  comedy:
+    "Phong cách hình ảnh thể loại Hài hước: ánh sáng tươi sáng rực rỡ, màu sắc sống động, biểu cảm/tư thế có thể hơi phóng đại tự nhiên (không gượng ép), không khí vui tươi, năng động.",
+  horror:
+    "Phong cách hình ảnh thể loại Kinh dị: ánh sáng tối, tương phản mạnh, bóng đổ dài, tông màu lạnh/xám xanh, không khí căng thẳng bất an, có thể dùng khung hình hẹp hoặc góc khuất tạo cảm giác bị theo dõi.",
+  scifi:
+    "Phong cách hình ảnh thể loại Khoa học viễn tưởng: ánh sáng neon/xanh lam, bối cảnh công nghệ cao hoặc tương lai, tông màu lạnh kim loại, chi tiết môi trường gợi cảm giác hiện đại/tương lai.",
+  slice_of_life:
+    "Phong cách hình ảnh thể loại Đời thường: ánh sáng tự nhiên, tông màu trung tính ấm áp, không khí chân thực gần gũi, tránh dàn dựng quá kịch tính, tập trung vào khoảnh khắc sinh hoạt bình dị.",
+  mystery:
+    "Phong cách hình ảnh thể loại Bí ẩn: ánh sáng mờ ảo hoặc tương phản cao, có thể có sương mù/bóng tối một phần che khuất, tông màu trầm, bố cục gợi tò mò thay vì phơi bày rõ ràng.",
+};
+
+function resolveGenreStyleGuide(genreKey: string | null | undefined): string | undefined {
+  if (!genreKey) return undefined;
+  return (GENRE_STYLE_GUIDES as Record<string, string>)[genreKey];
+}
+
 // Trừ credit phần ảnh (+ video nếu auto_video) rồi chạy chia cảnh (LLM) + submit ảnh cho từng cảnh,
 // dùng character_sheet_url làm tham chiếu chung — tách riêng để dùng chung cho 2 nơi gọi: (1)
 // continueStoryVideoToSceneStage (khách bấm "Tiếp tục chia cảnh" sau khi duyệt Character mới tạo),
@@ -563,7 +591,10 @@ async function runSceneStage(
   try {
     const miniApp = await getMiniAppModelConfig(job.mini_app_id);
     const imageEntry = miniApp.model_config.image_models.find((m) => m.model === job.image_model);
-    const scenes = await splitStoryIntoScenes(finalStoryDescription, job.num_scenes, miniApp.model_config.prompt_helper_instructions, modelChatKey);
+    const combinedInstructions = [miniApp.model_config.prompt_helper_instructions, resolveGenreStyleGuide(job.genre_key)]
+      .filter((s): s is string => !!s?.trim())
+      .join("\n\n");
+    const scenes = await splitStoryIntoScenes(finalStoryDescription, job.num_scenes, combinedInstructions || undefined, modelChatKey);
 
     const { data: sceneRows, error: sceneError } = await supabase
       .from("story_video_scenes")
@@ -618,11 +649,15 @@ export async function submitStoryVideoJob(
   modelChatKey: string | undefined,
   idempotencyKey: string,
   reuseCharacterId?: number,
-  skipCharacterCreation?: boolean
+  skipCharacterCreation?: boolean,
+  genreKey?: string
 ): Promise<{ jobId: number; newBalance: number }> {
   if (numScenes < MIN_SCENES || numScenes > MAX_SCENES) {
     throw new Error(`Cần từ ${MIN_SCENES} đến ${MAX_SCENES} phân cảnh`);
   }
+  // Whitelist qua tra bảng GENRE_STYLE_GUIDES — key lạ/không hợp lệ thì coi như không chọn thể loại
+  // (an toàn hơn validate chặn cứng, giữ app luôn chạy được).
+  const resolvedGenreKey = genreKey && resolveGenreStyleGuide(genreKey) ? genreKey : null;
 
   const supabase = getSupabaseAdmin();
 
@@ -663,6 +698,7 @@ export async function submitStoryVideoJob(
       video_duration_key: resolvedDurationKey ?? null,
       image_provider_cost_vnd_per_scene: imageProviderCostVnd,
       video_provider_cost_vnd_per_scene: videoProviderCostVnd,
+      genre_key: resolvedGenreKey,
     })
     .select("id")
     .single();
@@ -682,6 +718,7 @@ export async function submitStoryVideoJob(
     image_resolution_key: resolvedResolutionKey ?? null,
     character_sheet_url: null,
     character_angle_urls: null,
+    genre_key: resolvedGenreKey,
   };
 
   let characterTxId: number | null = null;
