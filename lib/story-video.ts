@@ -155,6 +155,8 @@ export type SceneRow = {
   job_id: number;
   position: number;
   scene_description: string | null;
+  camera_view: string | null;
+  motion_prompt: string | null;
   image_fal_request_id: string | null;
   image_url: string | null;
   video_fal_request_id: string | null;
@@ -833,10 +835,14 @@ async function generateSceneDescriptionFromImage(
   imageUrl: string,
   hint: string | undefined,
   storyDescription: string,
-  modelChatKey: string | undefined
+  modelChatKey: string | undefined,
+  genreStyleGuide?: string
 ): Promise<string> {
+  const systemPrompt = genreStyleGuide?.trim()
+    ? `${SCENE_PROMPT_FROM_IMAGE_SYSTEM}\n\nGhi chú thêm về phong cách/nhịp điệu chuyển động cho đúng thể loại: ${genreStyleGuide.trim()}`
+    : SCENE_PROMPT_FROM_IMAGE_SYSTEM;
   const userPrompt = `Ý tưởng truyện tổng thể: ${storyDescription}${hint ? `\nGợi ý riêng cho cảnh này: ${hint}` : ""}\nViết mô tả chuyển động ngắn cho ảnh này.`;
-  const { output } = await callOpenRouter(modelChatKey || "google/gemini-3-flash-preview", 120, SCENE_PROMPT_FROM_IMAGE_SYSTEM, userPrompt, imageUrl);
+  const { output } = await callOpenRouter(modelChatKey || "google/gemini-3-flash-preview", 120, systemPrompt, userPrompt, imageUrl);
   return output.trim();
 }
 
@@ -1231,29 +1237,66 @@ export async function applyImageStageResult(
   }
 }
 
+type VideoSceneRefRow = {
+  id: number;
+  image_url: string | null;
+  scene_description: string | null;
+  motion_prompt: string | null;
+};
+
+// Build prompt (ưu tiên motion_prompt đã sinh riêng cho video, fallback scene_description nếu thiếu —
+// vd job cũ tạo trước khi có cột này) + submit Fal.ai cho ĐÚNG 1 cảnh — dùng chung cho batch tạo lần
+// đầu (proceedToVideoStage) và tạo lại riêng lẻ 1 cảnh (regenerateSceneVideo). regen=true thêm cờ
+// &regen=1 vào webhook URL để applyVideoStageResult biết đây là tạo lại 1 cảnh, không phải lượt đầu.
+async function submitSceneVideoForRow(
+  job: Pick<JobRow, "id" | "video_model" | "aspect_ratio" | "video_duration_key">,
+  row: VideoSceneRefRow,
+  regen: boolean
+): Promise<string> {
+  const prompt = row.motion_prompt ?? row.scene_description;
+  const body = buildVideoRequestBody(job.video_model as string, prompt, row.image_url as string, job.aspect_ratio ?? "9:16", job.video_duration_key ?? undefined);
+  return submitFalJob(
+    job.video_model as string,
+    body,
+    `${SITE_URL}/api/story-video/webhook?jobId=${job.id}&sceneId=${row.id}&stage=video${regen ? "&regen=1" : ""}`
+  );
+}
+
 async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
   const supabase = getSupabaseAdmin();
   try {
     const { data: job } = await supabase
       .from("story_video_jobs")
-      .select("video_model, aspect_ratio, video_duration_key")
+      .select("video_model, aspect_ratio, video_duration_key, story_description, genre_key")
       .eq("id", jobId)
       .single();
     if (!job?.video_model) throw new Error("Không tìm thấy model video của job");
 
+    const genreStyleGuide = resolveGenreStyleGuide(job.genre_key);
+
     await Promise.all(
       scenes.map(async (scene) => {
-        const body = buildVideoRequestBody(
-          job.video_model as string,
-          scene.scene_description,
-          scene.image_url as string,
-          job.aspect_ratio ?? "9:16",
-          job.video_duration_key ?? undefined
-        );
-        const requestId = await submitFalJob(
-          job.video_model as string,
-          body,
-          `${SITE_URL}/api/story-video/webhook?jobId=${jobId}&sceneId=${scene.id}&stage=video`
+        // Sinh mô tả CHUYỂN ĐỘNG riêng cho video (khác mô tả ảnh tĩnh scene_description) — chỉ cần cho
+        // luồng AI tự vẽ ảnh (camera_view có giá trị). Luồng "khách tự tải ảnh phân cảnh" đã ghi thẳng
+        // mô tả chuyển động vào scene_description ngay từ bước tạo (không có camera_view), dùng lại
+        // luôn, không gọi AI thêm lần nữa.
+        let motionPrompt = scene.motion_prompt;
+        if (!motionPrompt) {
+          motionPrompt = scene.camera_view
+            ? await generateSceneDescriptionFromImage(
+                scene.image_url as string,
+                scene.scene_description ?? undefined,
+                job.story_description,
+                undefined,
+                genreStyleGuide
+              )
+            : scene.scene_description;
+          await supabase.from("story_video_scenes").update({ motion_prompt: motionPrompt }).eq("id", scene.id);
+        }
+        const requestId = await submitSceneVideoForRow(
+          { id: jobId, video_model: job.video_model, aspect_ratio: job.aspect_ratio, video_duration_key: job.video_duration_key },
+          { id: scene.id, image_url: scene.image_url, scene_description: scene.scene_description, motion_prompt: motionPrompt },
+          false
         );
         await supabase.from("story_video_scenes").update({ video_fal_request_id: requestId }).eq("id", scene.id);
       })
@@ -1263,6 +1306,43 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
   } catch (err) {
     await failJob(jobId, err instanceof Error ? err.message : String(err));
   }
+}
+
+// Khách chỉ ưng 1 phần video phân cảnh — tạo lại ĐÚNG 1 cảnh (không đụng các cảnh khác), trừ credit
+// đúng bằng giá 1 cảnh video (không phải cả N cảnh). Dùng lại nguyên motion_prompt đã sinh sẵn (không
+// gọi lại AI viết chuyển động) — chỉ đổi clip xuất ra, giữ đúng ảnh nguồn của cảnh đó.
+export async function regenerateSceneVideo(userId: string, sceneId: number, idempotencyKey: string): Promise<{ newBalance: number }> {
+  const supabase = getSupabaseAdmin();
+  const { data: sceneData } = await supabase
+    .from("story_video_scenes")
+    .select("id, job_id, image_url, scene_description, motion_prompt")
+    .eq("id", sceneId)
+    .single();
+  if (!sceneData) throw new Error("Không tìm thấy phân cảnh");
+  if (!sceneData.image_url) throw new Error("Cảnh này chưa có ảnh để tạo video");
+
+  const { data: jobData } = await supabase.from("story_video_jobs").select("*").eq("id", sceneData.job_id).single();
+  if (!jobData) throw new Error("Không tìm thấy job");
+  const job = jobData as JobRow;
+
+  if (job.user_id !== userId) throw new Error("Không có quyền với phân cảnh này");
+  if (!job.video_provider_cost_vnd_per_scene) throw new Error("Thiếu dữ liệu giá video của job");
+  if (!job.video_model) throw new Error("Không tìm thấy model video của job");
+
+  const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
+  const cost = computeDynamicCreditCost(job.video_provider_cost_vnd_per_scene, marginPercent, vndPerCredit);
+  const deduction = await deductCredit(userId, cost, job.mini_app_id, idempotencyKey);
+  if (!deduction.success) throw new InsufficientCreditError();
+
+  try {
+    const requestId = await submitSceneVideoForRow(job, sceneData, true);
+    await supabase.from("story_video_scenes").update({ video_fal_request_id: requestId, video_url: null }).eq("id", sceneId);
+  } catch (err) {
+    if (deduction.txId) await refundCredit(deduction.txId);
+    throw err;
+  }
+
+  return { newBalance: deduction.newBalance };
 }
 
 // Khách bấm "Tạo video" sau khi xem ảnh phân cảnh (job đang ở "images_ready") — trừ riêng phần credit
@@ -1309,17 +1389,35 @@ export async function continueStoryVideoToVideoStage(userId: string, jobId: numb
 }
 
 // Gọi khi 1 clip video (bước 2) của 1 cảnh xong — khi TẤT CẢ cảnh xong mới ghép lại thành video cuối.
-export async function applyVideoStageResult(jobId: number, sceneId: number, falPayload: Record<string, unknown>) {
+// isRegenerate=true khi webhook này đến từ regenerateSceneVideo (tạo lại riêng 1 cảnh sau khi job có
+// thể đã "done"/"failed" từ trước) — lỗi ở lượt tạo lại KHÔNG được làm hỏng cả job (failJob sẽ hoàn
+// nhầm toàn bộ credit + xoá kết quả các cảnh khác), chỉ log lại rồi dừng. Ngược lại, nếu tạo lại
+// THÀNH CÔNG và tất cả cảnh đều đã có video (kể cả job đã "done" từ trước) vẫn ghép lại thành video
+// cuối MỚI — để bản tải về luôn khớp với clip mới nhất của từng cảnh, không giữ mãi bản ghép cũ.
+export async function applyVideoStageResult(
+  jobId: number,
+  sceneId: number,
+  falPayload: Record<string, unknown>,
+  isRegenerate = false
+) {
   const supabase = getSupabaseAdmin();
   const isError = falPayload.status === "ERROR" || !!falPayload.error;
 
   if (isError) {
+    if (isRegenerate) {
+      console.error(`[story-video] Lỗi tạo lại video cho cảnh #${sceneId}:`, falPayload.error ?? "unknown");
+      return;
+    }
     await failJob(jobId, `Lỗi tạo video cảnh: ${String(falPayload.error ?? "")}`);
     return;
   }
 
   const videoUrl = extractVideoUrl(falPayload);
   if (!videoUrl) {
+    if (isRegenerate) {
+      console.error(`[story-video] Không tìm thấy URL video khi tạo lại cảnh #${sceneId}`);
+      return;
+    }
     await failJob(jobId, "Không tìm thấy URL video trong phản hồi Fal.ai");
     return;
   }

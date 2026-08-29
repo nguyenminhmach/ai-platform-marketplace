@@ -261,6 +261,7 @@ export default function MiniAppDetailPage() {
     { id: number; position: number; imageUrl: string | null; videoUrl: string | null }[] | null
   >(null);
   const [storyRegeneratingSceneId, setStoryRegeneratingSceneId] = useState<number | null>(null);
+  const [storyRegeneratingVideoSceneId, setStoryRegeneratingVideoSceneId] = useState<number | null>(null);
   const [storyResult, setStoryResult] = useState<string | null>(null);
   const [storyError, setStoryError] = useState<string | null>(null);
   const storyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -922,6 +923,59 @@ export default function MiniAppDetailPage() {
     } catch {
       setStoryError("Không kết nối được tới server");
       setStoryRegeneratingSceneId(null);
+    }
+  }
+
+  // Poll riêng cho tạo lại VIDEO 1 cảnh — cùng khuôn pollSceneRegenerate (ảnh) nhưng theo dõi videoUrl
+  // thay vì imageUrl. job.status không đổi khi tạo lại 1 cảnh (có thể đã "done" từ trước), nên không
+  // dùng chung pollStoryVideoStatus (nó dừng ngay khi thấy "done").
+  function pollSceneVideoRegenerate(jobId: number, sceneId: number) {
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/story-video/status?jobId=${jobId}`);
+        const data = await res.json();
+        const scene = Array.isArray(data.scenes)
+          ? data.scenes.find((s: { id: number; videoUrl: string | null }) => s.id === sceneId)
+          : null;
+        if (scene?.videoUrl) {
+          setStoryScenes(data.scenes);
+          clearInterval(interval);
+          setStoryRegeneratingVideoSceneId((cur) => (cur === sceneId ? null : cur));
+          // Server có thể đã ghép lại thành video cuối mới (khi tất cả cảnh đã có video) -> lấy luôn
+          // outputUrl mới nhất để khách thấy đúng bản đã cập nhật, không phải bản ghép cũ.
+          if (data.status === "done" && data.outputUrl) setStoryResult(data.outputUrl);
+        }
+      } catch {
+        // bỏ qua lỗi mạng tạm thời, vòng poll tiếp theo sẽ thử lại
+      }
+    }, 4000);
+    setTimeout(() => {
+      clearInterval(interval);
+      setStoryRegeneratingVideoSceneId((cur) => (cur === sceneId ? null : cur));
+    }, 180000);
+  }
+
+  async function handleRegenerateSceneVideo(sceneId: number) {
+    if (!user || !storyJobId) return;
+    setStoryRegeneratingVideoSceneId(sceneId);
+    setStoryError(null);
+    try {
+      const res = await fetch("/api/story-video/regenerate-scene-video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, sceneId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStoryError(data.error ?? "Có lỗi xảy ra");
+        setStoryRegeneratingVideoSceneId(null);
+        return;
+      }
+      window.dispatchEvent(new Event("balance-updated"));
+      pollSceneVideoRegenerate(storyJobId, sceneId);
+    } catch {
+      setStoryError("Không kết nối được tới server");
+      setStoryRegeneratingVideoSceneId(null);
     }
   }
 
@@ -3012,9 +3066,47 @@ export default function MiniAppDetailPage() {
                 </div>
               )}
 
+              {storyScenes && storyScenes.some((s) => s.videoUrl) && (
+                <div className="mt-4 rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
+                  <p className="mb-2 text-sm font-semibold text-zinc-700 dark:text-zinc-300">🎬 Video từng cảnh</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    {storyScenes.map((scene, index) => {
+                      const isRegeneratingThisVideo = storyRegeneratingVideoSceneId === scene.id;
+                      if (!scene.videoUrl && !isRegeneratingThisVideo) return null;
+                      return (
+                        <div key={scene.id} className="relative w-full" style={{ aspectRatio: storyAspectRatio.replace(":", " / ") }}>
+                          {scene.videoUrl && <video src={scene.videoUrl} controls className="h-full w-full rounded-lg object-cover" />}
+                          {isRegeneratingThisVideo && (
+                            <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/60 text-xs text-white">
+                              Đang tạo lại...
+                            </div>
+                          )}
+                          <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
+                            Cảnh {index + 1}
+                          </span>
+                          <button
+                            onClick={() => {
+                              if (!isRegeneratingThisVideo) handleRegenerateSceneVideo(scene.id);
+                            }}
+                            disabled={!!storyRegeneratingVideoSceneId}
+                            title="Tạo lại đúng video cảnh này (tốn thêm credit như 1 video phân cảnh)"
+                            className="absolute right-1 top-1 rounded-full bg-black/70 px-1.5 py-1 text-xs text-white hover:bg-black/90 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            🔄
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-2 text-sm text-zinc-400 dark:text-zinc-500">
+                    Không ưng video cảnh nào thì bấm 🔄 để tạo lại đúng cảnh đó, không cần tạo lại cả video.
+                  </p>
+                </div>
+              )}
+
               {storyResult && (
                 <div ref={storyResultRef} className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800">
-                  <p className="mb-1 text-sm font-medium text-zinc-500 dark:text-zinc-400">Kết quả từ AI</p>
+                  <p className="mb-1 text-sm font-medium text-zinc-500 dark:text-zinc-400">Kết quả từ AI (video hoàn chỉnh đã ghép)</p>
                   <video src={storyResult} controls className="w-full max-w-md rounded-lg" />
                   <div className="mt-3 flex gap-2">
                     <a

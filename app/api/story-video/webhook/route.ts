@@ -29,7 +29,7 @@ export async function POST(req: Request) {
     } else if (stage === "image") {
       await applyImageStageResult(Number(jobId), Number(sceneId), payload, isRegenerate);
     } else {
-      await applyVideoStageResult(Number(jobId), Number(sceneId), payload);
+      await applyVideoStageResult(Number(jobId), Number(sceneId), payload, isRegenerate);
     }
 
     return Response.json({ success: true });
