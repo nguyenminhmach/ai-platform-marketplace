@@ -185,6 +185,9 @@ export default function MiniAppDetailPage() {
   // khớp đúng tên trong Ý tưởng truyện (vd truyện viết "Lan ôm Mai" thì cần đúng tên "Lan" ở đây,
   // không phải để mặc định "Nhân vật 1" — Agent sẽ không biết "Lan" là ai nếu tên không khớp).
   const [storyPrimaryCharacterLabel, setStoryPrimaryCharacterLabel] = useState("");
+  // Ảnh THẬT của 1 địa điểm (sân vườn, nhà, cửa hàng...) — tuỳ chọn, dùng chung cho cả job, để ảnh
+  // phân cảnh AI vẽ diễn ra đúng tại khung cảnh thật đó thay vì AI tự bịa bối cảnh.
+  const [storyLocationReference, setStoryLocationReference] = useState<string | null>(null);
   // Khách chủ động chọn bỏ qua bước tạo Character (AI vẽ sheet nhiều góc) — dùng thẳng ảnh đầu tiên đã
   // tải làm tham chiếu duy nhất, tiết kiệm ~18 credit nhưng các cảnh cần góc khác (quay lưng, nghiêng)
   // dễ kém đồng nhất hơn vì chỉ có đúng 1 góc ảnh để AI tham chiếu, không phải sheet đủ 6 góc.
@@ -535,15 +538,16 @@ export default function MiniAppDetailPage() {
 
   // Từ 2 nhân vật trở lên bắt buộc dùng model hỗ trợ nhiều ảnh tham chiếu (multi_image) — đã kiểm
   // chứng qua test thật chỉ loại model này ghép được nhiều người vào 1 cảnh. Tự chuyển sang model
-  // multi_image đầu tiên nếu model đang chọn không hỗ trợ, tránh khách bấm chạy rồi mới bị lỗi.
+  // multi_image đầu tiên nếu model đang chọn không hỗ trợ, tránh khách bấm chạy rồi mới bị lỗi. Ảnh
+  // Bối cảnh/Địa điểm cũng cần multi_image (thêm 1 ảnh tham chiếu nữa) nên dùng chung điều kiện.
   useEffect(() => {
-    if (storyExtraCharacters.length === 0) return;
+    if (storyExtraCharacters.length === 0 && !storyLocationReference) return;
     const current = storyImageModels.find((m) => m.key === storyImageModelKey);
     if (current && !current.multi_image) {
       const fallback = storyImageModels.find((m) => m.multi_image);
       if (fallback) setStoryImageModelKey(fallback.key);
     }
-  }, [storyExtraCharacters.length, storyImageModels, storyImageModelKey]);
+  }, [storyExtraCharacters.length, storyLocationReference, storyImageModels, storyImageModelKey]);
 
   // "Video từ ý tưởng truyện": tự khôi phục job gần nhất còn dở dang khi khách quay lại trang (đóng
   // tab/tắt máy giữa chừng) — trước đây mọi tiến trình chỉ nằm trong state trình duyệt nên tắt đi là
@@ -561,6 +565,7 @@ export default function MiniAppDetailPage() {
         if (Array.isArray(job.characterImageUrls) && job.characterImageUrls.length > 0) {
           setStoryCharacterImages(job.characterImageUrls);
         }
+        if (job.locationReferenceUrl) setStoryLocationReference(job.locationReferenceUrl);
         setStoryRunning(true);
         setStoryStatusText("Đang khôi phục công việc đang làm dở...");
         try {
@@ -872,6 +877,7 @@ export default function MiniAppDetailPage() {
         if (data.characterSheetUrl) setStoryCharacterSheetUrl(data.characterSheetUrl);
         if (data.characterSource) setStoryCharacterSource(data.characterSource);
         setStoryJobCharacters(Array.isArray(data.characters) ? data.characters : null);
+        if (data.locationReferenceUrl) setStoryLocationReference(data.locationReferenceUrl);
 
         if (data.status === "done" && data.outputUrl) {
           if (storyPollRef.current) clearInterval(storyPollRef.current);
@@ -1253,6 +1259,22 @@ export default function MiniAppDetailPage() {
       }
     }
 
+    // Ảnh Bối cảnh/Địa điểm (tuỳ chọn, dùng chung cho cả job) — tải lên nếu là ảnh mới (base64), dùng
+    // thẳng nếu đã là URL thật (job khôi phục dở dang).
+    let locationReferenceUrl: string | undefined;
+    if (storyLocationReference) {
+      try {
+        locationReferenceUrl = storyLocationReference.startsWith("http")
+          ? storyLocationReference
+          : await uploadOutfitSwapImage(storyLocationReference);
+      } catch (err) {
+        setStoryError(err instanceof Error ? err.message : "Không tải được ảnh địa điểm lên, thử lại");
+        setStoryRunning(false);
+        setStoryStatusText(null);
+        return;
+      }
+    }
+
     setStoryStatusText(reuseId ? "Đang chuẩn bị Character đã lưu..." : "AI đang kiểm tra ảnh nhân vật...");
 
     try {
@@ -1276,6 +1298,7 @@ export default function MiniAppDetailPage() {
           skipCharacterCreation: !reuseId && storySkipCharacterCreation,
           genreKey: storyGenreKey !== "default" ? storyGenreKey : undefined,
           characters,
+          locationReferenceUrl,
         }),
       });
       const data = await res.json();
@@ -2876,6 +2899,53 @@ export default function MiniAppDetailPage() {
                       </select>
                       <p className="mt-1 text-sm text-zinc-400 dark:text-zinc-500">Admin chỉnh hướng dẫn Agent trong /admin.</p>
                 </div>
+              </div>
+
+              {/* Hàng 1.5: Bối cảnh/Địa điểm thật (tuỳ chọn) */}
+              <div className="mt-4 rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
+                <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">📍 Bối cảnh/Địa điểm (tuỳ chọn)</p>
+                <p className="mb-3 text-sm text-zinc-400 dark:text-zinc-500">
+                  Đưa ảnh thật của 1 địa điểm (sân vườn, nhà, cửa hàng...) để video diễn ra đúng tại khung cảnh đó — không bắt
+                  buộc, bỏ trống thì AI tự vẽ bối cảnh theo mô tả truyện.
+                </p>
+                {storyLocationReference ? (
+                  <div className="relative w-40" style={{ aspectRatio: storyAspectRatio.replace(":", " / ") }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={storyLocationReference}
+                      alt="Bối cảnh/Địa điểm"
+                      onClick={() => setStoryQuickZoomUrl(storyLocationReference)}
+                      className="h-full w-full cursor-zoom-in rounded-lg object-cover"
+                      title="Bấm để xem to"
+                    />
+                    <button
+                      onClick={() => setStoryLocationReference(null)}
+                      className="absolute -right-2 -top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white hover:bg-black/90"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ) : (
+                  <label
+                    className="flex w-40 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800"
+                    style={{ aspectRatio: storyAspectRatio.replace(":", " / ") }}
+                  >
+                    <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = "";
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = () => setStoryLocationReference(reader.result as string);
+                        reader.readAsDataURL(file);
+                      }}
+                    />
+                  </label>
+                )}
               </div>
 
               {/* Hàng 2: Ý tưởng truyện */}

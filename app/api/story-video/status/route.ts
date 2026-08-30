@@ -22,7 +22,7 @@ export async function GET(req: Request) {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("story_video_jobs")
-    .select("status, output_url, error_message, character_sheet_url, character_source")
+    .select("status, output_url, error_message, character_sheet_url, character_source, location_reference_url")
     .eq("id", jobId)
     .single();
   if (error || !data) return Response.json({ error: "Không tìm thấy job" }, { status: 404 });
@@ -79,5 +79,6 @@ export async function GET(req: Request) {
     characterSheetUrl: data.character_sheet_url,
     characterSource: data.character_source,
     characters,
+    locationReferenceUrl: data.location_reference_url,
   });
 }

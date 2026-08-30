@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { data: job } = await supabase
     .from("story_video_jobs")
-    .select("id, story_description, character_image_urls")
+    .select("id, story_description, character_image_urls, location_reference_url")
     .eq("user_id", userId)
     .neq("status", "done")
     .gte("created_at", oneDayAgo)
@@ -28,6 +28,7 @@ export async function GET(req: Request) {
       id: job.id,
       storyDescription: job.story_description,
       characterImageUrls: job.character_image_urls,
+      locationReferenceUrl: job.location_reference_url,
     },
   });
 }

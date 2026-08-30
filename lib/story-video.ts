@@ -201,6 +201,7 @@ type JobRow = {
   video_duration_key: string | null;
   character_angle_urls: CharacterAngleUrls | null;
   genre_key: string | null;
+  location_reference_url: string | null;
 };
 
 async function getMiniAppModelConfig(miniAppId: string) {
@@ -543,6 +544,7 @@ type SceneStageInput = Pick<
   | "character_sheet_url"
   | "character_angle_urls"
   | "genre_key"
+  | "location_reference_url"
 >;
 
 // Reference Selector — TRA BẢNG BẰNG CODE (key -> URL), không dùng AI: chọn đúng 1 ảnh góc đã cắt sẵn
@@ -586,17 +588,25 @@ type ImageSceneRefRow = {
 // (từng gây lệch bug multi_image trước đây khi chỉ sửa 1 chỗ). regen=true thêm cờ &regen=1 vào
 // webhook URL để applyImageStageResult biết không cần chờ/kiểm tra các cảnh khác.
 async function submitSceneImageForRow(
-  job: Pick<JobRow, "id" | "character_angle_urls" | "character_sheet_url" | "image_model" | "aspect_ratio" | "image_resolution_key">,
+  job: Pick<
+    JobRow,
+    "id" | "character_angle_urls" | "character_sheet_url" | "image_model" | "aspect_ratio" | "image_resolution_key" | "location_reference_url"
+  >,
   row: ImageSceneRefRow,
   imageEntry: ImageModelEntry | undefined,
   regen: boolean
 ): Promise<string> {
-  const referenceImages = selectReferenceImagesForScene(
+  const characterImages = selectReferenceImagesForScene(
     row.camera_view,
     job.character_angle_urls,
     job.character_sheet_url as string,
     row.face_view
   );
+  // Ảnh Bối cảnh/Địa điểm (tuỳ chọn, dùng chung cho cả job) — nối THÊM vào cuối, độc lập với ảnh
+  // thân/mặt ở trên. Chỉ gửi khi model thật sự hỗ trợ đa ảnh, không thì im lặng bỏ qua (không throw
+  // lỗi) — đúng tiền lệ đã làm với face_view.
+  const hasLocation = !!job.location_reference_url && (imageEntry?.multi_image ?? false);
+  const referenceImages = hasLocation ? [...characterImages, job.location_reference_url as string] : characterImages;
   // Tầng 2 (Appearance) — chỉ cảnh có outfit_override mới chèn thêm chỉ dẫn đổi đồ vào cuối prompt,
   // đè lên đồ trong ảnh tham chiếu (Tầng 1 mặt/tóc/dáng người vẫn giữ nguyên qua ảnh tham chiếu như
   // bình thường). Không đổi gì với cảnh không có outfit_override.
@@ -608,11 +618,16 @@ async function submitSceneImageForRow(
   // (mặc định, mọi cảnh còn thấy mặt) chỉ cần model GIỮ ĐÚNG danh tính khuôn mặt theo ảnh 2, không đổi
   // hướng (đã cùng hướng với ảnh 1 rồi). CHỈ thêm câu chỉ dẫn này khi model THẬT SỰ hỗ trợ đa ảnh
   // (multi_image) — model không hỗ trợ (vd Flux Kontext) chỉ nhận đúng ảnh đầu tiên (xem
-  // buildImageRequestBody), nói về "ảnh thứ 2" mà model không hề nhận được là vô nghĩa.
-  if (referenceImages.length === 2 && imageEntry?.multi_image) {
+  // buildImageRequestBody), nói về "ảnh thứ 2" mà model không hề nhận được là vô nghĩa. Mô tả theo
+  // FIRST/SECOND (không nói cứng "hai ảnh") để còn ghép thêm câu địa điểm phía sau mà không mâu thuẫn
+  // số lượng ảnh thật sự gửi đi.
+  if (characterImages.length === 2 && imageEntry?.multi_image) {
     scenePrompt += row.face_view && row.face_view !== row.camera_view
-      ? ` Two reference images are provided: the FIRST shows the body pose/angle to follow, the SECOND shows the face/gaze direction to follow — combine them: keep the body pose from the first image, but the face orientation and eye direction from the second image.`
-      : ` Two reference images are provided: the FIRST shows the body pose/angle to follow, the SECOND is a close-up reference for the character's face — use it to keep facial identity accurate and consistent while following the body pose from the first image.`;
+      ? ` The FIRST reference image shows the body pose/angle to follow, the SECOND shows the face/gaze direction to follow — combine them: keep the body pose from the first image, but the face orientation and eye direction from the second image.`
+      : ` The FIRST reference image shows the body pose/angle to follow, the SECOND is a close-up reference for the character's face — use it to keep facial identity accurate and consistent while following the body pose from the first image.`;
+  }
+  if (hasLocation) {
+    scenePrompt += ` The LAST reference image shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
   }
   const body = buildImageRequestBody(
     job.image_model as string,
@@ -664,20 +679,26 @@ type MultiCharacterSceneRefRow = {
 // Build prompt (liệt kê rõ ảnh nào ứng với ai) + submit Fal.ai cho ĐÚNG 1 cảnh nhiều nhân vật — dùng
 // chung cho batch tạo lần đầu (runMultiCharacterSceneStage) và tạo lại riêng lẻ sau này (Bước 3).
 async function submitMultiCharacterSceneImageForRow(
-  job: Pick<JobRow, "id" | "image_model" | "aspect_ratio" | "image_resolution_key">,
+  job: Pick<JobRow, "id" | "image_model" | "aspect_ratio" | "image_resolution_key" | "location_reference_url">,
   row: MultiCharacterSceneRefRow,
   jobCharacters: JobCharacterRefRow[],
   imageEntry: ImageModelEntry | undefined,
   regen: boolean
 ): Promise<string> {
   const refs = selectReferenceImagesForMultiScene(row.character_positions ?? [], jobCharacters);
-  const referenceImages = refs.map((r) => r.url);
+  // Ảnh Bối cảnh/Địa điểm (tuỳ chọn, dùng chung cho cả job) — nối THÊM vào cuối, sau các ảnh nhân
+  // vật. Chỉ gửi khi model thật sự hỗ trợ đa ảnh, không thì im lặng bỏ qua.
+  const hasLocation = !!job.location_reference_url && (imageEntry?.multi_image ?? false);
+  const referenceImages = hasLocation ? [...refs.map((r) => r.url), job.location_reference_url as string] : refs.map((r) => r.url);
   let scenePrompt = row.scene_description ?? "";
   if (refs.length >= 2) {
     const mapping = refs.map((r, i) => `Image ${i + 1} = ${r.label}`).join(", ");
     scenePrompt += ` Multiple reference images are provided, each showing a DIFFERENT real person: ${mapping}. Combine them so ALL of these people appear together in the scene as described — preserve each person's exact facial identity, hairstyle, and skin tone from their own reference image, do not blend or merge their faces into a single person, do not invent extra people.`;
   } else if (refs.length === 1) {
     scenePrompt += ` Use the reference image to keep ${refs[0].label}'s facial identity accurate and consistent.`;
+  }
+  if (hasLocation) {
+    scenePrompt += ` The LAST reference image shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
   }
   const body = buildImageRequestBody(
     job.image_model as string,
@@ -813,7 +834,8 @@ export async function submitStoryVideoJob(
   reuseCharacterId?: number,
   skipCharacterCreation?: boolean,
   genreKey?: string,
-  characters?: MultiCharacterInput[]
+  characters?: MultiCharacterInput[],
+  locationReferenceUrl?: string
 ): Promise<{ jobId: number; newBalance: number }> {
   if (numScenes < MIN_SCENES || numScenes > MAX_SCENES) {
     throw new Error(`Cần từ ${MIN_SCENES} đến ${MAX_SCENES} phân cảnh`);
@@ -840,7 +862,8 @@ export async function submitStoryVideoJob(
       resolutionKey,
       durationKey,
       idempotencyKey,
-      resolvedGenreKey
+      resolvedGenreKey,
+      locationReferenceUrl
     );
   }
 
@@ -884,6 +907,7 @@ export async function submitStoryVideoJob(
       image_provider_cost_vnd_per_scene: imageProviderCostVnd,
       video_provider_cost_vnd_per_scene: videoProviderCostVnd,
       genre_key: resolvedGenreKey,
+      location_reference_url: locationReferenceUrl ?? null,
     })
     .select("id")
     .single();
@@ -904,6 +928,7 @@ export async function submitStoryVideoJob(
     character_sheet_url: null,
     character_angle_urls: null,
     genre_key: resolvedGenreKey,
+    location_reference_url: locationReferenceUrl ?? null,
   };
 
   let characterTxId: number | null = null;
@@ -1010,7 +1035,8 @@ async function submitMultiCharacterStoryVideoJob(
   resolutionKey: string | undefined,
   durationKey: string | undefined,
   idempotencyKey: string,
-  resolvedGenreKey: string | null
+  resolvedGenreKey: string | null,
+  locationReferenceUrl?: string
 ): Promise<{ jobId: number; newBalance: number }> {
   const supabase = getSupabaseAdmin();
 
@@ -1086,6 +1112,7 @@ async function submitMultiCharacterStoryVideoJob(
       image_provider_cost_vnd_per_scene: imageProviderCostVnd,
       video_provider_cost_vnd_per_scene: videoProviderCostVnd,
       genre_key: resolvedGenreKey,
+      location_reference_url: locationReferenceUrl ?? null,
     })
     .select("id")
     .single();
