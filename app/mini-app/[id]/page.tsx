@@ -181,6 +181,10 @@ export default function MiniAppDetailPage() {
   // storySelectedSavedCharacterId ở trên, không đổi gì, để giữ đúng luồng 1-nhân-vật hiện có khi khách
   // không thêm ai — chỉ khi mảng này có phần tử mới coi là job nhiều nhân vật.
   const [storyExtraCharacters, setStoryExtraCharacters] = useState<{ images: string[]; reuseId: number | null; label: string }[]>([]);
+  // Tên nhân vật #1 — chỉ cần điền khi có thêm nhân vật khác (job nhiều người), để Agent chia cảnh
+  // khớp đúng tên trong Ý tưởng truyện (vd truyện viết "Lan ôm Mai" thì cần đúng tên "Lan" ở đây,
+  // không phải để mặc định "Nhân vật 1" — Agent sẽ không biết "Lan" là ai nếu tên không khớp).
+  const [storyPrimaryCharacterLabel, setStoryPrimaryCharacterLabel] = useState("");
   // Khách chủ động chọn bỏ qua bước tạo Character (AI vẽ sheet nhiều góc) — dùng thẳng ảnh đầu tiên đã
   // tải làm tham chiếu duy nhất, tiết kiệm ~18 credit nhưng các cảnh cần góc khác (quay lưng, nghiêng)
   // dễ kém đồng nhất hơn vì chỉ có đúng 1 góc ảnh để AI tham chiếu, không phải sheet đủ 6 góc.
@@ -1237,6 +1241,7 @@ export default function MiniAppDetailPage() {
             imageUrls: reuseId ? [] : characterImageUrls,
             reuseCharacterId: reuseId ?? undefined,
             skipCharacterCreation: !reuseId && storySkipCharacterCreation,
+            label: storyPrimaryCharacterLabel.trim() || undefined,
           },
           ...extraUploaded,
         ];
@@ -2542,6 +2547,16 @@ export default function MiniAppDetailPage() {
                 <div ref={storyCharacterCardRef} className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700 sm:col-span-3">
                       <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">📷 Ảnh nhân vật</p>
 
+                      {storyExtraCharacters.length > 0 && (
+                        <input
+                          type="text"
+                          value={storyPrimaryCharacterLabel}
+                          onChange={(e) => setStoryPrimaryCharacterLabel(e.target.value)}
+                          placeholder='Tên nhân vật này (vd "Lan") — dùng đúng tên này trong Ý tưởng truyện để Agent gán đúng người'
+                          className="mb-3 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                        />
+                      )}
+
                       {storySavedCharacters.length > 0 && (
                         <div className="mb-3">
                           <p className="mb-1 text-sm text-zinc-500 dark:text-zinc-400">📂 Character đã lưu</p>
@@ -2734,7 +2749,7 @@ export default function MiniAppDetailPage() {
                                   prev.map((s, i) => (i === slotIndex ? { ...s, label: e.target.value } : s))
                                 )
                               }
-                              placeholder={`Tên nhân vật ${slotIndex + 2} (tuỳ chọn, vd "Cô dâu")`}
+                              placeholder={`Tên nhân vật này (vd "Mai") — dùng đúng tên này trong Ý tưởng truyện`}
                               className="flex-1 rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                             />
                             <button
