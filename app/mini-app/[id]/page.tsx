@@ -529,6 +529,18 @@ export default function MiniAppDetailPage() {
       .catch(() => {});
   }, [params.id]);
 
+  // Từ 2 nhân vật trở lên bắt buộc dùng model hỗ trợ nhiều ảnh tham chiếu (multi_image) — đã kiểm
+  // chứng qua test thật chỉ loại model này ghép được nhiều người vào 1 cảnh. Tự chuyển sang model
+  // multi_image đầu tiên nếu model đang chọn không hỗ trợ, tránh khách bấm chạy rồi mới bị lỗi.
+  useEffect(() => {
+    if (storyExtraCharacters.length === 0) return;
+    const current = storyImageModels.find((m) => m.key === storyImageModelKey);
+    if (current && !current.multi_image) {
+      const fallback = storyImageModels.find((m) => m.multi_image);
+      if (fallback) setStoryImageModelKey(fallback.key);
+    }
+  }, [storyExtraCharacters.length, storyImageModels, storyImageModelKey]);
+
   // "Video từ ý tưởng truyện": tự khôi phục job gần nhất còn dở dang khi khách quay lại trang (đóng
   // tab/tắt máy giữa chừng) — trước đây mọi tiến trình chỉ nằm trong state trình duyệt nên tắt đi là
   // mất, dù job vẫn đang chạy/đã hoàn thành phía server. Bao gồm cả "failed" vì job này có 2 lượt trừ
@@ -2981,8 +2993,15 @@ export default function MiniAppDetailPage() {
                     <div className="space-y-3 lg:col-span-1">
                     <div className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
                       <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">Model tạo ảnh phân cảnh</p>
+                      {storyExtraCharacters.length > 0 && (
+                        <p className="mb-2 text-sm text-zinc-400 dark:text-zinc-500">
+                          Đang có nhiều nhân vật — chỉ hiện model hỗ trợ nhiều ảnh tham chiếu (ghép nhiều người vào 1 cảnh).
+                        </p>
+                      )}
                       {(() => {
-                        const selected = storyImageModels.find((m) => m.key === storyImageModelKey);
+                        const availableImageModels =
+                          storyExtraCharacters.length > 0 ? storyImageModels.filter((m) => m.multi_image) : storyImageModels;
+                        const selected = availableImageModels.find((m) => m.key === storyImageModelKey);
                         return (
                           <div className="grid grid-cols-2 gap-2">
                             <div>
@@ -2991,15 +3010,15 @@ export default function MiniAppDetailPage() {
                                 value={storyImageModelKey ?? ""}
                                 onChange={(e) => {
                                   setStoryImageModelKey(e.target.value);
-                                  const m = storyImageModels.find((x) => x.key === e.target.value);
+                                  const m = availableImageModels.find((x) => x.key === e.target.value);
                                   setStoryResolutionKey(m?.resolution_price_vnd ? Object.keys(m.resolution_price_vnd)[0] : null);
                                   if (m?.aspect_ratios && !m.aspect_ratios.includes(storyAspectRatio)) setStoryAspectRatio(m.aspect_ratios[0]);
                                 }}
                                 className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                               >
-                                {Array.from(new Set(storyImageModels.map((m) => m.provider))).map((provider) => (
+                                {Array.from(new Set(availableImageModels.map((m) => m.provider))).map((provider) => (
                                   <optgroup key={provider} label={provider}>
-                                    {storyImageModels
+                                    {availableImageModels
                                       .filter((m) => m.provider === provider)
                                       .map((m) => (
                                         <option key={m.key} value={m.key}>
@@ -3278,10 +3297,23 @@ export default function MiniAppDetailPage() {
                         );
                       })}
                     </div>
-                    <p className="mt-3 text-sm text-amber-600 dark:text-amber-400">
-                      ⚠️ Bước chia cảnh nhiều nhân vật (Agent gán ai xuất hiện ở cảnh nào) chưa có ở bản này — đây mới là bước
-                      xem trước Character từng người, sẽ nối tiếp ở bản cập nhật sau.
-                    </p>
+                    {storyStatus === "character_ready" && (
+                      <div className="mt-3 flex items-center justify-end gap-2">
+                        <button
+                          onClick={handleContinueToScenes}
+                          disabled={storyContinuingScenes || !!storyRegeneratingJobCharacterPosition || !input.trim()}
+                          title={!input.trim() ? "Nhập Ý tưởng truyện ở ô phía trên trước" : undefined}
+                          className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900"
+                        >
+                          {storyContinuingScenes ? "Đang gửi..." : "Tiếp tục chia cảnh →"}
+                        </button>
+                      </div>
+                    )}
+                    {storyStatus === "character_ready" && !input.trim() && (
+                      <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
+                        ⚠️ Nhập "Ý tưởng truyện" ở ô phía trên trước khi tiếp tục — bước chia cảnh cần nội dung này.
+                      </p>
+                    )}
                   </div>
                 )}
 

@@ -170,6 +170,7 @@ export type SceneRow = {
   scene_description: string | null;
   camera_view: string | null;
   motion_prompt: string | null;
+  character_positions: number[] | null;
   image_fal_request_id: string | null;
   image_url: string | null;
   video_fal_request_id: string | null;
@@ -447,6 +448,87 @@ export async function splitStoryIntoScenes(
   }
 }
 
+// Chia cảnh cho job NHIỀU NHÂN VẬT (Bước 2) — song song splitStoryIntoScenes() ở trên nhưng đơn giản
+// hơn có chủ đích cho v1: mỗi cảnh chỉ cần biết ai (những SỐ thứ tự nhân vật nào) xuất hiện trong
+// khung hình, KHÔNG có camera_view/face_view/outfit_override (những tinh chỉnh đó chỉ áp dụng cho
+// đúng 1 người trong 1 khung hình, chưa kiểm chứng khi mở rộng cho nhiều người cùng lúc).
+export type MultiSceneSplitResult = { description: string; characters: number[] };
+
+function buildMultiSceneSplitPrompt(characterLabels: string[]): string {
+  const list = characterLabels.map((label, i) => `${i}: ${label}`).join(", ");
+  const example =
+    characterLabels.length >= 2
+      ? `[{"description": "${characterLabels[0]} stands alone by the entrance, waiting nervously, morning light", "characters": [0]}, {"description": "${characterLabels[0]} and ${characterLabels[1]} stand together, holding hands, smiling warmly", "characters": [0, 1]}]`
+      : `[{"description": "a scene description", "characters": [0]}]`;
+  return `Bạn là đạo diễn dựng phân cảnh cho 1 video có NHIỀU nhân vật thật cùng xuất hiện. Người dùng đưa 1 ý tưởng truyện/kịch bản ngắn.
+Danh sách nhân vật trong video này (đánh số bắt đầu từ 0): ${list}.
+Nhiệm vụ: chia thành ĐÚNG N phân cảnh liên tục, mỗi cảnh là 1 khoảnh khắc hình ảnh cụ thể (ai đang làm gì, ở đâu, bối cảnh gì).
+Với MỖI cảnh, xác định thêm khoá "characters": 1 mảng các SỐ (đúng chỉ số trong danh sách nhân vật ở trên) — liệt kê TẤT CẢ nhân vật thực sự xuất hiện trong khung hình của cảnh đó, có thể là 1 người hoặc nhiều người cùng lúc. Không tự thêm số ngoài danh sách, không tự bỏ sót người rõ ràng có mặt theo mô tả.
+Khi viết "description" (tiếng Anh): mô tả rõ ai đang làm gì, có thể thêm chi tiết điện ảnh (ánh sáng, khung hình, không khí) phù hợp bối cảnh gốc, nhưng KHÔNG bịa thêm tình tiết/hành động/địa điểm không có trong ý tưởng gốc.
+Rào chắn giữ đúng danh tính (bắt buộc): không tự đổi giới tính/độ tuổi/kiểu tóc của bất kỳ nhân vật nào đã liệt kê ở trên; không tự thêm nhân vật phụ mới ngoài danh sách; nếu ý tưởng gốc mô tả 1 địa điểm liên tục thì không tự đổi bối cảnh giữa các cảnh.
+Trang phục — TUYỆT ĐỐI KHÔNG tự mô tả cụ thể màu sắc/kiểu dáng/chất liệu trang phục của bất kỳ ai trong "description" (ví dụ KHÔNG viết "a white blouse", "a red dress"...). Lý do: bạn KHÔNG nhìn thấy ảnh nhân vật thật — tự bịa màu/kiểu sẽ mâu thuẫn với ảnh tham chiếu thật. Nếu cần nhắc trang phục để giữ liên tục, chỉ viết chung chung "wearing the same outfit as before".
+Trạng thái liên tục giữa các cảnh (quan trọng): MỖI cảnh được gửi cho model tạo ảnh RIÊNG BIỆT, độc lập — model đó KHÔNG thấy ảnh của cảnh trước, chỉ thấy đúng "description" của cảnh đang xét. Vì vậy mỗi "description" phải TỰ ĐẦY ĐỦ ngữ cảnh (self-contained): nếu nhiều cảnh liên tiếp cùng diễn ra ở 1 địa điểm kế thừa từ cảnh trước, PHẢI nhắc lại rõ địa điểm/bối cảnh đó trong CHÍNH cảnh đang viết.
+Không tự bịa phụ kiện/biểu cảm không có trong ý tưởng gốc nếu không có căn cứ.
+Chỉ trả về DUY NHẤT 1 mảng JSON gồm đúng N phần tử, mỗi phần tử có khoá "description" (chuỗi tiếng Anh) và "characters" (mảng số) — không kèm markdown fence, không giải thích, không đánh số.
+Ví dụ format: ${example}`;
+}
+
+export async function splitStoryIntoScenesMulti(
+  storyDescription: string,
+  numScenes: number,
+  characterLabels: string[],
+  customInstructions?: string,
+  modelChatKey?: string
+): Promise<MultiSceneSplitResult[]> {
+  const chatModel = modelChatKey && ALLOWED_CHAT_MODELS.includes(modelChatKey) ? modelChatKey : ALLOWED_CHAT_MODELS[0];
+  const basePrompt = buildMultiSceneSplitPrompt(characterLabels).replace("N phân cảnh", `${numScenes} phân cảnh`);
+  const systemPrompt = customInstructions?.trim() ? `${basePrompt}\n\nGhi chú thêm từ admin: ${customInstructions.trim()}` : basePrompt;
+  const maxIndex = characterLabels.length - 1;
+
+  async function attempt(reminder?: string): Promise<MultiSceneSplitResult[]> {
+    const userInput = reminder
+      ? `${storyDescription}\n\n(Lưu ý: lần trước bạn trả sai định dạng. Chỉ trả về mảng JSON gồm đúng ${numScenes} object {description, characters}, không thêm gì khác.)`
+      : storyDescription;
+    const { output } = await callOpenRouter(chatModel, 900, systemPrompt, userInput);
+    const cleaned = output.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      throw new Error("not-json");
+    }
+    if (
+      !Array.isArray(parsed) ||
+      parsed.length !== numScenes ||
+      !parsed.every(
+        (s) =>
+          s &&
+          typeof s === "object" &&
+          typeof (s as { description?: unknown }).description === "string" &&
+          (s as { description: string }).description.trim() &&
+          Array.isArray((s as { characters?: unknown }).characters) &&
+          (s as { characters: unknown[] }).characters.length > 0 &&
+          (s as { characters: unknown[] }).characters.every(
+            (c) => typeof c === "number" && Number.isInteger(c) && c >= 0 && c <= maxIndex
+          )
+      )
+    ) {
+      throw new Error("wrong-shape");
+    }
+    return parsed as MultiSceneSplitResult[];
+  }
+
+  try {
+    return await attempt();
+  } catch {
+    try {
+      return await attempt("retry");
+    } catch {
+      throw new Error("AI không chia được phân cảnh hợp lệ, vui lòng thử lại hoặc viết ý tưởng rõ ràng hơn");
+    }
+  }
+}
+
 type SceneStageInput = Pick<
   JobRow,
   | "id"
@@ -531,6 +613,71 @@ async function submitSceneImageForRow(
     scenePrompt += row.face_view && row.face_view !== row.camera_view
       ? ` Two reference images are provided: the FIRST shows the body pose/angle to follow, the SECOND shows the face/gaze direction to follow — combine them: keep the body pose from the first image, but the face orientation and eye direction from the second image.`
       : ` Two reference images are provided: the FIRST shows the body pose/angle to follow, the SECOND is a close-up reference for the character's face — use it to keep facial identity accurate and consistent while following the body pose from the first image.`;
+  }
+  const body = buildImageRequestBody(
+    job.image_model as string,
+    scenePrompt,
+    referenceImages,
+    imageEntry?.multi_image ?? false,
+    job.aspect_ratio ?? "9:16",
+    job.image_resolution_key ?? undefined
+  );
+  return submitFalJob(
+    job.image_model as string,
+    body,
+    `${SITE_URL}/api/story-video/webhook?jobId=${job.id}&sceneId=${row.id}&stage=image${regen ? "&regen=1" : ""}`
+  );
+}
+
+type JobCharacterRefRow = {
+  position: number;
+  label: string | null;
+  character_sheet_url: string | null;
+  character_angle_urls: CharacterAngleUrls | null;
+};
+
+// Reference Selector cho job NHIỀU NHÂN VẬT (Bước 2) — đơn giản hơn hẳn selectReferenceImagesForScene
+// có chủ đích: mỗi người CHỈ lấy đúng 1 ảnh đại diện (góc "front" đã cắt sẵn, hoặc sheet gộp nếu thiếu
+// dữ liệu góc), KHÔNG chọn theo camera_view/face_view như luồng 1 nhân vật — đúng công thức đã kiểm
+// chứng qua test thật (ảnh thẳng mặt đơn giản đã ghép chung khung hình tốt, kể cả tư thế phức tạp).
+function selectReferenceImagesForMultiScene(
+  characterPositions: number[],
+  jobCharacters: JobCharacterRefRow[]
+): { url: string; label: string }[] {
+  return characterPositions
+    .map((pos) => {
+      const jc = jobCharacters.find((c) => c.position === pos);
+      if (!jc) return null;
+      const url = jc.character_angle_urls?.front || jc.character_sheet_url || "";
+      if (!url) return null;
+      return { url, label: jc.label || `Nhân vật ${pos + 1}` };
+    })
+    .filter((r): r is { url: string; label: string } => !!r);
+}
+
+type MultiCharacterSceneRefRow = {
+  id: number;
+  scene_description: string | null;
+  character_positions: number[] | null;
+};
+
+// Build prompt (liệt kê rõ ảnh nào ứng với ai) + submit Fal.ai cho ĐÚNG 1 cảnh nhiều nhân vật — dùng
+// chung cho batch tạo lần đầu (runMultiCharacterSceneStage) và tạo lại riêng lẻ sau này (Bước 3).
+async function submitMultiCharacterSceneImageForRow(
+  job: Pick<JobRow, "id" | "image_model" | "aspect_ratio" | "image_resolution_key">,
+  row: MultiCharacterSceneRefRow,
+  jobCharacters: JobCharacterRefRow[],
+  imageEntry: ImageModelEntry | undefined,
+  regen: boolean
+): Promise<string> {
+  const refs = selectReferenceImagesForMultiScene(row.character_positions ?? [], jobCharacters);
+  const referenceImages = refs.map((r) => r.url);
+  let scenePrompt = row.scene_description ?? "";
+  if (refs.length >= 2) {
+    const mapping = refs.map((r, i) => `Image ${i + 1} = ${r.label}`).join(", ");
+    scenePrompt += ` Multiple reference images are provided, each showing a DIFFERENT real person: ${mapping}. Combine them so ALL of these people appear together in the scene as described — preserve each person's exact facial identity, hairstyle, and skin tone from their own reference image, do not blend or merge their faces into a single person, do not invent extra people.`;
+  } else if (refs.length === 1) {
+    scenePrompt += ` Use the reference image to keep ${refs[0].label}'s facial identity accurate and consistent.`;
   }
   const body = buildImageRequestBody(
     job.image_model as string,
@@ -997,6 +1144,78 @@ async function submitMultiCharacterStoryVideoJob(
   return { jobId: job.id, newBalance: await getCreditBalance(userId) };
 }
 
+// Nhánh nhiều nhân vật (Bước 2) của runSceneStage — cùng khuôn trừ credit/đổi status/failJob như bản 1
+// nhân vật, chỉ khác bước chia cảnh (splitStoryIntoScenesMulti thay vì splitStoryIntoScenes) và bước
+// tạo ảnh (submitMultiCharacterSceneImageForRow thay vì submitSceneImageForRow).
+async function runMultiCharacterSceneStage(
+  userId: string,
+  job: JobRow,
+  jobCharacters: JobCharacterRefRow[],
+  finalStoryDescription: string,
+  modelChatKey: string | undefined,
+  idempotencyKey: string
+): Promise<{ newBalance: number }> {
+  const supabase = getSupabaseAdmin();
+  if (!job.image_provider_cost_vnd_per_scene || !job.video_provider_cost_vnd_per_scene) {
+    throw new Error("Thiếu dữ liệu giá của job");
+  }
+
+  const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
+  const imageCost = computeDynamicCreditCost(job.image_provider_cost_vnd_per_scene * job.num_scenes, marginPercent, vndPerCredit);
+  const videoCost = computeDynamicCreditCost(job.video_provider_cost_vnd_per_scene * job.num_scenes, marginPercent, vndPerCredit);
+
+  const deduction = await deductCredit(userId, job.auto_video ? imageCost + videoCost : imageCost, job.mini_app_id, idempotencyKey);
+  if (!deduction.success) throw new InsufficientCreditError();
+
+  await supabase
+    .from("story_video_jobs")
+    .update({ status: "splitting_story", image_credit_tx_id: deduction.txId, story_description: finalStoryDescription })
+    .eq("id", job.id);
+
+  try {
+    const miniApp = await getMiniAppModelConfig(job.mini_app_id);
+    const imageEntry = miniApp.model_config.image_models.find((m) => m.model === job.image_model);
+    const combinedInstructions = [miniApp.model_config.prompt_helper_instructions, resolveGenreStyleGuide(job.genre_key)]
+      .filter((s): s is string => !!s?.trim())
+      .join("\n\n");
+    const characterLabels = jobCharacters.map((c) => c.label || `Nhân vật ${c.position + 1}`);
+    const scenes = await splitStoryIntoScenesMulti(
+      finalStoryDescription,
+      job.num_scenes,
+      characterLabels,
+      combinedInstructions || undefined,
+      modelChatKey
+    );
+
+    const { data: sceneRows, error: sceneError } = await supabase
+      .from("story_video_scenes")
+      .insert(
+        scenes.map((scene, index) => ({
+          job_id: job.id,
+          position: index,
+          scene_description: scene.description,
+          character_positions: scene.characters,
+        }))
+      )
+      .select("id, scene_description, character_positions");
+    if (sceneError || !sceneRows) throw new Error(sceneError?.message ?? "Không tạo được phân cảnh");
+
+    await Promise.all(
+      sceneRows.map(async (row) => {
+        const requestId = await submitMultiCharacterSceneImageForRow(job, row, jobCharacters, imageEntry, false);
+        await supabase.from("story_video_scenes").update({ image_fal_request_id: requestId }).eq("id", row.id);
+      })
+    );
+
+    await supabase.from("story_video_jobs").update({ status: "generating_images" }).eq("id", job.id);
+  } catch (err) {
+    await failJob(job.id, err instanceof Error ? err.message : String(err));
+    throw err;
+  }
+
+  return { newBalance: deduction.newBalance };
+}
+
 // Khách bấm "Tiếp tục chia cảnh" sau khi xem/duyệt ảnh Character (job đang ở "character_ready") — trừ
 // credit phần ảnh (đã snapshot provider_cost_vnd/cảnh lúc submit) rồi chạy chia cảnh (LLM) + submit
 // ảnh cho từng cảnh, dùng character_sheet_url làm tham chiếu chung thay vì ảnh gốc lộn xộn.
@@ -1014,13 +1233,25 @@ export async function continueStoryVideoToSceneStage(
 
   if (job.user_id !== userId) throw new Error("Không có quyền với job này");
   if (job.status !== "character_ready") throw new Error("Job không ở trạng thái sẵn sàng chia cảnh");
-  if (!job.character_sheet_url) throw new Error("Thiếu ảnh Character của job");
 
   // Bước Tạo Character không cần ý tưởng truyện, nên khách có thể chưa nhập lúc submit — bắt buộc
   // nhập ở đây trước khi chia cảnh (thứ dùng thật). Cho phép ghi đè/cập nhật nếu khách vừa gõ/sửa lại
   // ngay tại màn hình xem trước Character.
   const finalStoryDescription = storyDescription?.trim() || job.story_description?.trim();
   if (!finalStoryDescription) throw new Error("Thiếu ý tưởng truyện");
+
+  // Job nhiều nhân vật (Bước 1) -> rẽ sang nhánh chia cảnh nhiều nhân vật (Bước 2), KHÔNG check
+  // character_sheet_url job-level (job này không dùng cột đó — xem story_video_job_characters).
+  const { data: jobCharacters } = await supabase
+    .from("story_video_job_characters")
+    .select("position, label, character_sheet_url, character_angle_urls")
+    .eq("job_id", jobId)
+    .order("position", { ascending: true });
+  if (jobCharacters && jobCharacters.length >= 2) {
+    return runMultiCharacterSceneStage(userId, job, jobCharacters as JobCharacterRefRow[], finalStoryDescription, modelChatKey, idempotencyKey);
+  }
+
+  if (!job.character_sheet_url) throw new Error("Thiếu ảnh Character của job");
 
   return runSceneStage(userId, job, finalStoryDescription, modelChatKey, idempotencyKey);
 }
