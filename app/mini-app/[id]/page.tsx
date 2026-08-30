@@ -2965,6 +2965,36 @@ export default function MiniAppDetailPage() {
                   maxLength={2000}
                   className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-base text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                 />
+
+                {storyUseOwnSceneImages ? (
+                  <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
+                    Số phân cảnh: <strong className="text-zinc-900 dark:text-zinc-50">{storySceneImages.length || "0"}</strong> (theo đúng số ảnh đã tải ở khung "Ảnh phân cảnh" phía dưới)
+                  </p>
+                ) : (
+                  <div className="mt-3">
+                    <p className="mb-1 text-sm font-medium text-zinc-500 dark:text-zinc-400">Số phân cảnh</p>
+                    <div className="flex flex-wrap gap-2">
+                      {Array.from({ length: STORY_MAX_SCENES - STORY_MIN_SCENES + 1 }, (_, i) => STORY_MIN_SCENES + i).map((n) => (
+                        <button
+                          key={n}
+                          onClick={() => setNumScenes(n)}
+                          className={`rounded-full border px-4 py-1.5 text-sm font-medium ${
+                            numScenes === n
+                              ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
+                              : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
+                          }`}
+                        >
+                          {n} cảnh
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <label className="mt-3 flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+                  <input type="checkbox" checked={storyAutoVideo} onChange={(e) => setStoryAutoVideo(e.target.checked)} />
+                  Tự động tạo video luôn (gộp 1 lượt) — mặc định tắt: chỉ tạo ảnh trước, xem ưng ý mới tạo video
+                </label>
               </div>
 
               {/* Hàng 3: Ảnh phân cảnh + Model/Tỉ lệ ảnh + Video phân cảnh (tỉ lệ 3/4 - 1/4) */}
@@ -3238,36 +3268,6 @@ export default function MiniAppDetailPage() {
                     </div>
                   </div>
               </div>
-
-              {storyUseOwnSceneImages ? (
-                <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
-                  Số phân cảnh: <strong className="text-zinc-900 dark:text-zinc-50">{storySceneImages.length || "0"}</strong> (theo đúng số ảnh đã tải ở khung "Ảnh phân cảnh" phía trên)
-                </p>
-              ) : (
-                <div className="mt-3">
-                  <p className="mb-1 text-sm font-medium text-zinc-500 dark:text-zinc-400">Số phân cảnh</p>
-                  <div className="flex flex-wrap gap-2">
-                    {Array.from({ length: STORY_MAX_SCENES - STORY_MIN_SCENES + 1 }, (_, i) => STORY_MIN_SCENES + i).map((n) => (
-                      <button
-                        key={n}
-                        onClick={() => setNumScenes(n)}
-                        className={`rounded-full border px-4 py-1.5 text-sm font-medium ${
-                          numScenes === n
-                            ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
-                            : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
-                        }`}
-                      >
-                        {n} cảnh
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <label className="mt-3 flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
-                <input type="checkbox" checked={storyAutoVideo} onChange={(e) => setStoryAutoVideo(e.target.checked)} />
-                Tự động tạo video luôn (gộp 1 lượt) — mặc định tắt: chỉ tạo ảnh trước, xem ưng ý mới tạo video
-              </label>
 
               {storyStatusText && <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{storyStatusText}</p>}
               {storyError && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{storyError}</p>}
