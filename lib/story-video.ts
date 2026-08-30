@@ -2050,6 +2050,11 @@ async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
 }
 
 const STALE_CHECK_MS = 30_000;
+// stitchAndFinish() chạy ngay trong webhook nhận video cảnh cuối cùng, route đó giới hạn maxDuration=60s
+// — tải N clip + ffmpeg re-encode + upload Storage có thể vượt quá 60s, khiến Vercel ngắt hàm giữa
+// chừng và job kẹt vĩnh viễn ở "stitching" (không có cơ chế nào khác theo dõi trạng thái này). Ngưỡng
+// đợi dài hơn hẳn 60s để không vô tình gọi ghép trùng khi lượt đầu vẫn đang chạy hợp lệ trong giới hạn.
+const STITCH_STALE_CHECK_MS = 90_000;
 
 async function pollFalResult(model: string, requestId: string): Promise<Record<string, unknown> | null> {
   const apiKey = process.env.FAL_KEY;
@@ -2080,9 +2085,10 @@ export async function resolveStoryVideoJob(jobId: number): Promise<void> {
   if (!jobData) return;
   const job = jobData as JobRow;
 
-  if (!["generating_character", "generating_images", "generating_videos"].includes(job.status)) return;
+  if (!["generating_character", "generating_images", "generating_videos", "stitching"].includes(job.status)) return;
   const ageMs = Date.now() - new Date(job.updated_at).getTime();
-  if (ageMs < STALE_CHECK_MS) return;
+  const staleThreshold = job.status === "stitching" ? STITCH_STALE_CHECK_MS : STALE_CHECK_MS;
+  if (ageMs < staleThreshold) return;
 
   if (job.status === "generating_character") {
     if (job.character_fal_request_id) {
@@ -2120,6 +2126,14 @@ export async function resolveStoryVideoJob(jobId: number): Promise<void> {
         const result = await pollFalResult(job.video_model, scene.video_fal_request_id);
         if (result) await applyVideoStageResult(jobId, scene.id, result);
       }
+    }
+  } else if (job.status === "stitching") {
+    // Webhook nhận video cảnh cuối đã gọi stitchAndFinish nhưng có thể bị Vercel ngắt giữa chừng (xem
+    // giải thích ở STITCH_STALE_CHECK_MS) — job kẹt vĩnh viễn ở "stitching" vì không còn Fal.ai job nào
+    // để poll. Nếu tất cả cảnh đã có video_url, thử ghép lại — idempotent (tải/encode/upload lại từ
+    // đầu, ghi đè status "done" + output_url khi xong).
+    if (scenes.length > 0 && scenes.every((s) => s.video_url)) {
+      await stitchAndFinish(jobId, scenes);
     }
   }
 }
