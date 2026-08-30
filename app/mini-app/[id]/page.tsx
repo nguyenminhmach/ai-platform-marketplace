@@ -2781,14 +2781,16 @@ export default function MiniAppDetailPage() {
                           )}
 
                           {!slot.reuseId && (
-                            <div className="grid grid-cols-4 gap-2">
+                            <div className="grid grid-cols-3 gap-3">
                               {slot.images.map((img, imgIndex) => (
                                 <div key={imgIndex} className="relative w-full" style={{ aspectRatio: storyAspectRatio.replace(":", " / ") }}>
                                   {/* eslint-disable-next-line @next/next/no-img-element */}
                                   <img
                                     src={img}
                                     alt={`${slot.label || `Nhân vật ${slotIndex + 2}`} ${imgIndex + 1}`}
-                                    className="h-full w-full rounded-lg object-cover"
+                                    onClick={() => setStoryQuickZoomUrl(img)}
+                                    className="h-full w-full cursor-zoom-in rounded-lg object-cover"
+                                    title="Bấm để xem to"
                                   />
                                   <button
                                     onClick={() =>
@@ -2796,7 +2798,7 @@ export default function MiniAppDetailPage() {
                                         prev.map((s, i) => (i === slotIndex ? { ...s, images: s.images.filter((_, j) => j !== imgIndex) } : s))
                                       )
                                     }
-                                    className="absolute -right-1.5 -top-1.5 rounded-full bg-black/70 px-1.5 py-0.5 text-xs font-medium text-white hover:bg-black/90"
+                                    className="absolute -right-2 -top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white hover:bg-black/90"
                                   >
                                     ✕
                                   </button>
@@ -2806,7 +2808,7 @@ export default function MiniAppDetailPage() {
                                 className="flex w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800"
                                 style={{ aspectRatio: storyAspectRatio.replace(":", " / ") }}
                               >
-                                <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
+                                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
                                 <input
                                   type="file"
                                   accept="image/*"
