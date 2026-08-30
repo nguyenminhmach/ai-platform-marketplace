@@ -29,6 +29,29 @@ export async function GET(req: Request) {
 
   let progressText: string | null = null;
   let scenes: { id: number; position: number; imageUrl: string | null; videoUrl: string | null }[] | undefined;
+  let characters:
+    | { position: number; label: string | null; sheetUrl: string | null; angleUrls: unknown; ready: boolean }[]
+    | undefined;
+
+  // Job nhiều nhân vật (Bước 1) — chỉ có hàng ở đây khi job được tạo qua nhánh nhiều nhân vật, job 1
+  // nhân vật trả mảng rỗng nên bỏ qua (giữ nguyên field cũ characterSheetUrl/characterSource cho luồng
+  // 1 nhân vật, không đổi gì).
+  if (["generating_character", "character_ready"].includes(data.status)) {
+    const { data: jobCharacterRows } = await supabase
+      .from("story_video_job_characters")
+      .select("position, label, character_sheet_url, character_angle_urls")
+      .eq("job_id", jobId)
+      .order("position", { ascending: true });
+    if (jobCharacterRows && jobCharacterRows.length > 0) {
+      characters = jobCharacterRows.map((c) => ({
+        position: c.position,
+        label: c.label,
+        sheetUrl: c.character_sheet_url,
+        angleUrls: c.character_angle_urls,
+        ready: !!c.character_sheet_url,
+      }));
+    }
+  }
 
   // Bao gồm cả "failed" — nếu ảnh phân cảnh đã tạo xong trước khi lỗi (vd lỗi ở bước tạo video sau
   // đó), khách vẫn cần xem lại được ảnh đã tốn credit tạo ra, không phải tự dưng "biến mất".
@@ -55,5 +78,6 @@ export async function GET(req: Request) {
     scenes,
     characterSheetUrl: data.character_sheet_url,
     characterSource: data.character_source,
+    characters,
   });
 }

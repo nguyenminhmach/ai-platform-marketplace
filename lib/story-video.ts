@@ -35,6 +35,16 @@ export const MIN_CHARACTER_IMAGES = 1;
 // Không giới hạn số ảnh nhân vật theo yêu cầu — chỉ giữ 1 trần an toàn kỹ thuật (tránh payload quá
 // lớn/timeout, và một số model multi-image như Nano Banana Pro tự giới hạn tối đa 14 ảnh ở phía Fal.ai).
 export const MAX_CHARACTER_IMAGES = 20;
+// Nhiều nhân vật cùng xuất hiện chung 1 khung hình (vd tuần trăng mật, cầu hôn) — cận trên giống đúng
+// MAX_CHARACTERS của lib/dialogue-video.ts để nhất quán, dù đây là 2 tính năng khác nhau.
+export const MAX_STORY_CHARACTERS = 4;
+
+export type MultiCharacterInput = {
+  imageUrls: string[];
+  reuseCharacterId?: number;
+  skipCharacterCreation?: boolean;
+  label?: string;
+};
 
 const SCENE_SPLIT_SYSTEM_PROMPT = `Bạn là đạo diễn dựng phân cảnh. Người dùng đưa 1 ý tưởng truyện/kịch bản ngắn.
 Nhiệm vụ: chia thành ĐÚNG N phân cảnh liên tục, mỗi cảnh là 1 khoảnh khắc hình ảnh cụ thể (nhân vật đang làm gì, ở đâu, bối cảnh gì), giữ nguyên nhân vật chính xuyên suốt các cảnh.
@@ -117,10 +127,13 @@ export async function classifyAllAreSheets(imageUrls: string[]): Promise<boolean
   return true;
 }
 
-export async function computeCharacterCreditCost(): Promise<{ providerCostVnd: number; creditCost: number }> {
+// count > 1 dùng cho job nhiều nhân vật — chỉ tính phí đúng số người THẬT SỰ cần AI tạo Character mới
+// (bỏ qua người tái dùng thư viện/đã là sheet sẵn), mặc định 1 giữ nguyên hành vi cho mọi chỗ gọi cũ.
+export async function computeCharacterCreditCost(count = 1): Promise<{ providerCostVnd: number; creditCost: number }> {
   const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
-  const creditCost = computeDynamicCreditCost(CHARACTER_PROVIDER_COST_VND, marginPercent, vndPerCredit);
-  return { providerCostVnd: CHARACTER_PROVIDER_COST_VND, creditCost };
+  const providerCostVnd = CHARACTER_PROVIDER_COST_VND * count;
+  const creditCost = computeDynamicCreditCost(providerCostVnd, marginPercent, vndPerCredit);
+  return { providerCostVnd, creditCost };
 }
 
 export type ImageModelEntry = {
@@ -652,7 +665,8 @@ export async function submitStoryVideoJob(
   idempotencyKey: string,
   reuseCharacterId?: number,
   skipCharacterCreation?: boolean,
-  genreKey?: string
+  genreKey?: string,
+  characters?: MultiCharacterInput[]
 ): Promise<{ jobId: number; newBalance: number }> {
   if (numScenes < MIN_SCENES || numScenes > MAX_SCENES) {
     throw new Error(`Cần từ ${MIN_SCENES} đến ${MAX_SCENES} phân cảnh`);
@@ -660,6 +674,28 @@ export async function submitStoryVideoJob(
   // Whitelist qua tra bảng GENRE_STYLE_GUIDES — key lạ/không hợp lệ thì coi như không chọn thể loại
   // (an toàn hơn validate chặn cứng, giữ app luôn chạy được).
   const resolvedGenreKey = genreKey && resolveGenreStyleGuide(genreKey) ? genreKey : null;
+
+  // Nhánh nhiều nhân vật (>=2) — hoàn toàn tách riêng khỏi luồng 1 nhân vật bên dưới, không đụng gì
+  // tới nó. Đúng 1 nhân vật (mặc định, kể cả khi khách truyền characters=[1 phần tử]) vẫn rơi xuống
+  // chạy nguyên luồng cũ phía dưới, không có rủi ro regression.
+  if (characters && characters.length >= 2) {
+    if (characters.length > MAX_STORY_CHARACTERS) throw new Error(`Tối đa ${MAX_STORY_CHARACTERS} nhân vật`);
+    return submitMultiCharacterStoryVideoJob(
+      userId,
+      miniAppId,
+      storyDescription,
+      numScenes,
+      characters,
+      imageModelKey,
+      videoModelKey,
+      autoVideo,
+      aspectRatio,
+      resolutionKey,
+      durationKey,
+      idempotencyKey,
+      resolvedGenreKey
+    );
+  }
 
   const supabase = getSupabaseAdmin();
 
@@ -787,6 +823,167 @@ export async function submitStoryVideoJob(
           })
           .eq("id", job.id);
       }
+    }
+  } catch (err) {
+    await supabase
+      .from("story_video_jobs")
+      .update({ status: "failed", error_message: err instanceof Error ? err.message : String(err) })
+      .eq("id", job.id);
+    if (characterTxId) await refundCredit(characterTxId);
+    throw err;
+  }
+
+  return { jobId: job.id, newBalance: await getCreditBalance(userId) };
+}
+
+type ResolvedMultiCharacter = {
+  label: string;
+  imageUrls: string[];
+  reuseCharacterId?: number;
+  needsGeneration: boolean;
+  initialSheetUrl: string | null;
+  initialAngleUrls: CharacterAngleUrls | null;
+  characterSource: "reused" | "uploaded_sheet" | "skipped" | "generated";
+};
+
+// Nhánh "nhiều nhân vật cùng khung hình" (Bước 1) — chỉ dừng ở "character_ready" khi xong, KHÔNG tự
+// chạy tiếp sang chia cảnh dù Character đã chắc chắn 100% (khác luồng 1 nhân vật) vì bước chia cảnh
+// nhiều nhân vật (Agent gán characters[] theo cảnh + Reference Selector nhiều ảnh) là hạng mục riêng
+// (Bước 2), chưa xây ở đây.
+async function submitMultiCharacterStoryVideoJob(
+  userId: string,
+  miniAppId: string,
+  storyDescription: string,
+  numScenes: number,
+  characters: MultiCharacterInput[],
+  imageModelKey: string | undefined,
+  videoModelKey: string | undefined,
+  autoVideo: boolean,
+  aspectRatio: string,
+  resolutionKey: string | undefined,
+  durationKey: string | undefined,
+  idempotencyKey: string,
+  resolvedGenreKey: string | null
+): Promise<{ jobId: number; newBalance: number }> {
+  const supabase = getSupabaseAdmin();
+
+  const { imageEntry, videoEntry, imageProviderCostVnd, videoProviderCostVnd, resolvedResolutionKey, resolvedDurationKey } =
+    await resolveCosts(miniAppId, numScenes, imageModelKey, videoModelKey, resolutionKey, durationKey);
+  // Đã kiểm chứng qua test thật: chỉ model hỗ trợ nhiều ảnh tham chiếu (multi_image) mới ghép được
+  // nhiều người thật vào 1 cảnh — model như Flux Kontext chỉ nhận 1 ảnh nên chặn sớm ở đây, không để
+  // khách tốn credit rồi mới thấy ảnh sai.
+  if (!imageEntry.multi_image) {
+    throw new Error("Model ảnh đã chọn không hỗ trợ nhiều nhân vật — vui lòng chọn model có nhiều ảnh tham chiếu (vd Nano Banana Pro Edit, GPT Image 2 Edit)");
+  }
+
+  // Resolve từng nhân vật trước (reuse thư viện / đã là sheet sẵn / cần AI tạo mới) để biết chính xác
+  // cần trừ credit cho bao nhiêu người — chỉ người THẬT SỰ cần gọi model mới tính phí.
+  const resolved: ResolvedMultiCharacter[] = await Promise.all(
+    characters.map(async (c, index): Promise<ResolvedMultiCharacter> => {
+      const label = c.label?.trim() || `Nhân vật ${index + 1}`;
+      if (c.reuseCharacterId) {
+        const { data: saved } = await supabase
+          .from("story_characters")
+          .select("id, user_id, image_url, angle_urls")
+          .eq("id", c.reuseCharacterId)
+          .single();
+        if (!saved || saved.user_id !== userId) throw new Error(`Không tìm thấy Character đã lưu cho ${label}`);
+        return {
+          label,
+          imageUrls: [],
+          reuseCharacterId: c.reuseCharacterId,
+          needsGeneration: false,
+          initialSheetUrl: saved.image_url,
+          initialAngleUrls: (saved.angle_urls as CharacterAngleUrls | null) ?? null,
+          characterSource: "reused",
+        };
+      }
+      const imageUrls = c.imageUrls ?? [];
+      if (imageUrls.length < MIN_CHARACTER_IMAGES || imageUrls.length > MAX_CHARACTER_IMAGES) {
+        throw new Error(`${label} cần từ ${MIN_CHARACTER_IMAGES} đến ${MAX_CHARACTER_IMAGES} ảnh`);
+      }
+      const skipEntirely = c.skipCharacterCreation === true;
+      const allAreSheets = skipEntirely ? true : await classifyAllAreSheets(imageUrls);
+      if (allAreSheets) {
+        return {
+          label,
+          imageUrls,
+          needsGeneration: false,
+          initialSheetUrl: imageUrls[0],
+          initialAngleUrls: null,
+          characterSource: skipEntirely ? "skipped" : "uploaded_sheet",
+        };
+      }
+      return { label, imageUrls, needsGeneration: true, initialSheetUrl: null, initialAngleUrls: null, characterSource: "generated" };
+    })
+  );
+
+  const generateCount = resolved.filter((r) => r.needsGeneration).length;
+  const { creditCost: totalCharacterCost } = await computeCharacterCreditCost(generateCount);
+
+  const { data: job, error: insertError } = await supabase
+    .from("story_video_jobs")
+    .insert({
+      user_id: userId,
+      mini_app_id: miniAppId,
+      status: generateCount > 0 ? "generating_character" : "character_ready",
+      story_description: storyDescription,
+      num_scenes: numScenes,
+      character_image_urls: [], // job nhiều nhân vật không dùng cột job-level này (xem story_video_job_characters)
+      image_model: imageEntry.model,
+      video_model: videoEntry.model,
+      auto_video: autoVideo,
+      aspect_ratio: aspectRatio,
+      image_resolution_key: resolvedResolutionKey ?? null,
+      video_duration_key: resolvedDurationKey ?? null,
+      image_provider_cost_vnd_per_scene: imageProviderCostVnd,
+      video_provider_cost_vnd_per_scene: videoProviderCostVnd,
+      genre_key: resolvedGenreKey,
+    })
+    .select("id")
+    .single();
+  if (insertError || !job) throw new Error(insertError?.message ?? "Không tạo được job");
+
+  const { data: characterRows, error: charInsertError } = await supabase
+    .from("story_video_job_characters")
+    .insert(
+      resolved.map((r, index) => ({
+        job_id: job.id,
+        position: index,
+        label: r.label,
+        source_image_urls: r.imageUrls,
+        story_character_id: r.reuseCharacterId ?? null,
+        character_sheet_url: r.initialSheetUrl,
+        character_angle_urls: r.initialAngleUrls,
+        character_source: r.characterSource,
+      }))
+    )
+    .select("id, position")
+    .order("position", { ascending: true });
+  if (charInsertError || !characterRows) throw new Error(charInsertError?.message ?? "Không tạo được nhân vật");
+
+  let characterTxId: number | null = null;
+  try {
+    if (generateCount > 0) {
+      const deduction = await deductCredit(userId, totalCharacterCost, miniAppId, idempotencyKey);
+      if (!deduction.success) throw new InsufficientCreditError();
+      characterTxId = deduction.txId ?? null;
+
+      const characterPrompt = await resolveCharacterPrompt(miniAppId);
+      await Promise.all(
+        characterRows.map(async (row) => {
+          const r = resolved[row.position];
+          if (!r.needsGeneration) return;
+          const body = buildImageRequestBody(CHARACTER_SHEET_MODEL, characterPrompt, r.imageUrls, true, "1:1", undefined);
+          const requestId = await submitFalJob(
+            CHARACTER_SHEET_MODEL,
+            body,
+            `${SITE_URL}/api/story-video/webhook?jobId=${job.id}&stage=character&characterPosition=${row.position}`
+          );
+          await supabase.from("story_video_job_characters").update({ character_fal_request_id: requestId }).eq("id", row.id);
+        })
+      );
+      if (characterTxId) await supabase.from("story_video_jobs").update({ character_credit_tx_id: characterTxId }).eq("id", job.id);
     }
   } catch (err) {
     await supabase
@@ -1013,6 +1210,60 @@ export async function regenerateCharacter(userId: string, jobId: number, idempot
   return { newBalance: deduction.newBalance };
 }
 
+// Tạo lại Character của ĐÚNG 1 người trong job nhiều nhân vật — mirror regenerateCharacter() nhưng
+// nhắm đúng 1 hàng story_video_job_characters. Job chuyển tạm về "generating_character" trong lúc
+// chờ; applyCharacterStageResult(jobId, result, position) sẽ tự đưa job về lại "character_ready" khi
+// TẤT CẢ người (kể cả những người khác không đổi, vẫn còn sheet cũ) đã có sheet.
+export async function regenerateJobCharacter(
+  userId: string,
+  jobId: number,
+  position: number,
+  idempotencyKey: string
+): Promise<{ newBalance: number }> {
+  const supabase = getSupabaseAdmin();
+  const { data: jobData } = await supabase.from("story_video_jobs").select("*").eq("id", jobId).single();
+  if (!jobData) throw new Error("Không tìm thấy job");
+  const job = jobData as JobRow;
+
+  if (job.user_id !== userId) throw new Error("Không có quyền với job này");
+  if (job.status !== "character_ready") throw new Error("Job không ở trạng thái xem trước Character");
+
+  const { data: jobCharacter } = await supabase
+    .from("story_video_job_characters")
+    .select("id, source_image_urls")
+    .eq("job_id", jobId)
+    .eq("position", position)
+    .single();
+  if (!jobCharacter) throw new Error("Không tìm thấy nhân vật này trong job");
+  if (!jobCharacter.source_image_urls || jobCharacter.source_image_urls.length === 0) {
+    throw new Error("Nhân vật này không có ảnh gốc để tạo lại (đang dùng Character đã lưu từ thư viện)");
+  }
+
+  const { creditCost } = await computeCharacterCreditCost();
+  const deduction = await deductCredit(userId, creditCost, job.mini_app_id, idempotencyKey);
+  if (!deduction.success) throw new InsufficientCreditError();
+
+  try {
+    const characterPrompt = await resolveCharacterPrompt(job.mini_app_id);
+    const body = buildImageRequestBody(CHARACTER_SHEET_MODEL, characterPrompt, jobCharacter.source_image_urls, true, "1:1", undefined);
+    const requestId = await submitFalJob(
+      CHARACTER_SHEET_MODEL,
+      body,
+      `${SITE_URL}/api/story-video/webhook?jobId=${jobId}&stage=character&characterPosition=${position}`
+    );
+    await supabase
+      .from("story_video_job_characters")
+      .update({ character_sheet_url: null, character_angle_urls: null, character_fal_request_id: requestId })
+      .eq("id", jobCharacter.id);
+    await supabase.from("story_video_jobs").update({ status: "generating_character" }).eq("id", jobId);
+  } catch (err) {
+    if (deduction.txId) await refundCredit(deduction.txId);
+    throw err;
+  }
+
+  return { newBalance: deduction.newBalance };
+}
+
 // jobId (tuỳ chọn): nếu có, lấy luôn character_angle_urls đã cắt sẵn từ job đó gán vào Character lưu
 // mới — tránh phải cắt lại từ đầu mỗi lần dùng lại Character này sau này.
 export async function saveStoryCharacter(userId: string, imageUrl: string, label?: string, jobId?: number): Promise<number> {
@@ -1162,11 +1413,42 @@ async function cropCharacterSheetIntoAngles(sheetUrl: string, userId: string): P
   }
 }
 
-// Gọi khi Fal.ai tạo xong ảnh Character sheet (job-level, không phải per-scene) -> dừng ở
-// "character_ready" chờ khách xem trước, bấm "Tạo lại" hoặc "Tiếp tục chia cảnh".
-export async function applyCharacterStageResult(jobId: number, falPayload: Record<string, unknown>) {
+// Gọi khi Fal.ai tạo xong ảnh Character sheet -> dừng ở "character_ready" chờ khách xem trước, bấm
+// "Tạo lại" hoặc "Tiếp tục chia cảnh". characterPosition (tuỳ chọn) = job nhiều nhân vật, cập nhật
+// đúng 1 hàng story_video_job_characters thay vì cột job-level (job 1 nhân vật vẫn dùng job-level như
+// trước, không có tham số này).
+export async function applyCharacterStageResult(
+  jobId: number,
+  falPayload: Record<string, unknown>,
+  characterPosition?: number
+) {
   const supabase = getSupabaseAdmin();
   const isError = falPayload.status === "ERROR" || !!falPayload.error;
+
+  if (characterPosition !== undefined) {
+    if (isError) {
+      await failJob(jobId, `Lỗi tạo Character #${characterPosition + 1}: ${String(falPayload.error ?? "")}`);
+      return;
+    }
+    const imageUrl = extractImageUrl(falPayload);
+    if (!imageUrl) {
+      await failJob(jobId, `Không tìm thấy URL ảnh Character #${characterPosition + 1} trong phản hồi Fal.ai`);
+      return;
+    }
+    const { data: jobRow } = await supabase.from("story_video_jobs").select("user_id").eq("id", jobId).single();
+    const angleUrls = jobRow ? await cropCharacterSheetIntoAngles(imageUrl, jobRow.user_id) : null;
+    await supabase
+      .from("story_video_job_characters")
+      .update({ character_sheet_url: imageUrl, character_angle_urls: angleUrls })
+      .eq("job_id", jobId)
+      .eq("position", characterPosition);
+
+    const { data: rows } = await supabase.from("story_video_job_characters").select("character_sheet_url").eq("job_id", jobId);
+    if (rows && rows.length > 0 && rows.every((r) => r.character_sheet_url)) {
+      await supabase.from("story_video_jobs").update({ status: "character_ready" }).eq("id", jobId);
+    }
+    return;
+  }
 
   if (isError) {
     await failJob(jobId, `Lỗi tạo Character: ${String(falPayload.error ?? "")}`);
@@ -1536,6 +1818,19 @@ export async function resolveStoryVideoJob(jobId: number): Promise<void> {
     if (job.character_fal_request_id) {
       const result = await pollFalResult(CHARACTER_SHEET_MODEL, job.character_fal_request_id);
       if (result) await applyCharacterStageResult(jobId, result);
+    } else {
+      // Job nhiều nhân vật (không có character_fal_request_id job-level) — poll từng người còn thiếu
+      // sheet riêng theo story_video_job_characters.
+      const { data: jobCharacters } = await supabase
+        .from("story_video_job_characters")
+        .select("position, character_sheet_url, character_fal_request_id")
+        .eq("job_id", jobId);
+      for (const jc of jobCharacters ?? []) {
+        if (!jc.character_sheet_url && jc.character_fal_request_id) {
+          const result = await pollFalResult(CHARACTER_SHEET_MODEL, jc.character_fal_request_id);
+          if (result) await applyCharacterStageResult(jobId, result, jc.position);
+        }
+      }
     }
     return;
   }

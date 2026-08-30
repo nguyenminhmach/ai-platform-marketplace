@@ -14,6 +14,8 @@ export async function POST(req: Request) {
     const sceneId = searchParams.get("sceneId");
     const stage = searchParams.get("stage");
     const isRegenerate = searchParams.get("regen") === "1";
+    const characterPositionRaw = searchParams.get("characterPosition");
+    const characterPosition = characterPositionRaw !== null ? Number(characterPositionRaw) : undefined;
 
     if (!jobId || (stage !== "character" && stage !== "image" && stage !== "video")) {
       return Response.json({ error: "Thiếu hoặc sai jobId/stage" }, { status: 400 });
@@ -25,7 +27,7 @@ export async function POST(req: Request) {
     const payload = await req.json();
 
     if (stage === "character") {
-      await applyCharacterStageResult(Number(jobId), payload);
+      await applyCharacterStageResult(Number(jobId), payload, characterPosition);
     } else if (stage === "image") {
       await applyImageStageResult(Number(jobId), Number(sceneId), payload, isRegenerate);
     } else {
