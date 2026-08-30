@@ -2901,51 +2901,57 @@ export default function MiniAppDetailPage() {
                 </div>
               </div>
 
-              {/* Hàng 1.5: Bối cảnh/Địa điểm thật (tuỳ chọn) */}
-              <div className="mt-4 rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
+              {/* Hàng 1.5: Bối cảnh/Địa điểm thật (tuỳ chọn) — bọc trong lưới 4 cột giống Hàng 1 để khung
+                  ảnh có cùng tỉ lệ chiều rộng với thẻ "Ảnh nhân vật" (col-span-3/4), tránh khung bị kéo
+                  giãn hết chiều ngang trang khi đứng 1 mình trong hàng riêng. */}
+              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-4">
+              <div className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700 sm:col-span-3">
                 <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">📍 Bối cảnh/Địa điểm (tuỳ chọn)</p>
                 <p className="mb-3 text-sm text-zinc-400 dark:text-zinc-500">
                   Đưa ảnh thật của 1 địa điểm (sân vườn, nhà, cửa hàng...) để video diễn ra đúng tại khung cảnh đó — không bắt
                   buộc, bỏ trống thì AI tự vẽ bối cảnh theo mô tả truyện.
                 </p>
-                {storyLocationReference ? (
-                  <div className="relative w-40" style={{ aspectRatio: storyAspectRatio.replace(":", " / ") }}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={storyLocationReference}
-                      alt="Bối cảnh/Địa điểm"
-                      onClick={() => setStoryQuickZoomUrl(storyLocationReference)}
-                      className="h-full w-full cursor-zoom-in rounded-lg object-cover"
-                      title="Bấm để xem to"
-                    />
-                    <button
-                      onClick={() => setStoryLocationReference(null)}
-                      className="absolute -right-2 -top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white hover:bg-black/90"
+                <div className="grid grid-cols-3 gap-3">
+                  {storyLocationReference ? (
+                    <div className="relative w-full" style={{ aspectRatio: storyAspectRatio.replace(":", " / ") }}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={storyLocationReference}
+                        alt="Bối cảnh/Địa điểm"
+                        onClick={() => setStoryQuickZoomUrl(storyLocationReference)}
+                        className="h-full w-full cursor-zoom-in rounded-lg object-cover"
+                        title="Bấm để xem to"
+                      />
+                      <button
+                        onClick={() => setStoryLocationReference(null)}
+                        className="absolute -right-2 -top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white hover:bg-black/90"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <label
+                      className="flex w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800"
+                      style={{ aspectRatio: storyAspectRatio.replace(":", " / ") }}
                     >
-                      ✕
-                    </button>
-                  </div>
-                ) : (
-                  <label
-                    className="flex w-40 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800"
-                    style={{ aspectRatio: storyAspectRatio.replace(":", " / ") }}
-                  >
-                    <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        e.target.value = "";
-                        if (!file) return;
-                        const reader = new FileReader();
-                        reader.onload = () => setStoryLocationReference(reader.result as string);
-                        reader.readAsDataURL(file);
-                      }}
-                    />
-                  </label>
-                )}
+                      <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          e.target.value = "";
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = () => setStoryLocationReference(reader.result as string);
+                          reader.readAsDataURL(file);
+                        }}
+                      />
+                    </label>
+                  )}
+                </div>
+              </div>
               </div>
 
               {/* Hàng 2: Ý tưởng truyện */}
