@@ -2910,13 +2910,16 @@ export default function MiniAppDetailPage() {
                               const isRegeneratingThis = aiScene && storyRegeneratingSceneId === aiScene.id;
                               return (
                               <div key={index} className="space-y-1">
-                                <div className="relative w-full" style={{ aspectRatio: storyAspectRatio.replace(":", " / ") }}>
+                                <div
+                                  className="relative w-full overflow-hidden rounded-lg bg-black/10 dark:bg-black/30"
+                                  style={{ aspectRatio: storyAspectRatio.replace(":", " / ") }}
+                                >
                                   {/* eslint-disable-next-line @next/next/no-img-element */}
                                   <img
                                     src={img}
                                     alt={`Ảnh phân cảnh ${index + 1}`}
                                     onClick={() => setStoryQuickZoomUrl(img)}
-                                    className="h-full w-full cursor-zoom-in rounded-lg object-cover"
+                                    className="h-full w-full cursor-zoom-in object-contain"
                                     title="Bấm để xem to"
                                   />
                                   {isRegeneratingThis && (
