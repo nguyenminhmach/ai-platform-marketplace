@@ -1371,7 +1371,7 @@ export async function regenerateSceneImage(userId: string, sceneId: number, idem
   const supabase = getSupabaseAdmin();
   const { data: sceneData } = await supabase
     .from("story_video_scenes")
-    .select("id, job_id, scene_description, camera_view, outfit_override, face_view")
+    .select("id, job_id, scene_description, camera_view, outfit_override, face_view, character_positions")
     .eq("id", sceneId)
     .single();
   if (!sceneData) throw new Error("Không tìm thấy phân cảnh");
@@ -1391,7 +1391,19 @@ export async function regenerateSceneImage(userId: string, sceneId: number, idem
   try {
     const miniApp = await getMiniAppModelConfig(job.mini_app_id);
     const imageEntry = miniApp.model_config.image_models.find((m) => m.model === job.image_model);
-    const requestId = await submitSceneImageForRow(job, sceneData, imageEntry, true);
+    let requestId: string;
+    // Cảnh thuộc job nhiều nhân vật (Bước 2) -> tạo lại đúng theo công thức nhiều người (nhiều ảnh
+    // tham chiếu), không phải công thức 1 người (camera_view/face_view).
+    if (sceneData.character_positions && sceneData.character_positions.length > 0) {
+      const { data: jobCharacters } = await supabase
+        .from("story_video_job_characters")
+        .select("position, label, character_sheet_url, character_angle_urls")
+        .eq("job_id", job.id)
+        .order("position", { ascending: true });
+      requestId = await submitMultiCharacterSceneImageForRow(job, sceneData, (jobCharacters as JobCharacterRefRow[]) ?? [], imageEntry, true);
+    } else {
+      requestId = await submitSceneImageForRow(job, sceneData, imageEntry, true);
+    }
     await supabase.from("story_video_scenes").update({ image_fal_request_id: requestId, image_url: null }).eq("id", sceneId);
   } catch (err) {
     if (deduction.txId) await refundCredit(deduction.txId);
