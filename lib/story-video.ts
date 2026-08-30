@@ -1805,7 +1805,13 @@ async function submitSceneVideoForRow(
   row: VideoSceneRefRow,
   regen: boolean
 ): Promise<string> {
-  const prompt = row.motion_prompt ?? row.scene_description;
+  // Khách phản ánh bối cảnh/nền đôi khi lệch nhẹ so với ảnh gốc khi model video tạo chuyển động — thêm
+  // câu chỉ dẫn cố định (áp dụng mọi model: Kling/VEO/Hailuo/LTX, vì chỉ nằm trong text "prompt" chung,
+  // không phụ thuộc tham số riêng từng provider) yêu cầu giữ nguyên bối cảnh, chỉ hoạt náo tự nhiên.
+  const basePrompt = row.motion_prompt ?? row.scene_description;
+  const prompt = basePrompt
+    ? `${basePrompt} Keep the background, environment, lighting, and every object in the scene exactly the same as the reference image — do not change or add anything to the setting, only animate with subtle natural motion.`
+    : basePrompt;
   const body = buildVideoRequestBody(job.video_model as string, prompt, row.image_url as string, job.aspect_ratio ?? "9:16", job.video_duration_key ?? undefined);
   return submitFalJob(
     job.video_model as string,
