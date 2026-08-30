@@ -12,9 +12,12 @@ export async function GET(req: Request) {
   const { data, error } = await supabase.from("mini_apps").select("model_config").eq("id", miniAppId).single();
   if (error || !data) return Response.json({ error: "Không tìm thấy Mini App" }, { status: 404 });
 
-  const config = data.model_config as { image_models?: ImageModelEntry[]; video_models?: VideoModelEntry[] } | null;
+  const config = data.model_config as
+    | { image_models?: ImageModelEntry[]; video_models?: VideoModelEntry[]; genre_thumbnails?: Record<string, string> }
+    | null;
   const imageModels = (config?.image_models ?? []).filter((m) => m.enabled);
   const videoModels = (config?.video_models ?? []).filter((m) => m.enabled);
+  const genreThumbnails = config?.genre_thumbnails ?? {};
 
-  return Response.json({ imageModels, videoModels });
+  return Response.json({ imageModels, videoModels, genreThumbnails });
 }

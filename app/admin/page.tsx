@@ -91,7 +91,20 @@ type MiniAppPrice = {
   characterPrompt: string;
   storyImageModels: StoryModelEntry[] | null;
   storyVideoModels: StoryModelEntry[] | null;
+  genreThumbnails: Record<string, string> | null;
 };
+
+// Đồng bộ đúng key/nhãn với STORY_GENRE_OPTIONS ở app/mini-app/[id]/page.tsx — admin tải ảnh thẻ cho
+// từng thể loại ở đây, khách chọn card ở trang Mini App.
+const STORY_GENRE_LABELS: { value: string; label: string }[] = [
+  { value: "default", label: "Mặc định" },
+  { value: "romance", label: "Tình cảm" },
+  { value: "comedy", label: "Hài hước" },
+  { value: "horror", label: "Kinh dị" },
+  { value: "scifi", label: "Khoa học viễn tưởng" },
+  { value: "slice_of_life", label: "Đời thường" },
+  { value: "mystery", label: "Bí ẩn" },
+];
 
 // Catalog model ảnh/video nhiều nhà cung cấp cho app "Video từ ý tưởng truyện" — multi_image chỉ có
 // ý nghĩa với model ảnh (model video luôn nhận 1 ảnh keyframe/cảnh), field thừa với model video không
@@ -162,6 +175,7 @@ export default function AdminPage() {
   const [appPriceError, setAppPriceError] = useState<string | null>(null);
   const [togglingAppId, setTogglingAppId] = useState<string | null>(null);
   const [uploadingDemoImage, setUploadingDemoImage] = useState<string | null>(null);
+  const [uploadingGenreThumbnail, setUploadingGenreThumbnail] = useState<string | null>(null);
   const [promptDrafts, setPromptDrafts] = useState<Record<string, string>>({});
   const [promptVisibleDrafts, setPromptVisibleDrafts] = useState<Record<string, boolean>>({});
   const [savingPromptId, setSavingPromptId] = useState<string | null>(null);
@@ -439,6 +453,55 @@ export default function AdminPage() {
       body: JSON.stringify({ id: app.id, demoImageUrls: nextUrls }),
     });
     setUploadingDemoImage(null);
+    if (!saveRes.ok) {
+      const saveData = await saveRes.json().catch(() => ({}));
+      setAppPriceError(saveData.error ?? "Không lưu được ảnh");
+      return;
+    }
+    loadMiniApps();
+  }
+
+  // Ảnh thẻ (card) cho từng Thể loại ở app "Video từ ý tưởng truyện" — thay thumbnail bằng gradient +
+  // emoji mặc định khi chưa upload. Tái dùng đúng route upload demo-image (chỉ khác chỗ lưu vào
+  // model_config.genre_thumbnails thay vì demo_image_urls).
+  async function handleUploadGenreThumbnail(app: MiniAppPrice, genreKey: string, file: File) {
+    if (!file.type.startsWith("image/")) {
+      setAppPriceError("Chỉ nhận file ảnh");
+      return;
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      setAppPriceError("Ảnh tối đa 4MB");
+      return;
+    }
+    setUploadingGenreThumbnail(`${app.id}-${genreKey}`);
+    setAppPriceError(null);
+
+    const dataUrl: string = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+    const uploadRes = await fetch("/api/admin/upload-demo-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ appId: app.id, dataUrl }),
+    });
+    const uploadData = await uploadRes.json().catch(() => ({}));
+    if (!uploadRes.ok) {
+      setUploadingGenreThumbnail(null);
+      setAppPriceError(uploadData.error ?? "Không upload được ảnh");
+      return;
+    }
+
+    const nextThumbnails = { ...(app.genreThumbnails ?? {}), [genreKey]: uploadData.url };
+    const saveRes = await fetch("/api/admin/mini-apps", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: app.id, genreThumbnails: nextThumbnails }),
+    });
+    setUploadingGenreThumbnail(null);
     if (!saveRes.ok) {
       const saveData = await saveRes.json().catch(() => ({}));
       setAppPriceError(saveData.error ?? "Không lưu được ảnh");
@@ -1346,6 +1409,44 @@ export default function AdminPage() {
                           >
                             {savingStoryModelsId === app.id ? "Đang lưu..." : savedStoryModelsId === app.id ? "Đã lưu ✓" : "Lưu catalog"}
                           </button>
+                        </div>
+
+                        <p className="mb-1 mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+                          Ảnh thẻ Thể loại (card khách chọn trên trang) — chưa tải thì hiện gradient + emoji mặc định
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {STORY_GENRE_LABELS.map((g) => {
+                            const uploadKey = `${app.id}-${g.value}`;
+                            const thumbUrl = app.genreThumbnails?.[g.value];
+                            return (
+                              <label key={g.value} className="w-16 cursor-pointer text-center">
+                                <div className="relative mx-auto mb-1 h-16 w-16 overflow-hidden rounded-lg border border-zinc-300 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800">
+                                  {thumbUrl ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={thumbUrl} alt={g.label} className="h-full w-full object-cover" />
+                                  ) : (
+                                    <div className="flex h-full w-full items-center justify-center text-[10px] text-zinc-400 dark:text-zinc-500">
+                                      Chưa có
+                                    </div>
+                                  )}
+                                  {uploadingGenreThumbnail === uploadKey && (
+                                    <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-[10px] text-white">...</div>
+                                  )}
+                                </div>
+                                <span className="text-[10px] text-zinc-500 dark:text-zinc-400">{g.label}</span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    e.target.value = "";
+                                    if (file) handleUploadGenreThumbnail(app, g.value, file);
+                                  }}
+                                />
+                              </label>
+                            );
+                          })}
                         </div>
                       </div>
                     )}

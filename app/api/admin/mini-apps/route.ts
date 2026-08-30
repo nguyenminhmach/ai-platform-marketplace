@@ -45,6 +45,7 @@ export async function GET(req: Request) {
           character_prompt?: string;
           image_models?: { key: string; provider: string; label: string; model: string; provider_cost_vnd: number; multi_image: boolean; enabled: boolean }[];
           video_models?: { key: string; provider: string; label: string; model: string; provider_cost_vnd: number; enabled: boolean }[];
+          genre_thumbnails?: Record<string, string>;
         }
       | null;
     return {
@@ -89,6 +90,9 @@ export async function GET(req: Request) {
       // app khác để không hiện nhầm section catalog.
       storyImageModels: config?.image_models ?? null,
       storyVideoModels: config?.video_models ?? null,
+      // Ảnh thẻ cho từng Thể loại (card thay dropdown) — chỉ app "Video từ ý tưởng truyện" có, null cho
+      // app khác để không hiện nhầm section này.
+      genreThumbnails: config?.image_models ? (config?.genre_thumbnails ?? {}) : null,
     };
   });
 
@@ -112,6 +116,7 @@ export async function PATCH(req: Request) {
     characterPrompt,
     storyImageModels,
     storyVideoModels,
+    genreThumbnails,
   } = await req.json();
   // modelTiers là alias tổng quát của outfitSwapModels — cùng 1 cơ chế bật/tắt entry trong
   // model_config.models, chỉ khác tên gọi cho rõ nghĩa khi dùng ở app không phải "Thay trang phục"
@@ -130,7 +135,8 @@ export async function PATCH(req: Request) {
     promptHelperInstructions === undefined &&
     characterPrompt === undefined &&
     storyImageModels === undefined &&
-    storyVideoModels === undefined
+    storyVideoModels === undefined &&
+    genreThumbnails === undefined
   ) {
     return Response.json({ error: "Không có gì để cập nhật" }, { status: 400 });
   }
@@ -161,7 +167,8 @@ export async function PATCH(req: Request) {
     promptHelperInstructions !== undefined ||
     characterPrompt !== undefined ||
     storyImageModels !== undefined ||
-    storyVideoModels !== undefined
+    storyVideoModels !== undefined ||
+    genreThumbnails !== undefined
   ) {
     const { data: current } = await supabase.from("mini_apps").select("model_config").eq("id", id).single();
     const currentConfig = (current?.model_config as Record<string, unknown>) ?? {};
@@ -250,6 +257,16 @@ export async function PATCH(req: Request) {
         return Response.json({ error: "Phải bật ít nhất 1 model video" }, { status: 400 });
       }
       nextConfig.video_models = storyVideoModels;
+    }
+    if (genreThumbnails !== undefined) {
+      if (
+        typeof genreThumbnails !== "object" ||
+        genreThumbnails === null ||
+        !Object.values(genreThumbnails).every((u) => typeof u === "string")
+      ) {
+        return Response.json({ error: "genreThumbnails không hợp lệ" }, { status: 400 });
+      }
+      nextConfig.genre_thumbnails = genreThumbnails;
     }
 
     update.model_config = nextConfig;
