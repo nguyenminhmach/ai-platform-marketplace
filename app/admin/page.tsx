@@ -92,6 +92,7 @@ type MiniAppPrice = {
   storyImageModels: StoryModelEntry[] | null;
   storyVideoModels: StoryModelEntry[] | null;
   genreThumbnails: Record<string, string> | null;
+  genreStyleGuides: Record<string, string> | null;
 };
 
 // Đồng bộ đúng key/nhãn với STORY_GENRE_OPTIONS ở app/mini-app/[id]/page.tsx — admin tải ảnh thẻ cho
@@ -176,6 +177,9 @@ export default function AdminPage() {
   const [togglingAppId, setTogglingAppId] = useState<string | null>(null);
   const [uploadingDemoImage, setUploadingDemoImage] = useState<string | null>(null);
   const [uploadingGenreThumbnail, setUploadingGenreThumbnail] = useState<string | null>(null);
+  const [genreStyleGuideDrafts, setGenreStyleGuideDrafts] = useState<Record<string, Record<string, string>>>({});
+  const [savingGenreStyleGuideKey, setSavingGenreStyleGuideKey] = useState<string | null>(null);
+  const [savedGenreStyleGuideKey, setSavedGenreStyleGuideKey] = useState<string | null>(null);
   const [promptDrafts, setPromptDrafts] = useState<Record<string, string>>({});
   const [promptVisibleDrafts, setPromptVisibleDrafts] = useState<Record<string, boolean>>({});
   const [savingPromptId, setSavingPromptId] = useState<string | null>(null);
@@ -507,6 +511,31 @@ export default function AdminPage() {
       setAppPriceError(saveData.error ?? "Không lưu được ảnh");
       return;
     }
+    loadMiniApps();
+  }
+
+  // Hướng dẫn phong cách từng Thể loại (Tình cảm/Kinh dị/...) — trước đây viết cứng trong
+  // GENRE_STYLE_GUIDES (lib/story-video.ts), giờ admin sửa được qua đây. Lưu đúng 1 thể loại mỗi lần
+  // (không phải lưu cả 7 cùng lúc) để tránh mất nội dung đang gõ dở ở các ô khác.
+  async function handleSaveGenreStyleGuide(app: MiniAppPrice, genreKey: string) {
+    const value = genreStyleGuideDrafts[app.id]?.[genreKey] ?? app.genreStyleGuides?.[genreKey] ?? "";
+    const uploadKey = `${app.id}-${genreKey}`;
+    setSavingGenreStyleGuideKey(uploadKey);
+    setAppPriceError(null);
+    const nextGuides = { ...(app.genreStyleGuides ?? {}), [genreKey]: value };
+    const res = await fetch("/api/admin/mini-apps", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: app.id, genreStyleGuides: nextGuides }),
+    });
+    setSavingGenreStyleGuideKey(null);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setAppPriceError(data.error ?? "Không lưu được hướng dẫn Thể loại");
+      return;
+    }
+    setSavedGenreStyleGuideKey(uploadKey);
+    setTimeout(() => setSavedGenreStyleGuideKey(null), 2000);
     loadMiniApps();
   }
 
@@ -1445,6 +1474,45 @@ export default function AdminPage() {
                                   }}
                                 />
                               </label>
+                            );
+                          })}
+                        </div>
+
+                        <p className="mb-1 mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+                          Hướng dẫn phong cách từng Thể loại (nối vào cuối chỉ dẫn cho Agent chia cảnh) — sửa xong bấm Lưu ngay dòng đó
+                        </p>
+                        <div className="space-y-2">
+                          {STORY_GENRE_LABELS.filter((g) => g.value !== "default").map((g) => {
+                            const uploadKey = `${app.id}-${g.value}`;
+                            const value = genreStyleGuideDrafts[app.id]?.[g.value] ?? app.genreStyleGuides?.[g.value] ?? "";
+                            return (
+                              <div key={g.value}>
+                                <p className="mb-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">{g.label}</p>
+                                <textarea
+                                  value={value}
+                                  onChange={(e) =>
+                                    setGenreStyleGuideDrafts((prev) => ({
+                                      ...prev,
+                                      [app.id]: { ...prev[app.id], [g.value]: e.target.value },
+                                    }))
+                                  }
+                                  rows={2}
+                                  className="mb-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                                />
+                                <div className="flex justify-end">
+                                  <button
+                                    onClick={() => handleSaveGenreStyleGuide(app, g.value)}
+                                    disabled={savingGenreStyleGuideKey === uploadKey}
+                                    className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-300"
+                                  >
+                                    {savingGenreStyleGuideKey === uploadKey
+                                      ? "Đang lưu..."
+                                      : savedGenreStyleGuideKey === uploadKey
+                                        ? "Đã lưu ✓"
+                                        : "Lưu"}
+                                  </button>
+                                </div>
+                              </div>
                             );
                           })}
                         </div>

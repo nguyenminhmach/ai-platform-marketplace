@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { verifyAdminToken, ADMIN_COOKIE_NAME } from "@/lib/admin-auth";
+import { GENRE_STYLE_GUIDES } from "@/lib/story-video";
 
 function getCookie(req: Request, name: string): string | undefined {
   const header = req.headers.get("cookie");
@@ -46,6 +47,7 @@ export async function GET(req: Request) {
           image_models?: { key: string; provider: string; label: string; model: string; provider_cost_vnd: number; multi_image: boolean; enabled: boolean }[];
           video_models?: { key: string; provider: string; label: string; model: string; provider_cost_vnd: number; enabled: boolean }[];
           genre_thumbnails?: Record<string, string>;
+          genre_style_guides?: Record<string, string>;
         }
       | null;
     return {
@@ -93,6 +95,10 @@ export async function GET(req: Request) {
       // Ảnh thẻ cho từng Thể loại (card thay dropdown) — chỉ app "Video từ ý tưởng truyện" có, null cho
       // app khác để không hiện nhầm section này.
       genreThumbnails: config?.image_models ? (config?.genre_thumbnails ?? {}) : null,
+      // Hướng dẫn phong cách từng Thể loại — trả bản ĐÃ GHÉP default (viết cứng trong lib/story-video.ts)
+      // + override admin đã lưu, để textarea luôn hiện đúng nội dung đang thực sự áp dụng, không phải
+      // rỗng khi admin chưa từng sửa. null cho app khác story-video.
+      genreStyleGuides: config?.image_models ? { ...GENRE_STYLE_GUIDES, ...(config?.genre_style_guides ?? {}) } : null,
     };
   });
 
@@ -117,6 +123,7 @@ export async function PATCH(req: Request) {
     storyImageModels,
     storyVideoModels,
     genreThumbnails,
+    genreStyleGuides,
   } = await req.json();
   // modelTiers là alias tổng quát của outfitSwapModels — cùng 1 cơ chế bật/tắt entry trong
   // model_config.models, chỉ khác tên gọi cho rõ nghĩa khi dùng ở app không phải "Thay trang phục"
@@ -136,7 +143,8 @@ export async function PATCH(req: Request) {
     characterPrompt === undefined &&
     storyImageModels === undefined &&
     storyVideoModels === undefined &&
-    genreThumbnails === undefined
+    genreThumbnails === undefined &&
+    genreStyleGuides === undefined
   ) {
     return Response.json({ error: "Không có gì để cập nhật" }, { status: 400 });
   }
@@ -168,7 +176,8 @@ export async function PATCH(req: Request) {
     characterPrompt !== undefined ||
     storyImageModels !== undefined ||
     storyVideoModels !== undefined ||
-    genreThumbnails !== undefined
+    genreThumbnails !== undefined ||
+    genreStyleGuides !== undefined
   ) {
     const { data: current } = await supabase.from("mini_apps").select("model_config").eq("id", id).single();
     const currentConfig = (current?.model_config as Record<string, unknown>) ?? {};
@@ -267,6 +276,16 @@ export async function PATCH(req: Request) {
         return Response.json({ error: "genreThumbnails không hợp lệ" }, { status: 400 });
       }
       nextConfig.genre_thumbnails = genreThumbnails;
+    }
+    if (genreStyleGuides !== undefined) {
+      if (
+        typeof genreStyleGuides !== "object" ||
+        genreStyleGuides === null ||
+        !Object.values(genreStyleGuides).every((u) => typeof u === "string")
+      ) {
+        return Response.json({ error: "genreStyleGuides không hợp lệ" }, { status: 400 });
+      }
+      nextConfig.genre_style_guides = genreStyleGuides;
     }
 
     update.model_config = nextConfig;

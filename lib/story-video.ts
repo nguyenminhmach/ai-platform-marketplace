@@ -215,6 +215,7 @@ async function getMiniAppModelConfig(miniAppId: string) {
       video_models: VideoModelEntry[];
       prompt_helper_instructions?: string;
       character_prompt?: string;
+      genre_style_guides?: Record<string, string>;
     };
   };
 }
@@ -727,7 +728,9 @@ async function submitMultiCharacterSceneImageForRow(
 // "default"/không có key -> không nối gì thêm.
 export const STORY_GENRE_KEYS = ["romance", "comedy", "horror", "scifi", "slice_of_life", "mystery"] as const;
 export type StoryGenreKey = (typeof STORY_GENRE_KEYS)[number];
-const GENRE_STYLE_GUIDES: Record<StoryGenreKey, string> = {
+// export để admin/mini-apps route dùng làm bản mặc định khi ghép với genre_style_guides admin đã sửa
+// (GET trả về bản merge default+override, PATCH chỉ lưu đúng override admin gửi lên).
+export const GENRE_STYLE_GUIDES: Record<StoryGenreKey, string> = {
   romance:
     "Phong cách hình ảnh thể loại Tình cảm: ánh sáng ấm (hoàng hôn, đèn vàng, nắng sớm), tông màu ấm/pastel, ưu tiên khoảnh khắc gần gũi và biểu cảm dịu dàng, bối cảnh lãng mạn (quán cà phê, công viên, ban công).",
   comedy:
@@ -742,8 +745,10 @@ const GENRE_STYLE_GUIDES: Record<StoryGenreKey, string> = {
     "Phong cách hình ảnh thể loại Bí ẩn: ánh sáng mờ ảo hoặc tương phản cao, có thể có sương mù/bóng tối một phần che khuất, tông màu trầm, bố cục gợi tò mò thay vì phơi bày rõ ràng.",
 };
 
-function resolveGenreStyleGuide(genreKey: string | null | undefined): string | undefined {
+function resolveGenreStyleGuide(genreKey: string | null | undefined, overrides?: Record<string, string> | null): string | undefined {
   if (!genreKey) return undefined;
+  const override = overrides?.[genreKey]?.trim();
+  if (override) return override;
   return (GENRE_STYLE_GUIDES as Record<string, string>)[genreKey];
 }
 
@@ -780,7 +785,10 @@ async function runSceneStage(
   try {
     const miniApp = await getMiniAppModelConfig(job.mini_app_id);
     const imageEntry = miniApp.model_config.image_models.find((m) => m.model === job.image_model);
-    const combinedInstructions = [miniApp.model_config.prompt_helper_instructions, resolveGenreStyleGuide(job.genre_key)]
+    const combinedInstructions = [
+      miniApp.model_config.prompt_helper_instructions,
+      resolveGenreStyleGuide(job.genre_key, miniApp.model_config.genre_style_guides),
+    ]
       .filter((s): s is string => !!s?.trim())
       .join("\n\n");
     const scenes = await splitStoryIntoScenes(finalStoryDescription, job.num_scenes, combinedInstructions || undefined, modelChatKey);
@@ -1208,7 +1216,10 @@ async function runMultiCharacterSceneStage(
   try {
     const miniApp = await getMiniAppModelConfig(job.mini_app_id);
     const imageEntry = miniApp.model_config.image_models.find((m) => m.model === job.image_model);
-    const combinedInstructions = [miniApp.model_config.prompt_helper_instructions, resolveGenreStyleGuide(job.genre_key)]
+    const combinedInstructions = [
+      miniApp.model_config.prompt_helper_instructions,
+      resolveGenreStyleGuide(job.genre_key, miniApp.model_config.genre_style_guides),
+    ]
       .filter((s): s is string => !!s?.trim())
       .join("\n\n");
     const characterLabels = jobCharacters.map((c) => c.label || `Nhân vật ${c.position + 1}`);
@@ -1831,12 +1842,13 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
   try {
     const { data: job } = await supabase
       .from("story_video_jobs")
-      .select("video_model, aspect_ratio, video_duration_key, story_description, genre_key")
+      .select("mini_app_id, video_model, aspect_ratio, video_duration_key, story_description, genre_key")
       .eq("id", jobId)
       .single();
     if (!job?.video_model) throw new Error("Không tìm thấy model video của job");
 
-    const genreStyleGuide = resolveGenreStyleGuide(job.genre_key);
+    const miniApp = await getMiniAppModelConfig(job.mini_app_id);
+    const genreStyleGuide = resolveGenreStyleGuide(job.genre_key, miniApp.model_config.genre_style_guides);
 
     await Promise.all(
       scenes.map(async (scene) => {
