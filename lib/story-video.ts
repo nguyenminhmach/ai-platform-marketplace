@@ -333,7 +333,13 @@ function buildImageRequestBody(
 // Body request Fal.ai theo model video — VEO cần hậu tố "s" cho duration ("6s", không phải "6"),
 // Hailuo cố định resolution "768P" để khớp đúng giá đã nghiên cứu, còn lại theo mẫu Kling/LTX sẵn có.
 function buildVideoRequestBody(model: string, prompt: string | null, imageUrl: string, aspectRatio: string, durationKey?: string): Record<string, unknown> {
-  if (model === "fal-ai/veo3/image-to-video") {
+  if (
+    model === "fal-ai/veo3/image-to-video" ||
+    model === "fal-ai/veo3.1/fast/image-to-video" ||
+    model === "fal-ai/veo3.1/lite/image-to-video"
+  ) {
+    // Fast/Lite cùng schema request với veo3 gốc (prompt/image_url/duration+"s"/generate_audio) — giá rẻ
+    // hơn ($0.10/s và $0.03-0.08/s so với $0.20/s) chỉ đúng khi generate_audio=false, giữ nguyên quy ước.
     return { prompt, image_url: imageUrl, duration: `${durationKey ?? "6"}s`, generate_audio: false };
   }
   if (model === "fal-ai/minimax/hailuo-02/standard/image-to-video") {
