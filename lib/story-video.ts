@@ -313,7 +313,11 @@ export async function computeStoryVideoCreditCost(
 
 // Body request Fal.ai theo model ảnh — mỗi model có field tên khác nhau đã tra kỹ docs thật (tránh
 // lặp lỗi 422 do gửi sai tên field từng gặp với LTX):
-// - GPT Image 2 edit: image_size (không nhận aspect_ratio riêng, dùng "auto" giữ tỉ lệ ảnh gốc).
+// - GPT Image 2 edit: image_size — đã tra lại schema thật (fal.ai openapi), field này CÓ hỗ trợ theo
+//   tỉ lệ qua preset chuỗi ("landscape_16_9"/"portrait_16_9"/"square_hd") hoặc object {width,height}
+//   tự do — không phải chỉ "auto"/"square_hd"/{3840x2160} cố định như trước (bug cũ bỏ qua aspectRatio
+//   hoàn toàn). Preset "4K" dùng object width/height để giữ đúng cả tỉ lệ lẫn mức giá đã tính theo
+//   tổng pixel; mức "1024" dùng preset chuỗi theo đúng tỉ lệ.
 // - Nano Banana Pro edit: resolution nhận "1K"/"2K"/"4K".
 // - Còn lại (Flux Kontext...): aspect_ratio thường.
 function buildImageRequestBody(
@@ -329,11 +333,17 @@ function buildImageRequestBody(
   else body.image_url = characterImageUrls[0];
 
   if (model === "fal-ai/gpt-image-2/edit") {
-    // Không nhận aspect_ratio riêng — field điều khiển kích thước là image_size, nhận preset chuỗi
-    // hoặc object {width,height} tuỳ độ phân giải. Giá thật đổi theo mức này (đã tra docs).
-    if (resolutionKey === "4K") body.image_size = { width: 3840, height: 2160 };
-    else if (resolutionKey === "1024") body.image_size = "square_hd";
-    else body.image_size = "auto";
+    if (resolutionKey === "4K") {
+      if (aspectRatio === "16:9") body.image_size = { width: 3840, height: 2160 };
+      else if (aspectRatio === "9:16") body.image_size = { width: 2160, height: 3840 };
+      else body.image_size = { width: 2880, height: 2880 };
+    } else if (resolutionKey === "1024") {
+      if (aspectRatio === "16:9") body.image_size = "landscape_16_9";
+      else if (aspectRatio === "9:16") body.image_size = "portrait_16_9";
+      else body.image_size = "square_hd";
+    } else {
+      body.image_size = "auto";
+    }
     return body;
   }
   body.aspect_ratio = aspectRatio;
@@ -349,11 +359,13 @@ function buildVideoRequestBody(model: string, prompt: string | null, imageUrl: s
     model === "fal-ai/veo3.1/fast/image-to-video" ||
     model === "fal-ai/veo3.1/lite/image-to-video"
   ) {
-    // Fast/Lite cùng schema request với veo3 gốc (prompt/image_url/duration+"s"/generate_audio) — giá rẻ
-    // hơn ($0.10/s và $0.03-0.08/s so với $0.20/s) chỉ đúng khi generate_audio=false, giữ nguyên quy ước.
-    return { prompt, image_url: imageUrl, duration: `${durationKey ?? "6"}s`, generate_audio: false };
+    // Fast/Lite cùng schema request với veo3 gốc — đã tra lại schema thật, model NÀY CÓ nhận
+    // aspect_ratio (enum "auto"/"16:9"/"9:16", trước đây code bỏ sót không gửi field này nên luôn rơi
+    // về "auto"). Giá rẻ hơn ($0.10/s và $0.03-0.08/s so với $0.20/s) chỉ đúng khi generate_audio=false.
+    return { prompt, image_url: imageUrl, aspect_ratio: aspectRatio, duration: `${durationKey ?? "6"}s`, generate_audio: false };
   }
   if (model === "fal-ai/minimax/hailuo-02/standard/image-to-video") {
+    // Đã tra schema thật — model này KHÔNG có tham số tỉ lệ khung hình, luôn theo đúng ảnh đầu vào.
     return { prompt, image_url: imageUrl, duration: durationKey ?? "6", resolution: "768P" };
   }
   const body: Record<string, unknown> = { prompt, image_url: imageUrl, aspect_ratio: aspectRatio };
@@ -2167,10 +2179,19 @@ export async function applyLipsyncStageResult(
 
 // Ghép N clip (theo đúng thứ tự "position") thành 1 video liền mạch — dùng lại ffmpeg đã tích hợp
 // sẵn cho tính năng "Video đồng nhất nhân vật".
+// Kích thước khung ghép cuối theo đúng tỉ lệ job đã chọn — trước đây cố định 720x1280 (9:16) bất kể
+// aspect_ratio thật của job, khiến job 16:9/1:1 bị ép sai tỉ lệ ở bước ghép cuối cùng.
+const STITCH_CANVAS_BY_ASPECT_RATIO: Record<string, { width: number; height: number }> = {
+  "9:16": { width: 720, height: 1280 },
+  "16:9": { width: 1280, height: 720 },
+  "1:1": { width: 720, height: 720 },
+};
+
 async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
   const supabase = getSupabaseAdmin();
-  const { data: job } = await supabase.from("story_video_jobs").select("user_id, mini_app_id").eq("id", jobId).single();
+  const { data: job } = await supabase.from("story_video_jobs").select("user_id, mini_app_id, aspect_ratio").eq("id", jobId).single();
   if (!job) return;
+  const canvas = STITCH_CANVAS_BY_ASPECT_RATIO[job.aspect_ratio ?? "9:16"] ?? STITCH_CANVAS_BY_ASPECT_RATIO["9:16"];
 
   await supabase.from("story_video_jobs").update({ status: "stitching" }).eq("id", jobId);
 
@@ -2209,7 +2230,8 @@ async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
     // Ép về cùng kích thước bằng scale+pad trước khi ghép để tránh lỗi/lệch khung giữa các đoạn.
     await execFileAsync(ffmpegPath, [
       "-f", "concat", "-safe", "0", "-i", listPath,
-      "-vf", "scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2,setsar=1",
+      "-vf",
+      `scale=${canvas.width}:${canvas.height}:force_original_aspect_ratio=decrease,pad=${canvas.width}:${canvas.height}:(ow-iw)/2:(oh-ih)/2,setsar=1`,
       "-c:v", "libx264", "-c:a", "aac", "-y", outputPath,
     ]);
 
