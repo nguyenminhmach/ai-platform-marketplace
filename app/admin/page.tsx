@@ -36,6 +36,15 @@ type StoryVideoCostRow = {
 };
 type StoryVideoCostsData = { rows: StoryVideoCostRow[]; grandTotalVnd: number };
 
+type ElevenLabsUsageData = {
+  tier: string;
+  characterCount: number;
+  characterLimit: number;
+  remaining: number;
+  nextResetUnix: number;
+  status: string;
+};
+
 const TYPE_LABEL: Record<string, string> = {
   topup: "Nạp credit",
   usage: "Sử dụng",
@@ -230,6 +239,8 @@ export default function AdminPage() {
   const [deletingMusicId, setDeletingMusicId] = useState<number | null>(null);
 
   const [storyVideoCosts, setStoryVideoCosts] = useState<StoryVideoCostsData | null>(null);
+  const [elevenLabsUsage, setElevenLabsUsage] = useState<ElevenLabsUsageData | null>(null);
+  const [elevenLabsError, setElevenLabsError] = useState<string | null>(null);
 
   async function loadStats() {
     const res = await fetch("/api/admin/stats");
@@ -285,6 +296,19 @@ export default function AdminPage() {
     setStoryVideoCosts(data);
   }
 
+  // Dùng chung cho 2 app đang gọi ElevenLabs TTS (Video đồng nhất nhân vật + Video từ ý tưởng
+  // truyện) — kiểm tra còn bao nhiêu ký tự trong gói để biết có cần nâng gói trước khi hết quota.
+  async function loadElevenLabsUsage() {
+    const res = await fetch("/api/admin/elevenlabs-usage");
+    const data = await res.json();
+    if (!res.ok) {
+      setElevenLabsError(data.error ?? "Không lấy được dữ liệu ElevenLabs");
+      return;
+    }
+    setElevenLabsError(null);
+    setElevenLabsUsage(data);
+  }
+
   useEffect(() => {
     loadStats();
     loadSettings();
@@ -293,6 +317,7 @@ export default function AdminPage() {
     loadHomepageChips();
     loadBackgroundMusic();
     loadStoryVideoCosts();
+    loadElevenLabsUsage();
   }, []);
 
   // Nhạc nền do admin tự cung cấp (đã có bản quyền hợp lệ) — user chọn 1 bài trong danh sách này
@@ -1796,6 +1821,54 @@ export default function AdminPage() {
                   </tbody>
                 </table>
               </div>
+            </section>
+
+            <section className="mb-10">
+              <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Dung lượng ElevenLabs (giọng đọc)
+              </h2>
+              <p className="mb-3 text-xs text-zinc-400 dark:text-zinc-500">
+                Dùng chung cho 2 app: "Video đồng nhất nhân vật" và "Video từ ý tưởng truyện" (lồng tiếng cảnh có thoại) — hết ký
+                tự thì lượt lồng tiếng sẽ lỗi (credit tự hoàn lại, nhưng khách không tạo được video có thoại).
+              </p>
+              {elevenLabsError ? (
+                <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+                  {elevenLabsError}
+                </div>
+              ) : !elevenLabsUsage ? (
+                <div className="rounded-xl border border-zinc-200 px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+                  Đang tải...
+                </div>
+              ) : (
+                <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+                  <div className="mb-2 flex items-center justify-between text-sm">
+                    <span className="text-zinc-500 dark:text-zinc-400">
+                      Gói {elevenLabsUsage.tier} — {elevenLabsUsage.characterCount.toLocaleString("vi-VN")} /{" "}
+                      {elevenLabsUsage.characterLimit.toLocaleString("vi-VN")} ký tự
+                    </span>
+                    <span
+                      className={
+                        elevenLabsUsage.remaining < elevenLabsUsage.characterLimit * 0.1
+                          ? "font-semibold text-red-600 dark:text-red-400"
+                          : "font-semibold text-zinc-900 dark:text-zinc-50"
+                      }
+                    >
+                      Còn {elevenLabsUsage.remaining.toLocaleString("vi-VN")} ký tự
+                    </span>
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-900">
+                    <div
+                      className={
+                        elevenLabsUsage.remaining < elevenLabsUsage.characterLimit * 0.1 ? "h-full bg-red-500" : "h-full bg-emerald-500"
+                      }
+                      style={{ width: `${Math.min(100, (elevenLabsUsage.characterCount / elevenLabsUsage.characterLimit) * 100)}%` }}
+                    />
+                  </div>
+                  <p className="mt-2 text-xs text-zinc-400 dark:text-zinc-500">
+                    Reset vào {new Date(elevenLabsUsage.nextResetUnix * 1000).toLocaleDateString("vi-VN")}
+                  </p>
+                </div>
+              )}
             </section>
 
             <section className="mb-10">
