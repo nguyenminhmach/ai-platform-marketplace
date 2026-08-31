@@ -9,15 +9,18 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("mini_apps")
-    .select("id, name, description, category, credit_cost, is_active, model_config")
+    .select("id, name, description, category, credit_cost, is_active, model_config, display_order")
     .is("developer_id", null)
     .eq("review_status", "approved");
 
-  if (error) return Response.json({ inactiveIds: [], extraApps: [], demoImageUrls: {} });
+  if (error) return Response.json({ inactiveIds: [], extraApps: [], demoImageUrls: {}, displayOrder: {} });
 
   const inactiveIds: string[] = [];
-  const extraApps: { id: string; name: string; description: string; category: string; creditCost: number }[] = [];
+  const extraApps: { id: string; name: string; description: string; category: string; creditCost: number; displayOrder: number }[] = [];
   const demoImageUrls: Record<string, string[]> = {};
+  // Thứ tự admin đã set qua /admin (số nhỏ hơn hiện trước) — chỉ cần cho app TĨNH ở đây, app admin tự
+  // thêm (extraApps) đã mang sẵn displayOrder trong object của nó.
+  const displayOrder: Record<string, number> = {};
 
   for (const row of data ?? []) {
     const urls = (row.model_config as { demo_image_urls?: string[] } | null)?.demo_image_urls;
@@ -25,6 +28,7 @@ export async function GET() {
 
     if (staticIds.has(row.id)) {
       if (!row.is_active) inactiveIds.push(row.id);
+      displayOrder[row.id] = row.display_order ?? 9999;
     } else if (row.is_active) {
       extraApps.push({
         id: row.id,
@@ -32,9 +36,10 @@ export async function GET() {
         description: row.description,
         category: row.category,
         creditCost: row.credit_cost,
+        displayOrder: row.display_order ?? 9999,
       });
     }
   }
 
-  return Response.json({ inactiveIds, extraApps, demoImageUrls });
+  return Response.json({ inactiveIds, extraApps, demoImageUrls, displayOrder });
 }

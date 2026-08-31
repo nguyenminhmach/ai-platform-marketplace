@@ -80,6 +80,7 @@ type MiniAppPrice = {
   creditCost: number;
   dynamic: boolean;
   isActive: boolean;
+  displayOrder: number;
   ownApp: boolean;
   demoImageUrls: string[];
   outfitSwapModels: { generic: boolean; fashn: boolean; fashn_max: boolean } | null;
@@ -173,6 +174,8 @@ export default function AdminPage() {
   const [miniApps, setMiniApps] = useState<MiniAppPrice[] | null>(null);
   const [savingAppId, setSavingAppId] = useState<string | null>(null);
   const [savedAppId, setSavedAppId] = useState<string | null>(null);
+  const [savingOrderId, setSavingOrderId] = useState<string | null>(null);
+  const [savedOrderId, setSavedOrderId] = useState<string | null>(null);
   const [appPriceError, setAppPriceError] = useState<string | null>(null);
   const [togglingAppId, setTogglingAppId] = useState<string | null>(null);
   const [uploadingDemoImage, setUploadingDemoImage] = useState<string | null>(null);
@@ -399,6 +402,28 @@ export default function AdminPage() {
     }
     setSavedAppId(id);
     setTimeout(() => setSavedAppId(null), 2000);
+    loadMiniApps();
+  }
+
+  // Thứ tự hiện trên trang chủ (số nhỏ hơn hiện trước) — độc lập với giá, admin muốn đẩy app nào lên
+  // đầu chỉ cần cho số nhỏ hơn app khác, không cần sửa code/deploy lại.
+  async function handleSaveDisplayOrder(id: string, displayOrder: number) {
+    setSavingOrderId(id);
+    setSavedOrderId(null);
+    setAppPriceError(null);
+    const res = await fetch("/api/admin/mini-apps", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, displayOrder }),
+    });
+    setSavingOrderId(null);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setAppPriceError(data.error ?? "Không lưu được thứ tự hiển thị");
+      return;
+    }
+    setSavedOrderId(id);
+    setTimeout(() => setSavedOrderId(null), 2000);
     loadMiniApps();
   }
 
@@ -1211,6 +1236,12 @@ export default function AdminPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
+                        <MiniAppOrderEditor
+                          app={app}
+                          saving={savingOrderId === app.id}
+                          saved={savedOrderId === app.id}
+                          onSave={(value) => handleSaveDisplayOrder(app.id, value)}
+                        />
                         {app.dynamic ? (
                           <span className="text-sm text-zinc-400 dark:text-zinc-500">
                             {app.creditCost} credit — tính động
@@ -1873,6 +1904,43 @@ function StatCard({ label, value }: { label: string; value: string }) {
     <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
       <p className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{label}</p>
       <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">{value}</p>
+    </div>
+  );
+}
+
+// Thứ tự hiện trên trang chủ — số nhỏ hơn hiện trước, mọi app (kể cả app "dynamic" tính giá theo margin%)
+// đều sắp xếp được vì displayOrder độc lập hoàn toàn với giá.
+function MiniAppOrderEditor({
+  app,
+  saving,
+  saved,
+  onSave,
+}: {
+  app: MiniAppPrice;
+  saving: boolean;
+  saved: boolean;
+  onSave: (value: number) => void;
+}) {
+  const [value, setValue] = useState(app.displayOrder);
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-zinc-400 dark:text-zinc-500">Thứ tự</span>
+      <input
+        type="number"
+        value={value}
+        onChange={(e) => setValue(Number(e.target.value))}
+        title="Số nhỏ hơn hiện trước trên trang chủ"
+        className="w-20 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+      />
+      <button
+        onClick={() => onSave(value)}
+        disabled={saving || value === app.displayOrder}
+        className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 disabled:opacity-40 dark:border-zinc-600 dark:text-zinc-300"
+      >
+        {saving ? "Đang lưu..." : "Lưu"}
+      </button>
+      {saved && <span className="text-xs text-emerald-600 dark:text-emerald-400">✓</span>}
     </div>
   );
 }

@@ -10,7 +10,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAuth } from "@/lib/auth-context";
 
 type HomepageChip = { id: string; type: "category" | "search" | "link"; label: string; value: string };
-type ExtraApp = { id: string; name: string; description: string; category: MiniApp["category"]; creditCost: number };
+type ExtraApp = { id: string; name: string; description: string; category: MiniApp["category"]; creditCost: number; displayOrder: number };
 
 export default function Home() {
   const { user } = useAuth();
@@ -22,6 +22,9 @@ export default function Home() {
   const [inactiveIds, setInactiveIds] = useState<string[]>([]);
   const [extraApps, setExtraApps] = useState<ExtraApp[]>([]);
   const [demoImageUrls, setDemoImageUrls] = useState<Record<string, string[]>>({});
+  // Thứ tự hiện trên trang chủ admin tự set qua /admin (số nhỏ hơn hiện trước) — mặc định 9999 nếu
+  // admin chưa từng sửa app nào, giữ đúng hành vi cũ (theo thứ tự khai báo trong lib/mock-mini-apps.ts).
+  const [displayOrder, setDisplayOrder] = useState<Record<string, number>>({});
   const resultsRef = useRef<HTMLDivElement>(null);
 
   function runSearch(value: string) {
@@ -47,6 +50,7 @@ export default function Home() {
         setInactiveIds(data.inactiveIds ?? []);
         setExtraApps(data.extraApps ?? []);
         setDemoImageUrls(data.demoImageUrls ?? {});
+        setDisplayOrder(data.displayOrder ?? {});
       })
       .catch(() => {});
   }, []);
@@ -74,6 +78,23 @@ export default function Home() {
     () => extraApps.filter((app) => matches(app.name, app.description, app.category)),
     [extraApps, query, category]
   );
+
+  // Gộp app tĩnh + app admin tự thêm thành 1 danh sách rồi sắp theo displayOrder (admin set qua
+  // /admin, số nhỏ hơn hiện trước) — trước đây 2 loại render riêng, app tĩnh luôn hiện trước bất kể
+  // admin muốn app nào lên đầu.
+  const combinedApps = useMemo(() => {
+    const staticEntries = filteredApps.map((app) => ({
+      kind: "static" as const,
+      app,
+      order: displayOrder[app.id] ?? 9999,
+    }));
+    const extraEntries = filteredExtraApps.map((app) => ({
+      kind: "extra" as const,
+      app,
+      order: app.displayOrder ?? 9999,
+    }));
+    return [...staticEntries, ...extraEntries].sort((a, b) => a.order - b.order);
+  }, [filteredApps, filteredExtraApps, displayOrder]);
 
   const popularApps = activeMiniApps.filter((app) => app.popular);
 
@@ -227,12 +248,13 @@ export default function Home() {
             </p>
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {filteredApps.map((app) => (
-                <MiniAppCard key={app.id} app={app} demoImages={demoImageUrls[app.id]} />
-              ))}
-              {filteredExtraApps.map((app) => (
-                <ExtraAppCard key={app.id} app={app} />
-              ))}
+              {combinedApps.map((entry) =>
+                entry.kind === "static" ? (
+                  <MiniAppCard key={entry.app.id} app={entry.app} demoImages={demoImageUrls[entry.app.id]} />
+                ) : (
+                  <ExtraAppCard key={entry.app.id} app={entry.app} />
+                )
+              )}
             </div>
           )}
         </section>

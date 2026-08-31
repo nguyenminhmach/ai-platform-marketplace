@@ -25,11 +25,24 @@ export async function GET(req: Request) {
 
   const supabase = getSupabaseAdmin();
   // Chỉ liệt kê app đã duyệt (approved) — app dev đang chờ duyệt đã có mục "Duyệt nhà phát triển" riêng
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("mini_apps")
-    .select("id, name, credit_cost, model_config, is_active, developer_id")
+    .select("id, name, credit_cost, model_config, is_active, developer_id, display_order")
     .eq("review_status", "approved")
     .order("id");
+
+  // display_order là cột mới (migration-mini-apps-display-order.sql) — nếu ai đó deploy code trước khi
+  // kịp chạy migration, select ở trên lỗi ngay vì cột chưa tồn tại. Tự thử lại KHÔNG có cột đó để trang
+  // /admin vẫn dùng được bình thường (chỉ riêng ô "Thứ tự" mặc định 9999 cho tới khi chạy migration).
+  if (error) {
+    const retry = await supabase
+      .from("mini_apps")
+      .select("id, name, credit_cost, model_config, is_active, developer_id")
+      .eq("review_status", "approved")
+      .order("id");
+    data = retry.data as typeof data;
+    error = retry.error;
+  }
 
   if (error) return Response.json({ error: error.message }, { status: 500 });
 
@@ -55,6 +68,8 @@ export async function GET(req: Request) {
       name: app.name,
       creditCost: app.credit_cost,
       isActive: app.is_active,
+      // Thứ tự hiện trên trang chủ (số nhỏ hơn hiện trước) — admin tự set, mặc định 9999 nếu chưa từng sửa.
+      displayOrder: app.display_order ?? 9999,
       ownApp: !app.developer_id,
       // dynamic = true nếu app này đã dùng công thức margin% (ảnh/video, kể cả app nhiều model như
       // "Thay trang phục") — giá cố định bên dưới sẽ bị ghi đè, không sửa được qua đây
@@ -113,6 +128,7 @@ export async function PATCH(req: Request) {
     id,
     creditCost,
     isActive,
+    displayOrder,
     demoImageUrls,
     outfitSwapModels,
     modelTiers,
@@ -135,6 +151,7 @@ export async function PATCH(req: Request) {
   if (
     creditCost === undefined &&
     isActive === undefined &&
+    displayOrder === undefined &&
     demoImageUrls === undefined &&
     modelToggles === undefined &&
     defaultPrompt === undefined &&
@@ -163,6 +180,12 @@ export async function PATCH(req: Request) {
       return Response.json({ error: "isActive phải là true/false" }, { status: 400 });
     }
     update.is_active = isActive;
+  }
+  if (displayOrder !== undefined) {
+    if (typeof displayOrder !== "number" || !Number.isInteger(displayOrder)) {
+      return Response.json({ error: "displayOrder phải là số nguyên" }, { status: 400 });
+    }
+    update.display_order = displayOrder;
   }
 
   // Các field dưới đây đều sống trong model_config — đọc 1 lần rồi gộp hết thay đổi vào cùng 1 object,
