@@ -28,7 +28,9 @@ export async function GET(req: Request) {
   if (error || !data) return Response.json({ error: "Không tìm thấy job" }, { status: 404 });
 
   let progressText: string | null = null;
-  let scenes: { id: number; position: number; imageUrl: string | null; videoUrl: string | null }[] | undefined;
+  let scenes:
+    | { id: number; position: number; imageUrl: string | null; videoUrl: string | null; hasDialogue: boolean }[]
+    | undefined;
   let characters:
     | { position: number; label: string | null; sheetUrl: string | null; angleUrls: unknown; ready: boolean }[]
     | undefined;
@@ -58,13 +60,20 @@ export async function GET(req: Request) {
   if (["generating_images", "images_ready", "generating_videos", "stitching", "failed"].includes(data.status)) {
     const { data: sceneRows } = await supabase
       .from("story_video_scenes")
-      .select("id, position, image_url, video_url, lipsync_url")
+      .select("id, position, image_url, video_url, lipsync_url, dialogue_line")
       .eq("job_id", jobId)
       .order("position", { ascending: true });
     if (sceneRows) {
       // Cảnh có lời thoại đã lồng tiếng xong (lipsync_url) thì trả bản đó làm video cuối — frontend
-      // không cần biết gì về lồng tiếng, chỉ thấy đúng video đã sẵn sàng.
-      scenes = sceneRows.map((s) => ({ id: s.id, position: s.position, imageUrl: s.image_url, videoUrl: s.lipsync_url ?? s.video_url }));
+      // không cần biết gì về lồng tiếng, chỉ thấy đúng video đã sẵn sàng. hasDialogue chỉ để hiện badge
+      // 🗣️ tham khảo trên UI, không ảnh hưởng logic tạo video.
+      scenes = sceneRows.map((s) => ({
+        id: s.id,
+        position: s.position,
+        imageUrl: s.image_url,
+        videoUrl: s.lipsync_url ?? s.video_url,
+        hasDialogue: !!s.dialogue_line,
+      }));
       if (data.status === "generating_images" || data.status === "generating_videos") {
         const doneCount = sceneRows.filter((s) => (data.status === "generating_images" ? s.image_url : s.video_url)).length;
         progressText = `${STAGE_LABEL[data.status]} (${doneCount}/${sceneRows.length})`;

@@ -281,7 +281,7 @@ export default function MiniAppDetailPage() {
   const [storyStatus, setStoryStatus] = useState<string | null>(null);
   const [storyJobId, setStoryJobId] = useState<number | null>(null);
   const [storyScenes, setStoryScenes] = useState<
-    { id: number; position: number; imageUrl: string | null; videoUrl: string | null }[] | null
+    { id: number; position: number; imageUrl: string | null; videoUrl: string | null; hasDialogue?: boolean }[] | null
   >(null);
   const [storyRegeneratingSceneId, setStoryRegeneratingSceneId] = useState<number | null>(null);
   const [storyRegeneratingVideoSceneId, setStoryRegeneratingVideoSceneId] = useState<number | null>(null);
@@ -3478,6 +3478,14 @@ export default function MiniAppDetailPage() {
                           <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
                             Cảnh {index + 1}
                           </span>
+                          {scene.hasDialogue && (
+                            <span
+                              className="absolute bottom-1 right-1 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white"
+                              title="Cảnh này có lời thoại, đã lồng tiếng"
+                            >
+                              🗣️
+                            </span>
+                          )}
                           <button
                             onClick={() => {
                               if (!isRegeneratingThisVideo) handleRegenerateSceneVideo(scene.id);
