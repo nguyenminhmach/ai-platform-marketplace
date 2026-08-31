@@ -473,13 +473,17 @@ export async function splitStoryIntoScenes(
 // hơn có chủ đích cho v1: mỗi cảnh chỉ cần biết ai (những SỐ thứ tự nhân vật nào) xuất hiện trong
 // khung hình, KHÔNG có camera_view/face_view/outfit_override (những tinh chỉnh đó chỉ áp dụng cho
 // đúng 1 người trong 1 khung hình, chưa kiểm chứng khi mở rộng cho nhiều người cùng lúc).
-export type MultiSceneSplitResult = { description: string; characters: number[] };
+export type MultiSceneSplitResult = {
+  description: string;
+  characters: number[];
+  dialogue?: { speaker: number; line: string } | null;
+};
 
 function buildMultiSceneSplitPrompt(characterLabels: string[]): string {
   const list = characterLabels.map((label, i) => `${i}: ${label}`).join(", ");
   const example =
     characterLabels.length >= 2
-      ? `[{"description": "${characterLabels[0]} stands alone by the entrance, waiting nervously, morning light", "characters": [0]}, {"description": "${characterLabels[0]} and ${characterLabels[1]} stand together, holding hands, smiling warmly", "characters": [0, 1]}]`
+      ? `[{"description": "${characterLabels[0]} stands alone by the entrance, waiting nervously, morning light", "characters": [0], "dialogue": {"speaker": 0, "line": "Sao mãi chưa thấy ai đến vậy"}}, {"description": "${characterLabels[0]} and ${characterLabels[1]} stand together, holding hands, smiling warmly", "characters": [0, 1]}]`
       : `[{"description": "a scene description", "characters": [0]}]`;
   return `Bạn là đạo diễn dựng phân cảnh cho 1 video có NHIỀU nhân vật thật cùng xuất hiện. Người dùng đưa 1 ý tưởng truyện/kịch bản ngắn.
 Danh sách nhân vật trong video này (đánh số bắt đầu từ 0): ${list}.
@@ -490,7 +494,8 @@ Rào chắn giữ đúng danh tính (bắt buộc): không tự đổi giới t�
 Trang phục — TUYỆT ĐỐI KHÔNG tự mô tả cụ thể màu sắc/kiểu dáng/chất liệu trang phục của bất kỳ ai trong "description" (ví dụ KHÔNG viết "a white blouse", "a red dress"...). Lý do: bạn KHÔNG nhìn thấy ảnh nhân vật thật — tự bịa màu/kiểu sẽ mâu thuẫn với ảnh tham chiếu thật. Nếu cần nhắc trang phục để giữ liên tục, chỉ viết chung chung "wearing the same outfit as before".
 Trạng thái liên tục giữa các cảnh (quan trọng): MỖI cảnh được gửi cho model tạo ảnh RIÊNG BIỆT, độc lập — model đó KHÔNG thấy ảnh của cảnh trước, chỉ thấy đúng "description" của cảnh đang xét. Vì vậy mỗi "description" phải TỰ ĐẦY ĐỦ ngữ cảnh (self-contained): nếu nhiều cảnh liên tiếp cùng diễn ra ở 1 địa điểm kế thừa từ cảnh trước, PHẢI nhắc lại rõ địa điểm/bối cảnh đó trong CHÍNH cảnh đang viết.
 Không tự bịa phụ kiện/biểu cảm không có trong ý tưởng gốc nếu không có căn cứ.
-Chỉ trả về DUY NHẤT 1 mảng JSON gồm đúng N phần tử, mỗi phần tử có khoá "description" (chuỗi tiếng Anh) và "characters" (mảng số) — không kèm markdown fence, không giải thích, không đánh số.
+Lời thoại (chỉ áp dụng khi ý tưởng gốc CÓ trích dẫn/thể hiện rõ ràng 1 nhân vật đang NÓI THÀNH LỜI ở đúng cảnh đó): thêm khoá "dialogue" là 1 object {"speaker": số (đúng chỉ số nhân vật đang nói), "line": chuỗi tiếng Việt giữ NGUYÊN VĂN lời nói, KHÔNG dịch/diễn giải lại, dưới khoảng 15 từ}. QUAN TRỌNG: chỉ được thêm "dialogue" khi mảng "characters" của cảnh đó có ĐÚNG 1 phần tử (chỉ 1 người trong khung hình) — lý do kỹ thuật: hệ thống lồng tiếng hiện chỉ khớp môi được cho video có 1 người, cảnh có từ 2 người trở lên LUÔN LUÔN không có khoá "dialogue" dù truyện gốc có viết lời thoại ở đó. Cảnh không có lời nói (hoặc có từ 2 người trở lên) thì KHÔNG thêm khoá "dialogue" (bỏ hẳn khoá này). Không tự bịa thêm lời thoại không có trong ý tưởng gốc.
+Chỉ trả về DUY NHẤT 1 mảng JSON gồm đúng N phần tử, mỗi phần tử có khoá "description" (chuỗi tiếng Anh), "characters" (mảng số) và "dialogue" (tuỳ chọn, xem hướng dẫn trên) — không kèm markdown fence, không giải thích, không đánh số.
 Ví dụ format: ${example}`;
 }
 
@@ -531,12 +536,23 @@ export async function splitStoryIntoScenesMulti(
           (s as { characters: unknown[] }).characters.length > 0 &&
           (s as { characters: unknown[] }).characters.every(
             (c) => typeof c === "number" && Number.isInteger(c) && c >= 0 && c <= maxIndex
-          )
+          ) &&
+          ((s as { dialogue?: unknown }).dialogue == null ||
+            (typeof (s as { dialogue?: unknown }).dialogue === "object" &&
+              typeof (s as { dialogue: { speaker?: unknown } }).dialogue.speaker === "number" &&
+              typeof (s as { dialogue: { line?: unknown } }).dialogue.line === "string" &&
+              (s as { dialogue: { line: string } }).dialogue.line.trim()))
       )
     ) {
       throw new Error("wrong-shape");
     }
-    return parsed as MultiSceneSplitResult[];
+    // Phòng thủ phía code (không chỉ dựa Agent nghe lời): cảnh ≥2 người LUÔN ép dialogue = null, kể cả
+    // khi Agent lỡ trả dialogue cho cảnh đó — giới hạn kỹ thuật lipsync 1 mặt/clip là bắt buộc, không
+    // phải gợi ý.
+    return (parsed as MultiSceneSplitResult[]).map((s) => ({
+      ...s,
+      dialogue: s.characters.length === 1 ? s.dialogue ?? null : null,
+    }));
   }
 
   try {
@@ -1253,6 +1269,8 @@ async function runMultiCharacterSceneStage(
           position: index,
           scene_description: scene.description,
           character_positions: scene.characters,
+          dialogue_line: scene.dialogue?.line?.trim() || null,
+          dialogue_speaker_position: scene.dialogue ? scene.dialogue.speaker : null,
         }))
       )
       .select("id, scene_description, character_positions");
@@ -1957,7 +1975,7 @@ export async function regenerateSceneVideo(userId: string, sceneId: number, idem
   const supabase = getSupabaseAdmin();
   const { data: sceneData } = await supabase
     .from("story_video_scenes")
-    .select("id, job_id, image_url, scene_description, motion_prompt")
+    .select("id, job_id, image_url, scene_description, motion_prompt, dialogue_line")
     .eq("id", sceneId)
     .single();
   if (!sceneData) throw new Error("Không tìm thấy phân cảnh");
@@ -1972,13 +1990,29 @@ export async function regenerateSceneVideo(userId: string, sceneId: number, idem
   if (!job.video_model) throw new Error("Không tìm thấy model video của job");
 
   const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
-  const cost = computeDynamicCreditCost(job.video_provider_cost_vnd_per_scene, marginPercent, vndPerCredit);
+  let cost = computeDynamicCreditCost(job.video_provider_cost_vnd_per_scene, marginPercent, vndPerCredit);
+
+  // Cảnh có lời thoại — tạo lại video câm nghĩa là phải lồng tiếng lại từ đầu (applyVideoStageResult
+  // tự làm khi nhận video mới), cộng thêm đúng phí lồng tiếng cho 1 cảnh này (không nhân num_scenes
+  // như lúc submit batch ở proceedToVideoStage).
+  if (sceneData.dialogue_line) {
+    const miniApp = await getMiniAppModelConfig(job.mini_app_id);
+    if (miniApp.model_config.lipsync_model && miniApp.model_config.lipsync_provider_cost_vnd) {
+      cost += computeDynamicCreditCost(miniApp.model_config.lipsync_provider_cost_vnd, marginPercent, vndPerCredit);
+    }
+  }
+
   const deduction = await deductCredit(userId, cost, job.mini_app_id, idempotencyKey);
   if (!deduction.success) throw new InsufficientCreditError();
 
   try {
     const requestId = await submitSceneVideoForRow(job, sceneData, true);
-    await supabase.from("story_video_scenes").update({ video_fal_request_id: requestId, video_url: null }).eq("id", sceneId);
+    // Xoá bản lồng tiếng cũ (nếu có) — gắn với video câm CŨ, không còn khớp với video mới sắp tạo;
+    // để nguyên sẽ khiến stitchAndFinish lỡ dùng nhầm bản lồng tiếng cũ (lipsync_url ?? video_url).
+    await supabase
+      .from("story_video_scenes")
+      .update({ video_fal_request_id: requestId, video_url: null, lipsync_url: null, lipsync_fal_request_id: null, dialogue_audio_url: null })
+      .eq("id", sceneId);
   } catch (err) {
     if (deduction.txId) await refundCredit(deduction.txId);
     throw err;

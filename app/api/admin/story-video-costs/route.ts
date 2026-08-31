@@ -31,10 +31,29 @@ export async function GET(req: Request) {
 
   if (error) return Response.json({ error: error.message }, { status: 500 });
 
+  const jobIds = (jobs ?? []).map((j) => j.id);
+  // Đếm số cảnh có lời thoại (dialogue_line) của từng job — dùng GIÁ HIỆN TẠI của lipsync_provider_cost_vnd
+  // (không snapshot theo cảnh như image/video ở trên) nên chỉ ước tính đúng cho job gần đây, job cũ có
+  // thể lệch nhẹ nếu admin đã đổi giá lồng tiếng sau đó — chấp nhận được cho mục đích tham khảo chi phí.
+  const dialogueSceneCountByJob = new Map<number, number>();
+  if (jobIds.length > 0) {
+    const { data: dialogueScenes } = await supabase
+      .from("story_video_scenes")
+      .select("job_id")
+      .in("job_id", jobIds)
+      .not("dialogue_line", "is", null);
+    for (const row of dialogueScenes ?? []) {
+      dialogueSceneCountByJob.set(row.job_id, (dialogueSceneCountByJob.get(row.job_id) ?? 0) + 1);
+    }
+  }
+  const { data: miniApp } = await supabase.from("mini_apps").select("model_config").eq("id", "video-tu-y-tuong").single();
+  const lipsyncProviderCostVnd = (miniApp?.model_config as { lipsync_provider_cost_vnd?: number } | null)?.lipsync_provider_cost_vnd ?? 0;
+
   const rows = (jobs ?? []).map((j) => {
     const characterCostVnd = j.character_source === "generated" ? CHARACTER_PROVIDER_COST_VND : 0;
     const imageCostVnd = (j.image_provider_cost_vnd_per_scene ?? 0) * j.num_scenes;
     const videoCostVnd = (j.video_provider_cost_vnd_per_scene ?? 0) * j.num_scenes;
+    const lipsyncCostVnd = (dialogueSceneCountByJob.get(j.id) ?? 0) * lipsyncProviderCostVnd;
     return {
       id: j.id,
       userId: j.user_id,
@@ -46,7 +65,8 @@ export async function GET(req: Request) {
       characterCostVnd,
       imageCostVnd,
       videoCostVnd,
-      totalCostVnd: characterCostVnd + imageCostVnd + videoCostVnd,
+      lipsyncCostVnd,
+      totalCostVnd: characterCostVnd + imageCostVnd + videoCostVnd + lipsyncCostVnd,
     };
   });
 

@@ -31,6 +31,7 @@ type StoryVideoCostRow = {
   characterCostVnd: number;
   imageCostVnd: number;
   videoCostVnd: number;
+  lipsyncCostVnd: number;
   totalCostVnd: number;
 };
 type StoryVideoCostsData = { rows: StoryVideoCostRow[]; grandTotalVnd: number };
