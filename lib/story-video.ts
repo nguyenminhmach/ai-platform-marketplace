@@ -25,6 +25,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { deductCredit, refundCredit, getCreditBalance, InsufficientCreditError } from "@/lib/credit-system";
 import { callOpenRouter, recordGenerationHistory } from "@/lib/ai-router";
 import { computeDynamicCreditCost, getMediaPricingSettings } from "@/lib/pricing";
+import { generateVietnameseSpeech, CHARACTER_VOICE_IDS } from "@/lib/elevenlabs";
 
 const execFileAsync = promisify(execFile);
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://ai-platform-marketplace.vercel.app";
@@ -57,8 +58,9 @@ Trạng thái liên tục giữa các cảnh (quan trọng): MỖI cảnh đư�
 Đổi trang phục (chỉ áp dụng khi ý tưởng gốc NÓI RÕ, ví dụ "mặc đồ ngủ ở nhà, sau đó ra ngoài khoác áo len"): với cảnh ĐẦU TIÊN xuất hiện bộ đồ mới, thêm khoá "outfit_override" (chuỗi tiếng Anh mô tả NGẮN GỌN bộ đồ mới, ví dụ "a beige knit cardigan over a white t-shirt") — mọi cảnh SAU ĐÓ vẫn mặc bộ đồ này thì PHẢI lặp lại ĐÚNG y hệt "outfit_override" đó (không đổi cách viết) cho đến khi truyện lại nói đổi đồ tiếp; các cảnh mặc đồ gốc (chưa đổi) thì KHÔNG có khoá "outfit_override" (bỏ hẳn khoá này, không để rỗng/null). Khuôn mặt, kiểu tóc, dáng người vẫn phải giữ y hệt dù đổi đồ.
 Thân người và mặt/ánh nhìn lệch hướng nhau (chỉ áp dụng khi ý tưởng gốc NÓI RÕ 2 hướng khác nhau, ví dụ "thân quay sang phải nhưng mắt vẫn nhìn thẳng camera"): "camera_view" LUÔN đại diện cho hướng THÂN NGƯỜI như bình thường; nếu mặt/ánh nhìn của nhân vật đang hướng KHÁC với thân, thêm khoá "face_view" (1 trong 6 giá trị góc như "camera_view", đại diện cho hướng MẶT) — ví dụ thân quay "three_quarter_right" nhưng mặt nhìn thẳng thì "camera_view": "three_quarter_right", "face_view": "front". Nếu mặt và thân cùng hướng (đa số trường hợp — mặc định), KHÔNG thêm khoá "face_view" (bỏ hẳn khoá này). Không tự suy diễn thêm hướng nhìn nếu ý tưởng gốc không nói.
 Không tự bịa chi tiết không có trong ý tưởng gốc: nếu ý tưởng gốc không nhắc phụ kiện (túi, kính, mũ...) thì không tự thêm; nếu không nhắc biểu cảm thì giữ biểu cảm trung tính tự nhiên theo hành động, không tự thêm "cười"/"buồn" nếu không có căn cứ.
-Chỉ trả về DUY NHẤT 1 mảng JSON gồm đúng N phần tử, mỗi phần tử là 1 object có khoá "description" (chuỗi tiếng Anh mô tả cảnh, dùng để tạo ảnh AI), "camera_view" (1 trong 6 giá trị ở trên), "outfit_override" (tuỳ chọn) và "face_view" (tuỳ chọn) như hướng dẫn trên — không kèm markdown fence, không giải thích, không đánh số.
-Ví dụ format: [{"description": "a young woman walking into a coffee shop, morning light", "camera_view": "front"}, {"description": "still at the coffee shop, she turns her head and looks outside the window, smiling", "camera_view": "three_quarter_left"}, {"description": "later, standing by her front door at home, about to head out", "camera_view": "front", "outfit_override": "a beige knit cardigan over a white t-shirt"}]`;
+Lời thoại (chỉ áp dụng khi ý tưởng gốc CÓ trích dẫn/thể hiện rõ ràng nhân vật đang NÓI THÀNH LỜI ở đúng cảnh đó, ví dụ có dấu ngoặc kép hoặc "X nói:"): thêm khoá "dialogue" (chuỗi tiếng Việt, giữ NGUYÊN VĂN đúng câu nhân vật nói, KHÔNG dịch/diễn giải lại, dưới khoảng 15 từ để vừa thời lượng clip ngắn của 1 cảnh — nếu câu gốc dài hơn thì rút gọn nhưng giữ đúng ý chính). Cảnh nào truyện gốc không thể hiện lời nói thì KHÔNG thêm khoá "dialogue" (bỏ hẳn khoá này, không để rỗng/null). Không tự bịa thêm lời thoại không có trong ý tưởng gốc.
+Chỉ trả về DUY NHẤT 1 mảng JSON gồm đúng N phần tử, mỗi phần tử là 1 object có khoá "description" (chuỗi tiếng Anh mô tả cảnh, dùng để tạo ảnh AI), "camera_view" (1 trong 6 giá trị ở trên), "outfit_override" (tuỳ chọn), "face_view" (tuỳ chọn) và "dialogue" (tuỳ chọn) như hướng dẫn trên — không kèm markdown fence, không giải thích, không đánh số.
+Ví dụ format: [{"description": "a young woman walking into a coffee shop, morning light", "camera_view": "front"}, {"description": "still at the coffee shop, she turns her head and looks outside the window, smiling", "camera_view": "three_quarter_left", "dialogue": "Quán này đẹp thật đấy"}, {"description": "later, standing by her front door at home, about to head out", "camera_view": "front", "outfit_override": "a beige knit cardigan over a white t-shirt"}]`;
 
 // Bước "Tạo Character" — chạy trước khi chia cảnh: biến (các) ảnh gốc khách tải lên (thường 1 góc,
 // ánh sáng/nền lộn xộn) thành 1 ảnh sheet nhiều góc chuẩn (chính diện/3-4 trái/3-4 phải/nghiêng/sau
@@ -175,6 +177,11 @@ export type SceneRow = {
   image_url: string | null;
   video_fal_request_id: string | null;
   video_url: string | null;
+  dialogue_line: string | null;
+  dialogue_speaker_position: number | null;
+  dialogue_audio_url: string | null;
+  lipsync_fal_request_id: string | null;
+  lipsync_url: string | null;
 };
 
 type JobRow = {
@@ -187,6 +194,7 @@ type JobRow = {
   image_credit_tx_id: number | null;
   video_credit_tx_id: number | null;
   character_credit_tx_id: number | null;
+  lipsync_credit_tx_id: number | null;
   image_provider_cost_vnd_per_scene: number | null;
   video_provider_cost_vnd_per_scene: number | null;
   num_scenes: number;
@@ -216,6 +224,8 @@ async function getMiniAppModelConfig(miniAppId: string) {
       prompt_helper_instructions?: string;
       character_prompt?: string;
       genre_style_guides?: Record<string, string>;
+      lipsync_model?: string;
+      lipsync_provider_cost_vnd?: number;
     };
   };
 }
@@ -397,6 +407,7 @@ export type SceneSplitResult = {
   camera_view: CharacterAngleKey;
   outfit_override?: string;
   face_view?: CharacterAngleKey;
+  dialogue?: string;
 };
 
 export async function splitStoryIntoScenes(
@@ -437,7 +448,9 @@ export async function splitStoryIntoScenes(
             (typeof (s as { outfit_override?: unknown }).outfit_override === "string" &&
               (s as { outfit_override: string }).outfit_override.trim())) &&
           ((s as { face_view?: unknown }).face_view === undefined ||
-            CHARACTER_ANGLE_LABELS.includes((s as { face_view?: unknown }).face_view as CharacterAngleKey))
+            CHARACTER_ANGLE_LABELS.includes((s as { face_view?: unknown }).face_view as CharacterAngleKey)) &&
+          ((s as { dialogue?: unknown }).dialogue === undefined ||
+            (typeof (s as { dialogue?: unknown }).dialogue === "string" && (s as { dialogue: string }).dialogue.trim()))
       )
     ) {
       throw new Error("wrong-shape");
@@ -803,6 +816,7 @@ async function runSceneStage(
           camera_view: scene.camera_view,
           outfit_override: scene.outfit_override ?? null,
           face_view: scene.face_view ?? null,
+          dialogue_line: scene.dialogue?.trim() || null,
         }))
       )
       .select("id, position, scene_description, camera_view, outfit_override, face_view");
@@ -1607,7 +1621,7 @@ async function failJob(jobId: number, message: string) {
   const supabase = getSupabaseAdmin();
   const { data: job } = await supabase
     .from("story_video_jobs")
-    .select("status, image_credit_tx_id, video_credit_tx_id, character_credit_tx_id")
+    .select("status, image_credit_tx_id, video_credit_tx_id, character_credit_tx_id, lipsync_credit_tx_id")
     .eq("id", jobId)
     .single();
   // Job đã bị đánh fail bởi 1 lượt gọi khác rồi (race) -> đã hoàn credit xong, không cần làm lại.
@@ -1629,6 +1643,7 @@ async function failJob(jobId: number, message: string) {
 
   if (job?.status === "generating_videos" || job?.status === "stitching") {
     if (job.video_credit_tx_id) await safeRefund(job.video_credit_tx_id);
+    if (job.lipsync_credit_tx_id) await safeRefund(job.lipsync_credit_tx_id);
   } else if (job?.status === "splitting_story" || job?.status === "generating_images") {
     if (job.image_credit_tx_id) await safeRefund(job.image_credit_tx_id);
   } else {
@@ -1837,18 +1852,69 @@ async function submitSceneVideoForRow(
   );
 }
 
+// Sinh giọng đọc (ElevenLabs, tái dùng nguyên lib/elevenlabs.ts của "Video đồng nhất nhân vật") +
+// submit Kling LipSync cho ĐÚNG 1 cảnh có lời thoại — chạy SAU khi clip video câm (bước trước) đã có
+// video_url. Chỉ gọi khi scene có dialogue_line VÀ mini_app đã cấu hình lipsync_model.
+async function submitSceneLipsyncForRow(
+  jobId: number,
+  sceneId: number,
+  lipsyncModel: string,
+  videoUrl: string,
+  dialogueLine: string,
+  voiceId: string,
+  regen: boolean
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const audioUrl = await generateVietnameseSpeech(dialogueLine, voiceId, jobId, sceneId);
+  const requestId = await submitFalJob(
+    lipsyncModel,
+    { video_url: videoUrl, audio_url: audioUrl },
+    `${SITE_URL}/api/story-video/webhook?jobId=${jobId}&sceneId=${sceneId}&stage=lipsync${regen ? "&regen=1" : ""}`
+  );
+  await supabase.from("story_video_scenes").update({ dialogue_audio_url: audioUrl, lipsync_fal_request_id: requestId }).eq("id", sceneId);
+}
+
+// Cảnh có coi là "cần chờ lồng tiếng mới xong" hay không — cần đồng bộ giữa applyVideoStageResult,
+// applyLipsyncStageResult và resolveStoryVideoJob nên tách riêng 1 hàm dùng chung.
+function sceneNeedsLipsync(scene: Pick<SceneRow, "dialogue_line">, lipsyncModel: string | undefined): boolean {
+  return !!scene.dialogue_line && !!lipsyncModel;
+}
+
 async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
   const supabase = getSupabaseAdmin();
   try {
     const { data: job } = await supabase
       .from("story_video_jobs")
-      .select("mini_app_id, video_model, aspect_ratio, video_duration_key, story_description, genre_key")
+      .select("user_id, mini_app_id, video_model, aspect_ratio, video_duration_key, story_description, genre_key")
       .eq("id", jobId)
       .single();
     if (!job?.video_model) throw new Error("Không tìm thấy model video của job");
 
     const miniApp = await getMiniAppModelConfig(job.mini_app_id);
     const genreStyleGuide = resolveGenreStyleGuide(job.genre_key, miniApp.model_config.genre_style_guides);
+
+    // Trừ credit lồng tiếng RIÊNG, 1 lần cho cả job — chỉ tính được chính xác ở đây vì lúc này Agent
+    // đã chia cảnh xong nên đã biết đúng số cảnh có dialogue_line (không đoán trước lúc submit).
+    // Idempotency key cố định theo jobId để lỡ hàm này chạy 2 lần (race hiếm) không bị trừ trùng.
+    const lipsyncModel = miniApp.model_config.lipsync_model;
+    const lipsyncCostVnd = miniApp.model_config.lipsync_provider_cost_vnd;
+    const dialogueScenes = lipsyncModel && lipsyncCostVnd ? scenes.filter((s) => s.dialogue_line) : [];
+    if (dialogueScenes.length > 0) {
+      const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
+      const lipsyncCost = computeDynamicCreditCost(lipsyncCostVnd! * dialogueScenes.length, marginPercent, vndPerCredit);
+      const deduction = await deductCredit(job.user_id, lipsyncCost, job.mini_app_id, `story-video-lipsync-${jobId}`);
+      if (deduction.success) {
+        await supabase.from("story_video_jobs").update({ lipsync_credit_tx_id: deduction.txId }).eq("id", jobId);
+      } else {
+        // Không đủ credit cho phần lồng tiếng — coi các cảnh đó là câm để job vẫn chạy tiếp bình
+        // thường, không chặn cả job chỉ vì thiếu credit phần bổ sung này.
+        const dialogueSceneIds = dialogueScenes.map((s) => s.id);
+        await supabase.from("story_video_scenes").update({ dialogue_line: null }).in("id", dialogueSceneIds);
+        scenes.forEach((s) => {
+          if (dialogueSceneIds.includes(s.id)) s.dialogue_line = null;
+        });
+      }
+    }
 
     await Promise.all(
       scenes.map(async (scene) => {
@@ -2000,8 +2066,67 @@ export async function applyVideoStageResult(
 
   await supabase.from("story_video_scenes").update({ video_url: videoUrl }).eq("id", sceneId);
 
+  const { data: job } = await supabase.from("story_video_jobs").select("mini_app_id").eq("id", jobId).single();
+  const lipsyncModel = job ? (await getMiniAppModelConfig(job.mini_app_id)).model_config.lipsync_model : undefined;
+
   const scenes = await getScenes(jobId);
-  if (scenes.length === 0 || scenes.some((s) => !s.video_url)) return; // chờ cảnh còn lại
+  const scene = scenes.find((s) => s.id === sceneId);
+
+  if (scene && sceneNeedsLipsync(scene, lipsyncModel)) {
+    try {
+      const voiceId = CHARACTER_VOICE_IDS[(scene.dialogue_speaker_position ?? 0) % CHARACTER_VOICE_IDS.length];
+      await submitSceneLipsyncForRow(jobId, sceneId, lipsyncModel as string, videoUrl, scene.dialogue_line as string, voiceId, isRegenerate);
+    } catch (err) {
+      if (isRegenerate) {
+        console.error(`[story-video] Lỗi lồng tiếng khi tạo lại cảnh #${sceneId}:`, err);
+        return;
+      }
+      await failJob(jobId, err instanceof Error ? err.message : String(err));
+    }
+    return; // cảnh này còn chờ bước lồng tiếng, chưa tính là xong
+  }
+
+  if (scenes.length === 0 || scenes.some((s) => (sceneNeedsLipsync(s, lipsyncModel) ? !s.lipsync_url : !s.video_url))) return; // chờ cảnh còn lại
+
+  await stitchAndFinish(jobId, scenes);
+}
+
+// Gọi khi 1 cảnh đã lồng tiếng xong (bước sau video câm) — mirror applyVideoStageResult, dùng chung
+// điều kiện "đủ cảnh chưa" (sceneNeedsLipsync) trước khi ghép video cuối.
+export async function applyLipsyncStageResult(
+  jobId: number,
+  sceneId: number,
+  falPayload: Record<string, unknown>,
+  isRegenerate = false
+) {
+  const supabase = getSupabaseAdmin();
+  const isError = falPayload.status === "ERROR" || !!falPayload.error;
+
+  if (isError) {
+    if (isRegenerate) {
+      console.error(`[story-video] Lỗi lồng tiếng cảnh #${sceneId}:`, falPayload.error ?? "unknown");
+      return;
+    }
+    await failJob(jobId, `Lỗi lồng tiếng cảnh: ${String(falPayload.error ?? "")}`);
+    return;
+  }
+
+  const lipsyncUrl = extractVideoUrl(falPayload);
+  if (!lipsyncUrl) {
+    if (isRegenerate) {
+      console.error(`[story-video] Không tìm thấy URL video lồng tiếng khi tạo lại cảnh #${sceneId}`);
+      return;
+    }
+    await failJob(jobId, "Không tìm thấy URL video lồng tiếng trong phản hồi Fal.ai");
+    return;
+  }
+
+  await supabase.from("story_video_scenes").update({ lipsync_url: lipsyncUrl }).eq("id", sceneId);
+
+  const { data: job } = await supabase.from("story_video_jobs").select("mini_app_id").eq("id", jobId).single();
+  const lipsyncModel = job ? (await getMiniAppModelConfig(job.mini_app_id)).model_config.lipsync_model : undefined;
+  const scenes = await getScenes(jobId);
+  if (scenes.length === 0 || scenes.some((s) => (sceneNeedsLipsync(s, lipsyncModel) ? !s.lipsync_url : !s.video_url))) return; // chờ cảnh còn lại
 
   await stitchAndFinish(jobId, scenes);
 }
@@ -2033,7 +2158,8 @@ async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
   try {
     await Promise.all(
       scenes.map(async (scene, index) => {
-        const res = await fetch(scene.video_url!);
+        // Cảnh có lời thoại đã lồng tiếng (lipsync_url) thì dùng bản đó thay vì clip câm gốc.
+        const res = await fetch(scene.lipsync_url ?? scene.video_url!);
         if (!res.ok) throw new Error(`Không tải được clip cảnh ${index + 1}`);
         const clipPath = path.join(workDir, `clip-${index}.mp4`);
         await writeFile(clipPath, Buffer.from(await res.arrayBuffer()));
@@ -2145,18 +2271,23 @@ export async function resolveStoryVideoJob(jobId: number): Promise<void> {
       }
     }
   } else if (job.status === "generating_videos" && job.video_model) {
+    const lipsyncModel = (await getMiniAppModelConfig(job.mini_app_id)).model_config.lipsync_model;
     for (const scene of scenes) {
       if (!scene.video_url && scene.video_fal_request_id) {
         const result = await pollFalResult(job.video_model, scene.video_fal_request_id);
         if (result) await applyVideoStageResult(jobId, scene.id, result);
+      } else if (scene.video_url && sceneNeedsLipsync(scene, lipsyncModel) && !scene.lipsync_url && scene.lipsync_fal_request_id) {
+        const result = await pollFalResult(lipsyncModel as string, scene.lipsync_fal_request_id);
+        if (result) await applyLipsyncStageResult(jobId, scene.id, result);
       }
     }
   } else if (job.status === "stitching") {
     // Webhook nhận video cảnh cuối đã gọi stitchAndFinish nhưng có thể bị Vercel ngắt giữa chừng (xem
     // giải thích ở STITCH_STALE_CHECK_MS) — job kẹt vĩnh viễn ở "stitching" vì không còn Fal.ai job nào
-    // để poll. Nếu tất cả cảnh đã có video_url, thử ghép lại — idempotent (tải/encode/upload lại từ
-    // đầu, ghi đè status "done" + output_url khi xong).
-    if (scenes.length > 0 && scenes.every((s) => s.video_url)) {
+    // để poll. Nếu tất cả cảnh đã sẵn sàng (video_url, hoặc lipsync_url với cảnh có thoại), thử ghép lại
+    // — idempotent (tải/encode/upload lại từ đầu, ghi đè status "done" + output_url khi xong).
+    const lipsyncModel = (await getMiniAppModelConfig(job.mini_app_id)).model_config.lipsync_model;
+    if (scenes.length > 0 && scenes.every((s) => (sceneNeedsLipsync(s, lipsyncModel) ? s.lipsync_url : s.video_url))) {
       await stitchAndFinish(jobId, scenes);
     }
   }

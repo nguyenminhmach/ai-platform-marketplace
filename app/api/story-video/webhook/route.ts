@@ -1,4 +1,4 @@
-import { applyCharacterStageResult, applyImageStageResult, applyVideoStageResult } from "@/lib/story-video";
+import { applyCharacterStageResult, applyImageStageResult, applyVideoStageResult, applyLipsyncStageResult } from "@/lib/story-video";
 
 // Fal.ai gọi vào đây: 1 lần/job cho bước tạo Character (không có sceneId), 1 lần/cảnh cho bước tạo
 // ảnh và 1 lần/cảnh cho bước tạo video — phân biệt bằng query param sceneId (id hàng trong
@@ -17,7 +17,7 @@ export async function POST(req: Request) {
     const characterPositionRaw = searchParams.get("characterPosition");
     const characterPosition = characterPositionRaw !== null ? Number(characterPositionRaw) : undefined;
 
-    if (!jobId || (stage !== "character" && stage !== "image" && stage !== "video")) {
+    if (!jobId || (stage !== "character" && stage !== "image" && stage !== "video" && stage !== "lipsync")) {
       return Response.json({ error: "Thiếu hoặc sai jobId/stage" }, { status: 400 });
     }
     if (stage !== "character" && !sceneId) {
@@ -30,8 +30,10 @@ export async function POST(req: Request) {
       await applyCharacterStageResult(Number(jobId), payload, characterPosition);
     } else if (stage === "image") {
       await applyImageStageResult(Number(jobId), Number(sceneId), payload, isRegenerate);
-    } else {
+    } else if (stage === "video") {
       await applyVideoStageResult(Number(jobId), Number(sceneId), payload, isRegenerate);
+    } else {
+      await applyLipsyncStageResult(Number(jobId), Number(sceneId), payload, isRegenerate);
     }
 
     return Response.json({ success: true });
