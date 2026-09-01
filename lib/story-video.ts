@@ -175,6 +175,8 @@ export type SceneRow = {
   character_positions: number[] | null;
   image_fal_request_id: string | null;
   image_url: string | null;
+  end_image_url: string | null;
+  end_image_fal_request_id: string | null;
   video_fal_request_id: string | null;
   video_url: string | null;
   dialogue_line: string | null;
@@ -210,6 +212,7 @@ type JobRow = {
   character_angle_urls: CharacterAngleUrls | null;
   genre_key: string | null;
   location_reference_url: string | null;
+  continuous_motion: boolean;
 };
 
 async function getMiniAppModelConfig(miniAppId: string) {
@@ -420,20 +423,30 @@ export type SceneSplitResult = {
   outfit_override?: string;
   face_view?: CharacterAngleKey;
   dialogue?: string;
+  end_description?: string;
 };
+
+// Câu chỉ dẫn thêm khi bật "chuyển động liên tục giữa các cảnh" (continuousMotion) — mỗi cảnh cần
+// thêm "end_description" (khoảnh khắc KẾT THÚC của cảnh, dùng làm ảnh cuối) bên cạnh "description"
+// (khoảnh khắc chính/đầu cảnh) — ảnh cuối cảnh N sẽ được dùng làm ảnh đầu cảnh N+1 (xem lib này,
+// runSceneStage) nên "end_description" của cảnh N và "description" của cảnh N+1 nên tự nhiên nối tiếp.
+const CONTINUOUS_MOTION_INSTRUCTION =
+  'Chế độ chuyển động liên tục ĐANG BẬT: với MỌI cảnh, thêm khoá "end_description" (chuỗi tiếng Anh) mô tả khoảnh khắc KẾT THÚC của cảnh đó (sau khi hành động trong "description" đã diễn ra một chút) — đây sẽ là điểm nối sang cảnh tiếp theo, nên "end_description" của cảnh này và "description" của cảnh sau nó nên là 2 khoảnh khắc liền mạch tự nhiên (không nhảy cóc hành động/bối cảnh). "end_description" bắt buộc có ở MỌI cảnh, kể cả cảnh cuối cùng.';
 
 export async function splitStoryIntoScenes(
   storyDescription: string,
   numScenes: number,
   customInstructions?: string,
-  modelChatKey?: string
+  modelChatKey?: string,
+  continuousMotion?: boolean
 ): Promise<SceneSplitResult[]> {
   const chatModel = modelChatKey && ALLOWED_CHAT_MODELS.includes(modelChatKey) ? modelChatKey : ALLOWED_CHAT_MODELS[0];
   // "Agent xử lý" — admin thêm hướng dẫn phong cách/chủ đề qua model_config.prompt_helper_instructions
   // (đúng field/UI đã dùng cho nút "AI viết giúp mô tả" ở app video-gen). Nối THÊM vào cuối, không
   // thay hẳn — bắt buộc giữ nguyên yêu cầu "chỉ trả JSON đúng N phần tử" để pipeline không gãy.
   const basePrompt = SCENE_SPLIT_SYSTEM_PROMPT.replace("N phân cảnh", `${numScenes} phân cảnh`);
-  const systemPrompt = customInstructions?.trim() ? `${basePrompt}\n\nGhi chú thêm từ admin: ${customInstructions.trim()}` : basePrompt;
+  let systemPrompt = customInstructions?.trim() ? `${basePrompt}\n\nGhi chú thêm từ admin: ${customInstructions.trim()}` : basePrompt;
+  if (continuousMotion) systemPrompt += `\n\n${CONTINUOUS_MOTION_INSTRUCTION}`;
   async function attempt(reminder?: string): Promise<SceneSplitResult[]> {
     const userInput = reminder
       ? `${storyDescription}\n\n(Lưu ý: lần trước bạn trả sai định dạng. Chỉ trả về mảng JSON gồm đúng ${numScenes} object {description, camera_view}, không thêm gì khác.)`
@@ -462,7 +475,10 @@ export async function splitStoryIntoScenes(
           ((s as { face_view?: unknown }).face_view === undefined ||
             CHARACTER_ANGLE_LABELS.includes((s as { face_view?: unknown }).face_view as CharacterAngleKey)) &&
           ((s as { dialogue?: unknown }).dialogue === undefined ||
-            (typeof (s as { dialogue?: unknown }).dialogue === "string" && (s as { dialogue: string }).dialogue.trim()))
+            (typeof (s as { dialogue?: unknown }).dialogue === "string" && (s as { dialogue: string }).dialogue.trim())) &&
+          (!continuousMotion ||
+            (typeof (s as { end_description?: unknown }).end_description === "string" &&
+              (s as { end_description: string }).end_description.trim()))
       )
     ) {
       throw new Error("wrong-shape");
@@ -593,6 +609,7 @@ type SceneStageInput = Pick<
   | "character_angle_urls"
   | "genre_key"
   | "location_reference_url"
+  | "continuous_motion"
 >;
 
 // Reference Selector — TRA BẢNG BẰNG CODE (key -> URL), không dùng AI: chọn đúng 1 ảnh góc đã cắt sẵn
@@ -642,8 +659,10 @@ async function submitSceneImageForRow(
   >,
   row: ImageSceneRefRow,
   imageEntry: ImageModelEntry | undefined,
-  regen: boolean
+  regen: boolean,
+  stage: "image" | "image_end" = "image"
 ): Promise<string> {
+  // MARKER_SINGLE_CHARACTER_IMAGE_SUBMIT
   const characterImages = selectReferenceImagesForScene(
     row.camera_view,
     job.character_angle_urls,
@@ -688,7 +707,7 @@ async function submitSceneImageForRow(
   return submitFalJob(
     job.image_model as string,
     body,
-    `${SITE_URL}/api/story-video/webhook?jobId=${job.id}&sceneId=${row.id}&stage=image${regen ? "&regen=1" : ""}`
+    `${SITE_URL}/api/story-video/webhook?jobId=${job.id}&sceneId=${row.id}&stage=${stage}${regen ? "&regen=1" : ""}`
   );
 }
 
@@ -832,7 +851,13 @@ async function runSceneStage(
     ]
       .filter((s): s is string => !!s?.trim())
       .join("\n\n");
-    const scenes = await splitStoryIntoScenes(finalStoryDescription, job.num_scenes, combinedInstructions || undefined, modelChatKey);
+    const scenes = await splitStoryIntoScenes(
+      finalStoryDescription,
+      job.num_scenes,
+      combinedInstructions || undefined,
+      modelChatKey,
+      job.continuous_motion
+    );
 
     const { data: sceneRows, error: sceneError } = await supabase
       .from("story_video_scenes")
@@ -850,12 +875,33 @@ async function runSceneStage(
       .select("id, position, scene_description, camera_view, outfit_override, face_view");
     if (sceneError || !sceneRows) throw new Error(sceneError?.message ?? "Không tạo được phân cảnh");
 
-    await Promise.all(
-      sceneRows.map(async (row) => {
-        const requestId = await submitSceneImageForRow(job, row, imageEntry, false);
-        await supabase.from("story_video_scenes").update({ image_fal_request_id: requestId }).eq("id", row.id);
-      })
-    );
+    if (job.continuous_motion) {
+      // Chuỗi N+1 ảnh: ảnh ĐẦU của cảnh 1 (1 lượt) + ảnh CUỐI của MỌI cảnh (N lượt) — gửi SONG SONG
+      // (không lượt nào phụ thuộc lượt khác, vì cả 2 loại ảnh đều chỉ dựa vào ảnh tham chiếu Character,
+      // không dựa vào ảnh cảnh khác). Việc "nối chuỗi" (ảnh cuối cảnh N -> ảnh đầu cảnh N+1) xảy ra
+      // trong applyImageStageResult() khi webhook ảnh cuối trả về, không phải ở đây.
+      const sortedRows = [...sceneRows].sort((a, b) => a.position - b.position);
+      const firstRow = sortedRows[0];
+      await Promise.all([
+        (async () => {
+          const requestId = await submitSceneImageForRow(job, firstRow, imageEntry, false, "image");
+          await supabase.from("story_video_scenes").update({ image_fal_request_id: requestId }).eq("id", firstRow.id);
+        })(),
+        ...sortedRows.map(async (row) => {
+          const scene = scenes[row.position];
+          const endRow = { ...row, scene_description: scene.end_description ?? scene.description };
+          const requestId = await submitSceneImageForRow(job, endRow, imageEntry, false, "image_end");
+          await supabase.from("story_video_scenes").update({ end_image_fal_request_id: requestId }).eq("id", row.id);
+        }),
+      ]);
+    } else {
+      await Promise.all(
+        sceneRows.map(async (row) => {
+          const requestId = await submitSceneImageForRow(job, row, imageEntry, false, "image");
+          await supabase.from("story_video_scenes").update({ image_fal_request_id: requestId }).eq("id", row.id);
+        })
+      );
+    }
 
     await supabase.from("story_video_jobs").update({ status: "generating_images" }).eq("id", job.id);
   } catch (err) {
@@ -891,7 +937,8 @@ export async function submitStoryVideoJob(
   skipCharacterCreation?: boolean,
   genreKey?: string,
   characters?: MultiCharacterInput[],
-  locationReferenceUrl?: string
+  locationReferenceUrl?: string,
+  continuousMotion?: boolean
 ): Promise<{ jobId: number; newBalance: number }> {
   if (numScenes < MIN_SCENES || numScenes > MAX_SCENES) {
     throw new Error(`Cần từ ${MIN_SCENES} đến ${MAX_SCENES} phân cảnh`);
@@ -964,6 +1011,7 @@ export async function submitStoryVideoJob(
       video_provider_cost_vnd_per_scene: videoProviderCostVnd,
       genre_key: resolvedGenreKey,
       location_reference_url: locationReferenceUrl ?? null,
+      continuous_motion: continuousMotion === true,
     })
     .select("id")
     .single();
@@ -985,6 +1033,7 @@ export async function submitStoryVideoJob(
     character_angle_urls: null,
     genre_key: resolvedGenreKey,
     location_reference_url: locationReferenceUrl ?? null,
+    continuous_motion: continuousMotion === true,
   };
 
   let characterTxId: number | null = null;
@@ -1813,7 +1862,8 @@ export async function applyImageStageResult(
   jobId: number,
   sceneId: number,
   falPayload: Record<string, unknown>,
-  isRegenerate = false
+  isRegenerate = false,
+  stage: "image" | "image_end" = "image"
 ) {
   const supabase = getSupabaseAdmin();
   const isError = falPayload.status === "ERROR" || !!falPayload.error;
@@ -1837,13 +1887,26 @@ export async function applyImageStageResult(
     return;
   }
 
-  await supabase.from("story_video_scenes").update({ image_url: imageUrl }).eq("id", sceneId);
+  await supabase.from("story_video_scenes").update(stage === "image_end" ? { end_image_url: imageUrl } : { image_url: imageUrl }).eq("id", sceneId);
   if (isRegenerate) return;
 
   const scenes = await getScenes(jobId);
-  if (scenes.length === 0 || scenes.some((s) => !s.image_url)) return; // chờ cảnh còn lại
 
-  const { data: job } = await supabase.from("story_video_jobs").select("auto_video").eq("id", jobId).single();
+  // Chuỗi liên tục: ảnh CUỐI của cảnh này vừa xong -> dùng làm ảnh ĐẦU của cảnh kế tiếp (nếu có),
+  // không tốn thêm lượt gọi Fal.ai nào — chỉ copy URL.
+  if (stage === "image_end") {
+    const thisScene = scenes.find((s) => s.id === sceneId);
+    const nextScene = thisScene ? scenes.find((s) => s.position === thisScene.position + 1) : undefined;
+    if (nextScene && !nextScene.image_url) {
+      await supabase.from("story_video_scenes").update({ image_url: imageUrl }).eq("id", nextScene.id);
+      nextScene.image_url = imageUrl; // giữ mảng scenes trong bộ nhớ khớp DB cho check "đủ cảnh chưa" dưới đây
+    }
+  }
+
+  const { data: job } = await supabase.from("story_video_jobs").select("auto_video, continuous_motion").eq("id", jobId).single();
+  const missing = (s: SceneRow) => !s.image_url || (job?.continuous_motion && !s.end_image_url);
+  if (scenes.length === 0 || scenes.some(missing)) return; // chờ cảnh còn lại
+
   if (job?.auto_video) {
     await proceedToVideoStage(jobId, scenes);
   } else {
@@ -2324,6 +2387,10 @@ export async function resolveStoryVideoJob(jobId: number): Promise<void> {
       if (!scene.image_url && scene.image_fal_request_id) {
         const result = await pollFalResult(job.image_model, scene.image_fal_request_id);
         if (result) await applyImageStageResult(jobId, scene.id, result);
+      }
+      if (job.continuous_motion && !scene.end_image_url && scene.end_image_fal_request_id) {
+        const result = await pollFalResult(job.image_model, scene.end_image_fal_request_id);
+        if (result) await applyImageStageResult(jobId, scene.id, result, false, "image_end");
       }
     }
   } else if (job.status === "generating_videos" && job.video_model) {
