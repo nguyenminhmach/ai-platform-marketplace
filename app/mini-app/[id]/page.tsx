@@ -218,6 +218,10 @@ export default function MiniAppDetailPage() {
   const [storyAspectRatio, setStoryAspectRatio] = useState("9:16");
   const [storyResolutionKey, setStoryResolutionKey] = useState<string | null>(null);
   const [storyDurationKey, setStoryDurationKey] = useState<string | null>(null);
+  // Chuyển động liên tục giữa các cảnh (Kling O1 FLFV) — chỉ có ý nghĩa khi model video đang chọn hỗ
+  // trợ ảnh đầu/cuối (key "kling-o1-flfv"), ẩn checkbox khi chọn model khác. Bật thì mỗi cảnh có thêm
+  // 1 ảnh cuối, nối chuỗi ảnh cuối cảnh trước = ảnh đầu cảnh sau — không hỗ trợ "Tạo lại" từng cảnh.
+  const [storyContinuousMotion, setStoryContinuousMotion] = useState(false);
   // "Model chat" — LLM thực thi bước chia cảnh (tách biệt với "Agent" = persona/hướng dẫn) — đúng 2
   // lựa chọn admin đang dùng cho app tự tạo dạng text (xem MODEL_OPTIONS trong app/admin/page.tsx).
   const STORY_MODEL_CHAT_OPTIONS = [
@@ -617,6 +621,7 @@ export default function MiniAppDetailPage() {
     });
     if (storyResolutionKey) params2.set("resolutionKey", storyResolutionKey);
     if (storyDurationKey) params2.set("durationKey", storyDurationKey);
+    if (storyContinuousMotion) params2.set("continuousMotion", "1");
     fetch(`/api/story-video/price?${params2.toString()}`)
       .then((res) => res.json())
       .then((data) => {
@@ -625,7 +630,7 @@ export default function MiniAppDetailPage() {
         if (typeof data.characterCost === "number") setStoryCharacterCost(data.characterCost);
       })
       .catch(() => {});
-  }, [params.id, numScenes, storyImageModelKey, storyVideoModelKey, storyResolutionKey, storyDurationKey]);
+  }, [params.id, numScenes, storyImageModelKey, storyVideoModelKey, storyResolutionKey, storyDurationKey, storyContinuousMotion]);
 
   // Ảnh/video có giá tính động theo chi phí thật + biên lợi nhuận, khác app text (giá cố định)
   useEffect(() => {
@@ -1305,6 +1310,7 @@ export default function MiniAppDetailPage() {
           genreKey: storyGenreKey !== "default" ? storyGenreKey : undefined,
           characters,
           locationReferenceUrl,
+          continuousMotion: !hasMultipleCharacters && storyContinuousMotion,
         }),
       });
       const data = await res.json();
@@ -3175,6 +3181,20 @@ export default function MiniAppDetailPage() {
                       <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
                         Đơn giá đã chọn: <strong className="text-zinc-900 dark:text-zinc-50">{storyVideoCost ?? "?"} credit</strong>
                       </p>
+                      {storyVideoModelKey === "kling-o1-flfv" && storyExtraCharacters.length === 0 && (
+                        <label className="mt-3 flex items-start gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+                          <input
+                            type="checkbox"
+                            checked={storyContinuousMotion}
+                            onChange={(e) => setStoryContinuousMotion(e.target.checked)}
+                            className="mt-0.5"
+                          />
+                          <span>
+                            🎬 Chuyển động liên tục giữa các cảnh — mỗi cảnh nối liền mạch sang cảnh sau (thêm ~1 ảnh cho cả video, không
+                            phải nhân đôi). Khi bật, không dùng được nút &quot;Tạo lại&quot; riêng từng cảnh.
+                          </span>
+                        </label>
+                      )}
                     </div>
               </div>
 
@@ -3216,7 +3236,7 @@ export default function MiniAppDetailPage() {
                                   <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
                                     Cảnh {index + 1}
                                   </span>
-                                  {aiScene && (
+                                  {aiScene && !storyContinuousMotion && (
                                     <button
                                       onClick={(e) => {
                                         e.stopPropagation();
@@ -3486,16 +3506,18 @@ export default function MiniAppDetailPage() {
                               🗣️
                             </span>
                           )}
-                          <button
-                            onClick={() => {
-                              if (!isRegeneratingThisVideo) handleRegenerateSceneVideo(scene.id);
-                            }}
-                            disabled={!!storyRegeneratingVideoSceneId}
-                            title="Tạo lại đúng video cảnh này (tốn thêm credit như 1 video phân cảnh)"
-                            className="absolute right-1 top-1 rounded-full bg-black/70 px-1.5 py-1 text-xs text-white hover:bg-black/90 disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            🔄
-                          </button>
+                          {!storyContinuousMotion && (
+                            <button
+                              onClick={() => {
+                                if (!isRegeneratingThisVideo) handleRegenerateSceneVideo(scene.id);
+                              }}
+                              disabled={!!storyRegeneratingVideoSceneId}
+                              title="Tạo lại đúng video cảnh này (tốn thêm credit như 1 video phân cảnh)"
+                              className="absolute right-1 top-1 rounded-full bg-black/70 px-1.5 py-1 text-xs text-white hover:bg-black/90 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              🔄
+                            </button>
+                          )}
                         </div>
                       );
                     })}

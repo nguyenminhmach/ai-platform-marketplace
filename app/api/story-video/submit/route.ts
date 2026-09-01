@@ -35,6 +35,7 @@ export async function POST(req: Request) {
     genreKey,
     characters,
     locationReferenceUrl,
+    continuousMotion,
   } = await req.json();
 
   if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
@@ -111,7 +112,8 @@ export async function POST(req: Request) {
       skipCharacterCreation === true,
       typeof genreKey === "string" ? genreKey : undefined,
       parsedCharacters,
-      typeof locationReferenceUrl === "string" && locationReferenceUrl ? locationReferenceUrl : undefined
+      typeof locationReferenceUrl === "string" && locationReferenceUrl ? locationReferenceUrl : undefined,
+      continuousMotion === true
     );
     return Response.json({ success: true, jobId: result.jobId, newBalance: result.newBalance });
   } catch (err) {

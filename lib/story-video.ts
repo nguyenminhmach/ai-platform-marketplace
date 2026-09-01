@@ -263,7 +263,8 @@ async function resolveCosts(
   imageModelKey?: string,
   videoModelKey?: string,
   resolutionKey?: string,
-  durationKey?: string
+  durationKey?: string,
+  continuousMotion?: boolean
 ) {
   const miniApp = await getMiniAppModelConfig(miniAppId);
   const imageEntry = resolveModelEntry(miniApp.model_config.image_models, imageModelKey);
@@ -285,8 +286,12 @@ async function resolveCosts(
     videoProviderCostVnd = resolved.costVnd;
   }
 
+  // Chế độ chuyển động liên tục: chuỗi N+1 ảnh cho N cảnh (ảnh cuối cảnh N = ảnh đầu cảnh N+1, không
+  // phải 2N ảnh) — xem lib này, runSceneStage/applyImageStageResult.
+  const imageCallCount = continuousMotion ? numScenes + 1 : numScenes;
+
   const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
-  const imageCost = computeDynamicCreditCost(imageProviderCostVnd * numScenes, marginPercent, vndPerCredit);
+  const imageCost = computeDynamicCreditCost(imageProviderCostVnd * imageCallCount, marginPercent, vndPerCredit);
   const videoCost = computeDynamicCreditCost(videoProviderCostVnd * numScenes, marginPercent, vndPerCredit);
   return {
     imageEntry,
@@ -308,9 +313,18 @@ export async function computeStoryVideoCreditCost(
   imageModelKey?: string,
   videoModelKey?: string,
   resolutionKey?: string,
-  durationKey?: string
+  durationKey?: string,
+  continuousMotion?: boolean
 ): Promise<{ imageCost: number; videoCost: number; totalCost: number }> {
-  const { imageCost, videoCost, totalCost } = await resolveCosts(miniAppId, numScenes, imageModelKey, videoModelKey, resolutionKey, durationKey);
+  const { imageCost, videoCost, totalCost } = await resolveCosts(
+    miniAppId,
+    numScenes,
+    imageModelKey,
+    videoModelKey,
+    resolutionKey,
+    durationKey,
+    continuousMotion
+  );
   return { imageCost, videoCost, totalCost };
 }
 
@@ -356,7 +370,14 @@ function buildImageRequestBody(
 
 // Body request Fal.ai theo model video — VEO cần hậu tố "s" cho duration ("6s", không phải "6"),
 // Hailuo cố định resolution "768P" để khớp đúng giá đã nghiên cứu, còn lại theo mẫu Kling/LTX sẵn có.
-function buildVideoRequestBody(model: string, prompt: string | null, imageUrl: string, aspectRatio: string, durationKey?: string): Record<string, unknown> {
+function buildVideoRequestBody(
+  model: string,
+  prompt: string | null,
+  imageUrl: string,
+  aspectRatio: string,
+  durationKey?: string,
+  endImageUrl?: string
+): Record<string, unknown> {
   if (
     model === "fal-ai/veo3/image-to-video" ||
     model === "fal-ai/veo3.1/fast/image-to-video" ||
@@ -370,6 +391,15 @@ function buildVideoRequestBody(model: string, prompt: string | null, imageUrl: s
   if (model === "fal-ai/minimax/hailuo-02/standard/image-to-video") {
     // Đã tra schema thật — model này KHÔNG có tham số tỉ lệ khung hình, luôn theo đúng ảnh đầu vào.
     return { prompt, image_url: imageUrl, duration: durationKey ?? "6", resolution: "768P" };
+  }
+  if (model === "fal-ai/kling-video/o1/standard/image-to-video") {
+    // Kling O1 FLFV (First-Last-Frame-to-Video) — đã tra schema thật: nhận start_image_url (bắt
+    // buộc, KHÔNG phải "image_url" như các model khác) + end_image_url (tuỳ chọn — có thì nội suy
+    // chuyển động thật giữa 2 khung hình, không có thì chạy như model 1 ảnh bình thường) + duration
+    // (enum "3"-"10", KHÔNG có hậu tố "s" khác VEO). Không nhận aspect_ratio (tự theo ảnh đầu vào).
+    const body: Record<string, unknown> = { prompt, start_image_url: imageUrl, duration: durationKey ?? "5" };
+    if (endImageUrl) body.end_image_url = endImageUrl;
+    return body;
   }
   const body: Record<string, unknown> = { prompt, image_url: imageUrl, aspect_ratio: aspectRatio };
   if (durationKey) body.duration = durationKey;
@@ -831,7 +861,9 @@ async function runSceneStage(
   }
 
   const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
-  const imageCost = computeDynamicCreditCost(job.image_provider_cost_vnd_per_scene * job.num_scenes, marginPercent, vndPerCredit);
+  // Chuỗi liên tục: N+1 ảnh cho N cảnh (không phải 2N) — xem resolveCosts().
+  const imageCallCount = job.continuous_motion ? job.num_scenes + 1 : job.num_scenes;
+  const imageCost = computeDynamicCreditCost(job.image_provider_cost_vnd_per_scene * imageCallCount, marginPercent, vndPerCredit);
   const videoCost = computeDynamicCreditCost(job.video_provider_cost_vnd_per_scene * job.num_scenes, marginPercent, vndPerCredit);
 
   const deduction = await deductCredit(userId, job.auto_video ? imageCost + videoCost : imageCost, job.mini_app_id, idempotencyKey);
@@ -1919,6 +1951,7 @@ type VideoSceneRefRow = {
   image_url: string | null;
   scene_description: string | null;
   motion_prompt: string | null;
+  end_image_url?: string | null;
 };
 
 // Build prompt (ưu tiên motion_prompt đã sinh riêng cho video, fallback scene_description nếu thiếu —
@@ -1930,14 +1963,24 @@ async function submitSceneVideoForRow(
   row: VideoSceneRefRow,
   regen: boolean
 ): Promise<string> {
-  // Khách phản ánh bối cảnh/nền đôi khi lệch nhẹ so với ảnh gốc khi model video tạo chuyển động — thêm
-  // câu chỉ dẫn cố định (áp dụng mọi model: Kling/VEO/Hailuo/LTX, vì chỉ nằm trong text "prompt" chung,
-  // không phụ thuộc tham số riêng từng provider) yêu cầu giữ nguyên bối cảnh, chỉ hoạt náo tự nhiên.
   const basePrompt = row.motion_prompt ?? row.scene_description;
-  const prompt = basePrompt
-    ? `${basePrompt} Keep the background, environment, lighting, and every object in the scene exactly the same as the reference image — do not change or add anything to the setting, only animate with subtle natural motion.`
-    : basePrompt;
-  const body = buildVideoRequestBody(job.video_model as string, prompt, row.image_url as string, job.aspect_ratio ?? "9:16", job.video_duration_key ?? undefined);
+  // Cảnh có ảnh CUỐI riêng (chế độ chuyển động liên tục, Kling O1 FLFV) — model nội suy chuyển động
+  // THẬT giữa 2 khung hình khác nhau, nên KHÔNG dùng câu chỉ dẫn "chỉ hoạt náo nhẹ, giữ nguyên mọi
+  // thứ" (mâu thuẫn với việc 2 khung hình vốn khác nhau). Cảnh câm 1 ảnh (đa số model khác) vẫn giữ
+  // nguyên câu chỉ dẫn cũ — khách từng phản ánh bối cảnh/nền bị trôi lệch khi model tự "hoạt náo".
+  const prompt = row.end_image_url
+    ? basePrompt
+    : basePrompt
+      ? `${basePrompt} Keep the background, environment, lighting, and every object in the scene exactly the same as the reference image — do not change or add anything to the setting, only animate with subtle natural motion.`
+      : basePrompt;
+  const body = buildVideoRequestBody(
+    job.video_model as string,
+    prompt,
+    row.image_url as string,
+    job.aspect_ratio ?? "9:16",
+    job.video_duration_key ?? undefined,
+    row.end_image_url ?? undefined
+  );
   return submitFalJob(
     job.video_model as string,
     body,
@@ -2030,7 +2073,13 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
         }
         const requestId = await submitSceneVideoForRow(
           { id: jobId, video_model: job.video_model, aspect_ratio: job.aspect_ratio, video_duration_key: job.video_duration_key },
-          { id: scene.id, image_url: scene.image_url, scene_description: scene.scene_description, motion_prompt: motionPrompt },
+          {
+            id: scene.id,
+            image_url: scene.image_url,
+            scene_description: scene.scene_description,
+            motion_prompt: motionPrompt,
+            end_image_url: scene.end_image_url,
+          },
           false
         );
         await supabase.from("story_video_scenes").update({ video_fal_request_id: requestId }).eq("id", scene.id);

@@ -10,6 +10,7 @@ export async function GET(req: Request) {
   const videoModelKey = searchParams.get("videoModelKey") ?? undefined;
   const resolutionKey = searchParams.get("resolutionKey") ?? undefined;
   const durationKey = searchParams.get("durationKey") ?? undefined;
+  const continuousMotion = searchParams.get("continuousMotion") === "1";
 
   if (!miniAppId) return Response.json({ error: "Thiếu miniAppId" }, { status: 400 });
   if (!numScenes || numScenes < MIN_SCENES || numScenes > MAX_SCENES) {
@@ -18,7 +19,7 @@ export async function GET(req: Request) {
 
   try {
     const [{ imageCost, videoCost, totalCost }, { creditCost: characterCost }] = await Promise.all([
-      computeStoryVideoCreditCost(miniAppId, numScenes, imageModelKey, videoModelKey, resolutionKey, durationKey),
+      computeStoryVideoCreditCost(miniAppId, numScenes, imageModelKey, videoModelKey, resolutionKey, durationKey, continuousMotion),
       computeCharacterCreditCost(),
     ]);
     // characterCost chỉ tốn nếu ảnh tải lên chưa phải sheet nhiều góc và không chọn Character đã lưu
