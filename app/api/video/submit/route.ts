@@ -1,10 +1,13 @@
 import { randomUUID } from "crypto";
 import { submitVideoJob } from "@/lib/ai-router";
 import { InsufficientCreditError } from "@/lib/credit-system";
+import { getAuthenticatedUserId } from "@/lib/auth-server";
 
 export async function POST(req: Request) {
-  const { miniAppId, userId, prompt, startFrameDataUrl, endFrameDataUrl, modelChoice, duration } = await req.json();
+  const { miniAppId, prompt, startFrameDataUrl, endFrameDataUrl, modelChoice, duration } = await req.json();
 
+  // userId LUÔN lấy từ session đã xác thực (cookie), KHÔNG tin client gửi trong body.
+  const userId = await getAuthenticatedUserId();
   if (!userId) {
     return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   }

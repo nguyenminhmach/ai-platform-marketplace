@@ -9,6 +9,7 @@ import {
   type MultiCharacterInput,
 } from "@/lib/story-video";
 import { InsufficientCreditError } from "@/lib/credit-system";
+import { getAuthenticatedUserId } from "@/lib/auth-server";
 
 const STORY_MAX_LENGTH = 2000;
 
@@ -18,7 +19,6 @@ export const maxDuration = 60;
 
 export async function POST(req: Request) {
   const {
-    userId,
     miniAppId,
     storyDescription,
     numScenes,
@@ -38,6 +38,7 @@ export async function POST(req: Request) {
     continuousMotion,
   } = await req.json();
 
+  const userId = await getAuthenticatedUserId();
   if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   if (typeof miniAppId !== "string" || !miniAppId) return Response.json({ error: "Thiếu miniAppId" }, { status: 400 });
   // Bước này (Tạo Character) chưa cần ý tưởng truyện — khách có thể gõ sau, ở bước "Tiếp tục chia

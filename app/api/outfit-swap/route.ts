@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { submitOutfitSwapJob, getEnabledOutfitSwapModels, type OutfitSwapModelKey, type GarmentCategory } from "@/lib/outfit-swap";
 import { InsufficientCreditError } from "@/lib/credit-system";
+import { getAuthenticatedUserId } from "@/lib/auth-server";
 
 export async function GET() {
   const models = await getEnabledOutfitSwapModels();
@@ -10,8 +11,9 @@ export async function GET() {
 // Submit job bất đồng bộ — trả về ngay jobId, KHÔNG đợi Fal.ai xử lý xong (xem lib/outfit-swap.ts).
 // Frontend tự poll /api/outfit-swap/status để lấy kết quả.
 export async function POST(req: Request) {
-  const { userId, modelImageDataUrl, garmentImageDataUrls, garmentCategories, modelChoice, prompt } = await req.json();
+  const { modelImageDataUrl, garmentImageDataUrls, garmentCategories, modelChoice, prompt } = await req.json();
 
+  const userId = await getAuthenticatedUserId();
   if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   if (typeof modelImageDataUrl !== "string" || !modelImageDataUrl) {
     return Response.json({ error: "Thiếu ảnh người mẫu" }, { status: 400 });

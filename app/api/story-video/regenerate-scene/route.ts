@@ -1,12 +1,14 @@
 import { randomUUID } from "crypto";
 import { regenerateSceneImage } from "@/lib/story-video";
 import { InsufficientCreditError } from "@/lib/credit-system";
+import { getAuthenticatedUserId } from "@/lib/auth-server";
 
 // Khách chỉ ưng 1 phần ảnh phân cảnh — tạo lại ĐÚNG 1 cảnh, trừ credit đúng bằng giá 1 ảnh, không
 // đụng các cảnh khác trong job.
 export async function POST(req: Request) {
-  const { userId, sceneId } = await req.json();
+  const { sceneId } = await req.json();
 
+  const userId = await getAuthenticatedUserId();
   if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   if (typeof sceneId !== "number") return Response.json({ error: "Thiếu sceneId" }, { status: 400 });
 

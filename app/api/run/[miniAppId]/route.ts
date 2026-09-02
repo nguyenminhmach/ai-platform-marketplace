@@ -1,14 +1,18 @@
 import { randomUUID } from "crypto";
 import { runMiniApp } from "@/lib/ai-router";
 import { InsufficientCreditError } from "@/lib/credit-system";
+import { getAuthenticatedUserId } from "@/lib/auth-server";
 
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ miniAppId: string }> }
 ) {
   const { miniAppId } = await params;
-  const { input, userId, imageDataUrl } = await req.json();
+  const { input, imageDataUrl } = await req.json();
 
+  // userId LUÔN lấy từ session đã xác thực (cookie), KHÔNG tin client gửi trong body — trước đây ai
+  // biết userId người khác đều gọi được route này trừ credit của họ.
+  const userId = await getAuthenticatedUserId();
   if (!userId) {
     return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   }

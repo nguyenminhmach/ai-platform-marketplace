@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { submitStoryVideoJobWithOwnImages, MIN_SCENES, MAX_SCENES } from "@/lib/story-video";
 import { InsufficientCreditError } from "@/lib/credit-system";
+import { getAuthenticatedUserId } from "@/lib/auth-server";
 
 const STORY_MAX_LENGTH = 2000;
 
@@ -9,9 +10,10 @@ const STORY_MAX_LENGTH = 2000;
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  const { userId, miniAppId, storyDescription, sceneImages, videoModelKey, autoVideo, aspectRatio, durationKey, modelChatKey } =
+  const { miniAppId, storyDescription, sceneImages, videoModelKey, autoVideo, aspectRatio, durationKey, modelChatKey } =
     await req.json();
 
+  const userId = await getAuthenticatedUserId();
   if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   if (typeof miniAppId !== "string" || !miniAppId) return Response.json({ error: "Thiếu miniAppId" }, { status: 400 });
   if (typeof storyDescription !== "string" || !storyDescription.trim()) {

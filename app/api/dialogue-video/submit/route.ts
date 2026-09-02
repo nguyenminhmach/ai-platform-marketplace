@@ -1,12 +1,14 @@
 import { randomUUID } from "crypto";
 import { submitDialogueVideoJob, MIN_CHARACTERS, MAX_CHARACTERS } from "@/lib/dialogue-video";
 import { InsufficientCreditError } from "@/lib/credit-system";
+import { getAuthenticatedUserId } from "@/lib/auth-server";
 
 const LINE_MAX_LENGTH = 400;
 
 export async function POST(req: Request) {
-  const { userId, miniAppId, characters } = await req.json();
+  const { miniAppId, characters } = await req.json();
 
+  const userId = await getAuthenticatedUserId();
   if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   if (typeof miniAppId !== "string" || !miniAppId) return Response.json({ error: "Thiếu miniAppId" }, { status: 400 });
   if (!Array.isArray(characters) || characters.length < MIN_CHARACTERS || characters.length > MAX_CHARACTERS) {

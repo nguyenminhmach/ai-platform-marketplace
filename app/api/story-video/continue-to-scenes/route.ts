@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { continueStoryVideoToSceneStage } from "@/lib/story-video";
 import { InsufficientCreditError } from "@/lib/credit-system";
+import { getAuthenticatedUserId } from "@/lib/auth-server";
 
 // Khách bấm "Tiếp tục chia cảnh" sau khi xem/duyệt ảnh Character (job đang ở status "character_ready")
 // — trừ credit phần ảnh rồi chạy chia cảnh (LLM) + submit ảnh cho từng cảnh. Cần thời gian chờ dài hơn
@@ -8,8 +9,9 @@ import { InsufficientCreditError } from "@/lib/credit-system";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  const { userId, jobId, modelChatKey, storyDescription } = await req.json();
+  const { jobId, modelChatKey, storyDescription } = await req.json();
 
+  const userId = await getAuthenticatedUserId();
   if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   if (typeof jobId !== "number") return Response.json({ error: "Thiếu jobId" }, { status: 400 });
 
