@@ -2308,27 +2308,19 @@ export async function applyLipsyncStageResult(
 ) {
   const supabase = getSupabaseAdmin();
   const isError = falPayload.status === "ERROR" || !!falPayload.error;
+  const lipsyncUrl = isError ? undefined : extractVideoUrl(falPayload);
 
-  if (isError) {
-    if (isRegenerate) {
-      console.error(`[story-video] Lỗi lồng tiếng cảnh #${sceneId}:`, falPayload.error ?? "unknown");
-      return;
-    }
-    await failJob(jobId, `Lỗi lồng tiếng cảnh: ${String(falPayload.error ?? "")}`);
-    return;
+  // Fal.ai từ chối job lồng tiếng (vd 422 do video/audio không khớp giới hạn của Kling LipSync) hoặc
+  // không trả URL hợp lệ — cả 2 trường hợp đều chỉ là bước BỔ SUNG thất bại, video câm của đúng cảnh
+  // đó (scene.video_url) đã có sẵn từ trước. Không được fail cả job vì lỗi ở bước này (mirror đúng
+  // cách applyVideoStageResult xử lý khi submitSceneLipsyncForRow lỗi ngay lúc submit).
+  if (isError || !lipsyncUrl) {
+    console.error(`[story-video] Lỗi lồng tiếng cảnh #${sceneId}, dùng video câm thay thế:`, falPayload.error ?? "không có URL video");
+    if (isRegenerate) return;
+    await supabase.from("story_video_scenes").update({ dialogue_line: null }).eq("id", sceneId);
+  } else {
+    await supabase.from("story_video_scenes").update({ lipsync_url: lipsyncUrl }).eq("id", sceneId);
   }
-
-  const lipsyncUrl = extractVideoUrl(falPayload);
-  if (!lipsyncUrl) {
-    if (isRegenerate) {
-      console.error(`[story-video] Không tìm thấy URL video lồng tiếng khi tạo lại cảnh #${sceneId}`);
-      return;
-    }
-    await failJob(jobId, "Không tìm thấy URL video lồng tiếng trong phản hồi Fal.ai");
-    return;
-  }
-
-  await supabase.from("story_video_scenes").update({ lipsync_url: lipsyncUrl }).eq("id", sceneId);
 
   const { data: job } = await supabase.from("story_video_jobs").select("mini_app_id").eq("id", jobId).single();
   const lipsyncModel = job ? (await getMiniAppModelConfig(job.mini_app_id)).model_config.lipsync_model : undefined;
