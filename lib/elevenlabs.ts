@@ -24,6 +24,12 @@ export async function generateVietnameseSpeech(
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) throw new Error("Chưa cấu hình ELEVENLABS_API_KEY trong .env.local");
 
+  // Chuẩn hoá NFC bắt buộc: nếu text tiếng Việt tới tay hàm này ở dạng NFD (dấu rời — vd "ế" lưu
+  // thành "e" + dấu mũ + dấu sắc riêng biệt, thường gặp khi text đi qua 1 số nguồn/model trung gian),
+  // ElevenLabs đọc sai/lộn thanh điệu dù phụ âm-nguyên âm vẫn đúng (đã xác nhận qua thực tế: giọng rõ
+  // nhưng "không biết tiếng nước nào" — đúng triệu chứng thanh điệu bị vỡ, không phải lỗi chọn giọng).
+  const normalizedText = text.normalize("NFC");
+
   const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
     method: "POST",
     headers: {
@@ -31,7 +37,7 @@ export async function generateVietnameseSpeech(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      text,
+      text: normalizedText,
       model_id: "eleven_multilingual_v2",
     }),
   });
