@@ -536,15 +536,18 @@ export type MultiSceneSplitResult = {
   characters: number[];
   dialogue?: { speaker: number; line: string } | null;
   end_description?: string;
+  end_characters?: number[];
 };
 
 // Câu chỉ dẫn continuity riêng cho nhiều nhân vật — nối thêm CONTINUOUS_MOTION_INSTRUCTION (đã định
 // nghĩa ở trên, dùng chung cho luồng 1 nhân vật) với 1 câu bổ sung: ảnh cuối cảnh N (dùng làm ảnh đầu
-// cảnh N+1) chỉ chứa đúng những người trong "characters" của cảnh N, nên end_description cần khớp với
-// nhân vật sẽ xuất hiện ở đầu cảnh sau để tránh ảnh nối bị lệch số người.
+// cảnh N+1) PHẢI khai báo đúng "end_characters" — những ai THẬT SỰ xuất hiện ở khoảnh khắc kết thúc
+// (có thể khác "characters" ở đầu cảnh, vd có thêm 1 người vừa bước vào khung hình) — vì hệ thống chỉ
+// gửi đúng ảnh tham chiếu của những người trong "end_characters" khi vẽ ảnh cuối; thiếu khai báo sẽ
+// khiến AI tự bịa mặt cho người không có ảnh tham chiếu, ra thêm 1 người lạ không phải nhân vật thật.
 const CONTINUOUS_MOTION_INSTRUCTION_MULTI =
   CONTINUOUS_MOTION_INSTRUCTION +
-  ' Lưu ý thêm cho nhiều nhân vật: "end_description" của cảnh này nên có ĐÚNG những nhân vật (theo mảng "characters") sẽ tiếp tục xuất hiện ở đầu cảnh kế tiếp — không tự đổi ai đang có mặt trong khung hình chỉ vì đang mô tả khoảnh khắc kết thúc.';
+  ' Lưu ý thêm cho nhiều nhân vật: với MỌI cảnh, thêm thêm khoá "end_characters" (mảng số, cùng quy tắc chỉ số như "characters") — liệt kê ĐÚNG những nhân vật THẬT SỰ có mặt trong khung hình ở khoảnh khắc KẾT THÚC (mô tả trong "end_description"). Nếu không có ai xuất hiện/biến mất so với đầu cảnh thì "end_characters" giống hệt "characters"; nếu có thêm người bước vào khung hình ở cuối cảnh (vd chuẩn bị sang cảnh sau) thì phải liệt kê thêm đúng số của người đó — TUYỆT ĐỐI không để "end_description" nhắc tới 1 nhân vật mà không có mặt trong "end_characters", vì hệ thống chỉ dùng đúng ảnh tham chiếu của những người trong mảng này, thiếu sẽ khiến AI tự bịa thêm 1 người lạ.';
 
 function buildMultiSceneSplitPrompt(characterLabels: string[]): string {
   const list = characterLabels.map((label, i) => `${i}: ${label}`).join(", ");
@@ -613,7 +616,12 @@ export async function splitStoryIntoScenesMulti(
               (s as { dialogue: { line: string } }).dialogue.line.trim())) &&
           (!continuousMotion ||
             (typeof (s as { end_description?: unknown }).end_description === "string" &&
-              (s as { end_description: string }).end_description.trim()))
+              (s as { end_description: string }).end_description.trim() &&
+              Array.isArray((s as { end_characters?: unknown }).end_characters) &&
+              (s as { end_characters: unknown[] }).end_characters.length > 0 &&
+              (s as { end_characters: unknown[] }).end_characters.every(
+                (c) => typeof c === "number" && Number.isInteger(c) && c >= 0 && c <= maxIndex
+              )))
       )
     ) {
       throw new Error("wrong-shape");
@@ -1409,7 +1417,14 @@ async function runMultiCharacterSceneStage(
         })(),
         ...sortedRows.map(async (row) => {
           const scene = scenes[row.position];
-          const endRow = { ...row, scene_description: scene.end_description ?? scene.description };
+          // Ảnh cuối cảnh có thể cần ảnh tham chiếu KHÁC với ảnh đầu (vd thêm 1 người vừa bước vào
+          // khung hình để nối sang cảnh sau) — dùng end_characters nếu Agent có khai báo, không thì
+          // rơi về đúng characters gốc của cảnh (không đổi gì nếu end_characters vắng mặt).
+          const endRow = {
+            ...row,
+            scene_description: scene.end_description ?? scene.description,
+            character_positions: scene.end_characters ?? row.character_positions,
+          };
           const requestId = await submitMultiCharacterSceneImageForRow(job, endRow, jobCharacters, imageEntry, false, "image_end");
           await supabase.from("story_video_scenes").update({ end_image_fal_request_id: requestId }).eq("id", row.id);
         }),
