@@ -2083,7 +2083,7 @@ async function submitSceneLipsyncForRow(
   regen: boolean
 ): Promise<void> {
   const supabase = getSupabaseAdmin();
-  const audioUrl = await generateVietnameseSpeech(dialogueLine, voiceId, jobId, sceneId);
+  const audioUrl = await generateVietnameseSpeech(dialogueLine, voiceId, jobId, sceneId, "story-video");
   const requestId = await submitFalJob(
     lipsyncModel,
     { video_url: videoUrl, audio_url: audioUrl },

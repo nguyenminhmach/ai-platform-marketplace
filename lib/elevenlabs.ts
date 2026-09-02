@@ -14,7 +14,12 @@ export async function generateVietnameseSpeech(
   text: string,
   voiceId: string,
   jobId: number,
-  characterId: number
+  characterId: number,
+  // Namespace theo app gọi hàm — dialogue-video.ts và story-video.ts dùng 2 bảng job/character khác
+  // nhau (id tự tăng ĐỘC LẬP mỗi bảng), nên jobId+characterId có thể trùng số giữa 2 app dù không liên
+  // quan gì nhau. Không truyền namespace riêng thì 2 app ghi đè lẫn audio của nhau qua cùng 1 path
+  // "dialogue-video/{jobId}-{characterId}.mp3" (đã xảy ra thật, gây tiếng lồng sai/lẫn tiếng người khác).
+  namespace: "dialogue-video" | "story-video" = "dialogue-video"
 ): Promise<string> {
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) throw new Error("Chưa cấu hình ELEVENLABS_API_KEY trong .env.local");
@@ -39,7 +44,7 @@ export async function generateVietnameseSpeech(
   const audioBuffer = Buffer.from(await res.arrayBuffer());
 
   const supabase = getSupabaseAdmin();
-  const filePath = `dialogue-video/${jobId}-${characterId}.mp3`;
+  const filePath = `${namespace}/${jobId}-${characterId}.mp3`;
   const { error: uploadError } = await supabase.storage
     .from("videos")
     .upload(filePath, audioBuffer, { contentType: "audio/mpeg", upsert: true });
