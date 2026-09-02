@@ -1,16 +1,13 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 // Đọc lời thoại tiếng Việt thành giọng nói qua ElevenLabs — dùng cho pipeline "Video đồng nhất
-// nhân vật" (bước 2/3: Video model -> TTS -> Lip-sync). eleven_multilingual_v2 hỗ trợ tiếng Việt.
-//
-// Lưu ý: các voice ID bên dưới là giọng mặc định (Rachel/Josh/Domi/Antoni) của ElevenLabs — hãng
-// thông báo các giọng "Default" này sẽ ngừng hoạt động từ 31/12/2026, cần đổi sang giọng khác
-// trước mốc đó.
+// nhân vật" và "Video từ ý tưởng truyện" (bước TTS -> Lip-sync). eleven_multilingual_v2 hỗ trợ
+// tiếng Việt, nhưng giọng gốc tiếng Anh (Rachel/Josh/Domi/Antoni, dùng trước đây) phát âm tiếng Việt
+// nghe lơ lớ như pha tiếng Anh — đã đổi sang giọng tiếng Việt thật do admin tự chọn/thêm vào tài
+// khoản ElevenLabs (Voice Library, lọc Language: Vietnamese), luân phiên nữ/nam theo vị trí nhân vật.
 export const CHARACTER_VOICE_IDS = [
-  "21m00Tcm4TlvDq8ikWAM", // Rachel (nữ)
-  "TxGEqnHWrfWFTfGW9XjX", // Josh (nam)
-  "AZnzlk1XvdvUeBnXmlld", // Domi (nữ)
-  "ErXwobaYiN019PkySvjV", // Antoni (nam)
+  "HAAKLJlaJeGl18MKHYeg", // giọng nữ tiếng Việt
+  "6adFm46eyy74snVn6YrT", // giọng nam tiếng Việt
 ];
 
 export async function generateVietnameseSpeech(
