@@ -1,10 +1,10 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 // Đọc lời thoại tiếng Việt thành giọng nói qua ElevenLabs — dùng cho pipeline "Video đồng nhất
-// nhân vật" và "Video từ ý tưởng truyện" (bước TTS -> Lip-sync). eleven_multilingual_v2 hỗ trợ
-// tiếng Việt, nhưng giọng gốc tiếng Anh (Rachel/Josh/Domi/Antoni, dùng trước đây) phát âm tiếng Việt
-// nghe lơ lớ như pha tiếng Anh — đã đổi sang giọng tiếng Việt thật do admin tự chọn/thêm vào tài
-// khoản ElevenLabs (Voice Library, lọc Language: Vietnamese), luân phiên nữ/nam theo vị trí nhân vật.
+// nhân vật" và "Video từ ý tưởng truyện" (bước TTS -> Lip-sync). Giọng tiếng Việt thật do admin tự
+// chọn/thêm vào tài khoản ElevenLabs (Voice Library, lọc Language: Vietnamese), luân phiên nữ/nam
+// theo vị trí nhân vật — xem thêm ghi chú model_id ở generateVietnameseSpeech() bên dưới (gốc rễ thật
+// của mọi lần phát âm lơ lớ suốt từ đầu KHÔNG phải do chọn giọng sai).
 export const CHARACTER_VOICE_IDS = [
   "f5q6kePPoQAjCPYG6moa", // giọng nữ tiếng Việt
   "ekOUbc6LmXiQZnLcHOoL", // giọng nam tiếng Việt
@@ -30,6 +30,13 @@ export async function generateVietnameseSpeech(
   // nhưng "không biết tiếng nước nào" — đúng triệu chứng thanh điệu bị vỡ, không phải lỗi chọn giọng).
   const normalizedText = text.normalize("NFC");
 
+  // model_id: đây là gốc rễ thật của toàn bộ chuỗi report "lơ lớ" từ đầu tới giờ — đã tra lại tài liệu
+  // ElevenLabs hiện tại (docs/models) và xác nhận "eleven_multilingual_v2" KHÔNG hỗ trợ tiếng Việt
+  // chính thức (danh sách 29 ngôn ngữ của model này không có tiếng Việt) dù comment cũ trong file này
+  // từng ghi nhầm là có hỗ trợ. Chỉ "eleven_flash_v2_5" (và bản cũ đã deprecated turbo_v2_5) mới chính
+  // thức hỗ trợ tiếng Việt (32 ngôn ngữ = 29 của multilingual_v2 + Hungarian/Norwegian/Vietnamese) — vì
+  // vậy đổi giọng bao nhiêu lần cũng không hết lơ lớ, do model xử lý text chưa từng được huấn luyện cho
+  // tiếng Việt. Đổi hẳn sang eleven_flash_v2_5.
   const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
     method: "POST",
     headers: {
@@ -38,7 +45,7 @@ export async function generateVietnameseSpeech(
     },
     body: JSON.stringify({
       text: normalizedText,
-      model_id: "eleven_multilingual_v2",
+      model_id: "eleven_flash_v2_5",
     }),
   });
 
