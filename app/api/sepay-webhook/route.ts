@@ -16,13 +16,19 @@ export async function POST(req: Request) {
     const payload = (await req.json()) as SepayWebhookPayload;
     const supabase = getSupabaseAdmin();
 
-    // Dedup — nếu Sepay gọi lại cùng 1 giao dịch, bỏ qua ngay
+    // Dedup — nếu Sepay gọi lại cùng 1 giao dịch, bỏ qua ngay. CHỈ coi là "đã xử lý rồi" khi đúng lỗi vi
+    // phạm unique constraint (Postgres code 23505) — lỗi khác (DB tạm thời lỗi, payload.id null...) thì
+    // CHƯA có gì được ghi/xử lý, trả lỗi thật để Sepay retry lại toàn bộ webhook thay vì âm thầm bỏ qua
+    // giao dịch (trước đây coi MỌI lỗi insert là trùng lặp, có thể làm mất tiền khách chuyển vào).
     const { error: dedupError } = await supabase
       .from("webhook_dedup")
       .insert({ event_id: payload.id });
     if (dedupError) {
-      // Vi phạm unique constraint = đã xử lý rồi
-      return Response.json({ success: true, status: "already_processed" });
+      if (dedupError.code === "23505") {
+        return Response.json({ success: true, status: "already_processed" });
+      }
+      console.error(`[sepay-webhook] Lỗi ghi dedup (không phải trùng lặp), để Sepay retry:`, dedupError);
+      return Response.json({ error: "dedup_insert_failed" }, { status: 500 });
     }
 
     // Chỉ xử lý tiền chuyển VÀO (không phải lúc chủ tài khoản chuyển ra)
@@ -57,16 +63,24 @@ export async function POST(req: Request) {
         return Response.json({ success: true, status: "underpayment" });
       }
 
-      await supabase
-        .from("subscription_orders")
-        .update({ status: "paid", paid_at: new Date().toISOString(), sepay_transaction_id: payload.id })
-        .eq("id", subOrder.id);
-
-      await supabase.rpc("extend_subscription", {
+      // Gia hạn thuê bao TRƯỚC khi đánh dấu đơn "paid" — nếu RPC lỗi, đơn vẫn ở "pending" (dễ phát
+      // hiện + xử lý thủ công) thay vì "paid" nhưng thuê bao không hề được gia hạn mà không ai biết
+      // (trước đây không kiểm tra lỗi RPC, đơn đã "paid" + webhook đã dedup thì không cách nào tự
+      // retry lại được nữa — tiền mất không dấu vết).
+      const { error: extendError } = await supabase.rpc("extend_subscription", {
         p_user_id: subOrder.user_id,
         p_duration_days: subOrder.duration_days,
         p_renewal_type: "manual",
       });
+      if (extendError) {
+        console.error(`[sepay-webhook] Lỗi gia hạn thuê bao order=${parsed.code} user=${subOrder.user_id}:`, extendError);
+        return Response.json({ success: false, error: "extend_subscription_failed", orderCode: parsed.code }, { status: 200 });
+      }
+
+      await supabase
+        .from("subscription_orders")
+        .update({ status: "paid", paid_at: new Date().toISOString(), sepay_transaction_id: payload.id })
+        .eq("id", subOrder.id);
 
       return Response.json({ success: true, orderCode: parsed.code, type: "subscription" });
     }
@@ -92,18 +106,23 @@ export async function POST(req: Request) {
       return Response.json({ success: true, status: "underpayment" });
     }
 
+    // Cộng credit TRƯỚC khi đánh dấu đơn "paid" — cùng lý do với nhánh subscription ở trên: nếu RPC
+    // lỗi, đơn vẫn ở "pending" thay vì "paid" mà khách không hề nhận được credit.
+    const { error: creditError } = await supabase.rpc("credit_topup", {
+      p_user_id: order.user_id,
+      p_amount: order.credits,
+      p_order_code: orderCode,
+    });
+    if (creditError) {
+      console.error(`[sepay-webhook] Lỗi cộng credit order=${orderCode} user=${order.user_id}:`, creditError);
+      return Response.json({ success: false, error: "credit_topup_failed", orderCode }, { status: 200 });
+    }
+
     // Đánh dấu đơn hàng đã thanh toán
     await supabase
       .from("topup_orders")
       .update({ status: "paid", paid_at: new Date().toISOString(), sepay_transaction_id: payload.id })
       .eq("id", order.id);
-
-    // Cộng credit cho user — atomic qua function SQL
-    await supabase.rpc("credit_topup", {
-      p_user_id: order.user_id,
-      p_amount: order.credits,
-      p_order_code: orderCode,
-    });
 
     return Response.json({ success: true, orderCode, credits: order.credits });
   } catch (err) {
