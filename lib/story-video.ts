@@ -2315,7 +2315,18 @@ export async function applyLipsyncStageResult(
   // đó (scene.video_url) đã có sẵn từ trước. Không được fail cả job vì lỗi ở bước này (mirror đúng
   // cách applyVideoStageResult xử lý khi submitSceneLipsyncForRow lỗi ngay lúc submit).
   if (isError || !lipsyncUrl) {
-    console.error(`[story-video] Lỗi lồng tiếng cảnh #${sceneId}, dùng video câm thay thế:`, falPayload.error ?? "không có URL video");
+    // Log đầy đủ payload + video_url/audio_url đã gửi (không chỉ falPayload.error) — lần lỗi trước chỉ
+    // log ra chuỗi ngắn "Unexpected status code: 422" không đủ chẩn đoán được nguyên nhân thật (video/
+    // audio không khớp giới hạn Kling LipSync, hay lý do khác).
+    const { data: sceneRow } = await supabase
+      .from("story_video_scenes")
+      .select("video_url, dialogue_audio_url")
+      .eq("id", sceneId)
+      .single();
+    console.error(
+      `[story-video] Lỗi lồng tiếng cảnh #${sceneId}, dùng video câm thay thế. video_url=${sceneRow?.video_url} audio_url=${sceneRow?.dialogue_audio_url} payload=`,
+      JSON.stringify(falPayload)
+    );
     if (isRegenerate) return;
     await supabase.from("story_video_scenes").update({ dialogue_line: null }).eq("id", sceneId);
   } else {
