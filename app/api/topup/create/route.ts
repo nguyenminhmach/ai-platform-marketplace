@@ -1,12 +1,15 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { generateVietQRUrl } from "@/lib/sepay";
 import { CREDIT_PACKAGES } from "@/lib/mock-wallet";
+import { getAuthenticatedUserId } from "@/lib/auth-server";
 
 export async function POST(req: Request) {
-  const { userId, packageId } = await req.json();
+  const { packageId } = await req.json();
 
-  if (!userId || !packageId) {
-    return Response.json({ error: "Thiếu userId hoặc packageId" }, { status: 400 });
+  const userId = await getAuthenticatedUserId();
+  if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
+  if (!packageId) {
+    return Response.json({ error: "Thiếu packageId" }, { status: 400 });
   }
 
   const pkg = CREDIT_PACKAGES.find((p) => p.id === packageId);

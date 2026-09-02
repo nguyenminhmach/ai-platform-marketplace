@@ -1,9 +1,11 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { getAuthenticatedUserId } from "@/lib/auth-server";
 
 export async function POST(req: Request) {
-  const { userId, displayName } = await req.json();
+  const { displayName } = await req.json();
 
-  if (!userId) return Response.json({ error: "Thiếu userId" }, { status: 400 });
+  const userId = await getAuthenticatedUserId();
+  if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   if (typeof displayName !== "string" || !displayName.trim()) {
     return Response.json({ error: "Thiếu tên hiển thị" }, { status: 400 });
   }

@@ -1,14 +1,17 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { resolveFalJob } from "@/lib/video-jobs";
+import { getAuthenticatedUserId } from "@/lib/auth-server";
 
 // Cho phép frontend tự nhận diện job video gần nhất của khách khi họ quay lại trang (đóng tab/tắt
 // máy giữa chừng rồi mở lại) — tránh phải chạy lại từ đầu nếu video đã tạo xong hoặc vẫn đang xử lý.
 // Chỉ trả về job "pending"/"processing"/"done" — bỏ qua "failed" vì credit đã hoàn, không cần khôi phục.
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const userId = searchParams.get("userId");
   const miniAppId = searchParams.get("miniAppId");
-  if (!userId || !miniAppId) return Response.json({ error: "Thiếu userId hoặc miniAppId" }, { status: 400 });
+  if (!miniAppId) return Response.json({ error: "Thiếu miniAppId" }, { status: 400 });
+
+  const userId = await getAuthenticatedUserId();
+  if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
 
   const supabase = getSupabaseAdmin();
   const { data: job } = await supabase

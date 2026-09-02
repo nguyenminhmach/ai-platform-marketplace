@@ -1,10 +1,12 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { getAuthenticatedUserId } from "@/lib/auth-server";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const userId = searchParams.get("userId");
   const miniAppId = searchParams.get("miniAppId");
-  if (!userId) return Response.json({ error: "Thiếu userId" }, { status: 400 });
+
+  const userId = await getAuthenticatedUserId();
+  if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
 
   const supabase = getSupabaseAdmin();
   let query = supabase

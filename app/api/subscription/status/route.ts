@@ -1,11 +1,13 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getSubscriptionInfo } from "@/lib/subscription";
+import { getAuthenticatedUserId } from "@/lib/auth-server";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const userId = searchParams.get("userId");
   const orderCode = searchParams.get("orderCode");
 
+  // orderCode do chính khách vừa tạo đơn nhận lại (dùng để poll trạng thái thanh toán ngay sau khi
+  // bấm nạp) — không cần xác thực userId riêng, mã đơn không đoán được và không lộ gì ngoài status.
   if (orderCode) {
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
@@ -20,8 +22,9 @@ export async function GET(req: Request) {
     return Response.json({ status: data.status });
   }
 
+  const userId = await getAuthenticatedUserId();
   if (!userId) {
-    return Response.json({ error: "Thiếu userId hoặc orderCode" }, { status: 400 });
+    return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   }
 
   const info = await getSubscriptionInfo(userId);

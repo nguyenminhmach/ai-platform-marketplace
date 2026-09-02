@@ -1,11 +1,11 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { generateVietQRUrl } from "@/lib/sepay";
+import { getAuthenticatedUserId } from "@/lib/auth-server";
 
-export async function POST(req: Request) {
-  const { userId } = await req.json();
-
+export async function POST() {
+  const userId = await getAuthenticatedUserId();
   if (!userId) {
-    return Response.json({ error: "Thiếu userId" }, { status: 400 });
+    return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   }
 
   const bank = process.env.SEPAY_BANK_NAME;

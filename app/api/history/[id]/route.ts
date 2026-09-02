@@ -1,9 +1,11 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { getAuthenticatedUserId } from "@/lib/auth-server";
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { userId } = await req.json();
-  if (!userId) return Response.json({ error: "Thiếu userId" }, { status: 400 });
+
+  const userId = await getAuthenticatedUserId();
+  if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
 
   const supabase = getSupabaseAdmin();
 

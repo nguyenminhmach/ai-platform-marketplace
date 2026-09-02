@@ -1,13 +1,15 @@
 import { randomUUID } from "crypto";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { getAuthenticatedUserId } from "@/lib/auth-server";
 
 // Upload 1 ảnh input (người mẫu hoặc trang phục tham chiếu) lên Supabase Storage TRƯỚC khi submit
 // job — tránh gửi base64 nặng gộp chung trong request chạy AI, vốn hay bị Vercel chặn 413 khi có
 // nhiều ảnh (xem lib/outfit-swap.ts). Không cần đăng nhập admin, đây là route người dùng thường gọi.
 export async function POST(req: Request) {
-  const { userId, dataUrl } = await req.json();
+  const { dataUrl } = await req.json();
 
-  if (typeof userId !== "string" || !userId) {
+  const userId = await getAuthenticatedUserId();
+  if (!userId) {
     return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   }
   const match = typeof dataUrl === "string" ? dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/) : null;

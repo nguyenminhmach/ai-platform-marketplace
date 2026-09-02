@@ -1,14 +1,14 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { getAuthenticatedUserId } from "@/lib/auth-server";
 
 // Tự khôi phục job story-video gần nhất còn dở dang khi khách quay lại trang (đóng tab/tắt máy giữa
 // chừng) — mirror cơ chế /api/video/latest ở các app video đơn giản, nhưng dùng route riêng vì
 // story-video có luồng nhiều bước (Character → ảnh → video) và 2 lượt trừ credit riêng (ảnh/video):
 // job "failed" vẫn cần khôi phục nếu ảnh đã tạo xong trước khi lỗi ở bước video sau đó (khác app video
 // đơn giản chỉ 1 lượt trừ, hoàn đủ khi lỗi nên bỏ qua hẳn "failed").
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const userId = searchParams.get("userId");
-  if (!userId) return Response.json({ error: "Thiếu userId" }, { status: 400 });
+export async function GET() {
+  const userId = await getAuthenticatedUserId();
+  if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
 
   const supabase = getSupabaseAdmin();
   const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();

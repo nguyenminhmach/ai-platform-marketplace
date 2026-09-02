@@ -6,6 +6,7 @@ import { tmpdir } from "os";
 import path from "path";
 import ffmpegPath from "ffmpeg-static";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { getAuthenticatedUserId } from "@/lib/auth-server";
 
 const execFileAsync = promisify(execFile);
 
@@ -17,8 +18,9 @@ const execFileAsync = promisify(execFile);
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  const { userId, jobId, trackId, customAudioDataUrl } = await req.json();
+  const { jobId, trackId, customAudioDataUrl } = await req.json();
 
+  const userId = await getAuthenticatedUserId();
   if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   if (!jobId) return Response.json({ error: "Thiếu jobId" }, { status: 400 });
   if (!trackId && !customAudioDataUrl) {

@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { getAuthenticatedUserId } from "@/lib/auth-server";
 
 function slugify(name: string): string {
   return name
@@ -10,10 +11,9 @@ function slugify(name: string): string {
     .replace(/(^-|-$)/g, "");
 }
 
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const userId = searchParams.get("userId");
-  if (!userId) return Response.json({ error: "Thiếu userId" }, { status: 400 });
+export async function GET() {
+  const userId = await getAuthenticatedUserId();
+  if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
 
   const supabase = getSupabaseAdmin();
   const { data: dev } = await supabase.from("developers").select("id").eq("user_id", userId).maybeSingle();
@@ -30,9 +30,10 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const { userId, name, description, category, creditCost, endpointUrl, apiKey } = await req.json();
+  const { name, description, category, creditCost, endpointUrl, apiKey } = await req.json();
 
-  if (!userId) return Response.json({ error: "Thiếu userId" }, { status: 400 });
+  const userId = await getAuthenticatedUserId();
+  if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   if (typeof name !== "string" || !name.trim()) {
     return Response.json({ error: "Thiếu tên Mini App" }, { status: 400 });
   }
