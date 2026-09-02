@@ -6,8 +6,8 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 // nghe lơ lớ như pha tiếng Anh — đã đổi sang giọng tiếng Việt thật do admin tự chọn/thêm vào tài
 // khoản ElevenLabs (Voice Library, lọc Language: Vietnamese), luân phiên nữ/nam theo vị trí nhân vật.
 export const CHARACTER_VOICE_IDS = [
-  "HAAKLJlaJeGl18MKHYeg", // giọng nữ tiếng Việt
-  "6adFm46eyy74snVn6YrT", // giọng nam tiếng Việt
+  "f5q6kePPoQAjCPYG6moa", // giọng nữ tiếng Việt
+  "ekOUbc6LmXiQZnLcHOoL", // giọng nam tiếng Việt
 ];
 
 export async function generateVietnameseSpeech(
