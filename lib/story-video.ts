@@ -2054,6 +2054,10 @@ export async function applyImageStageResult(
   const isError = falPayload.status === "ERROR" || !!falPayload.error;
 
   if (isError) {
+    // Log FULL payload (không chỉ falPayload.error, chuỗi ngắn kiểu "Unexpected status code: 403"
+    // không đủ chẩn đoán được nguyên nhân thật — model bị chặn, tham số sai, hay lý do khác) — mirror
+    // đúng cách đã làm cho lỗi lồng tiếng (applyLipsyncStageResult) trước đây.
+    console.error(`[story-video] Lỗi tạo ảnh cảnh #${sceneId} (stage=${stage}), full payload:`, JSON.stringify(falPayload));
     if (isRegenerate) {
       console.error(`[story-video] Lỗi tạo lại ảnh cho cảnh #${sceneId}:`, falPayload.error ?? "unknown");
       return;
