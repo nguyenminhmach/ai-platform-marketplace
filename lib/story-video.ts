@@ -2281,14 +2281,16 @@ export async function applyVideoStageResult(
     try {
       const voiceId = CHARACTER_VOICE_IDS[(scene.dialogue_speaker_position ?? 0) % CHARACTER_VOICE_IDS.length];
       await submitSceneLipsyncForRow(jobId, sceneId, lipsyncModel as string, videoUrl, scene.dialogue_line as string, voiceId, isRegenerate);
+      return; // cảnh này còn chờ bước lồng tiếng, chưa tính là xong
     } catch (err) {
-      if (isRegenerate) {
-        console.error(`[story-video] Lỗi lồng tiếng khi tạo lại cảnh #${sceneId}:`, err);
-        return;
-      }
-      await failJob(jobId, err instanceof Error ? err.message : String(err));
+      console.error(`[story-video] Lỗi lồng tiếng cảnh #${sceneId}, dùng video câm thay thế:`, err);
+      if (isRegenerate) return;
+      // Không lồng tiếng được (vd ElevenLabs hết hạn mức/lỗi tạm thời) — dùng video câm đã có (đã
+      // set video_url ở trên), không chặn cả job chỉ vì lỗi ở bước bổ sung này. Null dialogue_line để
+      // sceneNeedsLipsync() coi cảnh này đã xong (video_url), không chờ lipsync_url không bao giờ tới.
+      await supabase.from("story_video_scenes").update({ dialogue_line: null }).eq("id", sceneId);
+      scene.dialogue_line = null;
     }
-    return; // cảnh này còn chờ bước lồng tiếng, chưa tính là xong
   }
 
   if (scenes.length === 0 || scenes.some((s) => (sceneNeedsLipsync(s, lipsyncModel) ? !s.lipsync_url : !s.video_url))) return; // chờ cảnh còn lại
