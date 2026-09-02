@@ -463,6 +463,19 @@ export type SceneSplitResult = {
 const CONTINUOUS_MOTION_INSTRUCTION =
   'Chế độ chuyển động liên tục ĐANG BẬT: với MỌI cảnh, thêm khoá "end_description" (chuỗi tiếng Anh) mô tả khoảnh khắc KẾT THÚC của cảnh đó (sau khi hành động trong "description" đã diễn ra một chút) — đây sẽ là điểm nối sang cảnh tiếp theo, nên "end_description" của cảnh này và "description" của cảnh sau nó nên là 2 khoảnh khắc liền mạch tự nhiên (không nhảy cóc hành động/bối cảnh). "end_description" bắt buộc có ở MỌI cảnh, kể cả cảnh cuối cùng. Bối cảnh/địa điểm (khu vườn, bãi biển, ban công...) PHẢI GIỮ NGUYÊN xuyên suốt "description" và "end_description" của MỌI cảnh trong toàn bộ video — đây là 1 cảnh quay liên tục (như 1 shot phim dài), không phải nhiều cảnh phim rời rạc ở nhiều nơi khác nhau. CHỈ đổi bối cảnh giữa các cảnh nếu ý tưởng truyện gốc yêu cầu RÕ RÀNG (vd truyện tự viết "họ di chuyển từ vườn ra biển").';
 
+// Phòng thủ phía code (không chỉ dựa Agent nghe lời): dù prompt đã yêu cầu rõ "giữ nguyên văn tiếng
+// Việt, KHÔNG dịch", model chat vẫn có rủi ro thật dịch câu thoại sang tiếng Anh (cả JSON xung quanh
+// toàn tiếng Anh nên model dễ "quán tính" dịch luôn "line"/"dialogue"). Kiểm tra câu thoại AI trả về
+// có thực sự là 1 đoạn trích gần đúng trong truyện gốc không (chuẩn hoá bỏ dấu câu/khoảng trắng/hoa
+// thường trước khi so) — không khớp thì coi như bị dịch/diễn giải, null hoá để tránh gửi nhầm ngôn ngữ
+// vào TTS/lipsync (thà câm còn hơn đọc sai ngôn ngữ).
+function isVerbatimQuoteInStory(line: string, story: string): boolean {
+  const normalize = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+  const normalizedLine = normalize(line);
+  if (!normalizedLine) return false;
+  return normalize(story).includes(normalizedLine);
+}
+
 export async function splitStoryIntoScenes(
   storyDescription: string,
   numScenes: number,
@@ -513,7 +526,10 @@ export async function splitStoryIntoScenes(
     ) {
       throw new Error("wrong-shape");
     }
-    return parsed as SceneSplitResult[];
+    return (parsed as SceneSplitResult[]).map((s) => ({
+      ...s,
+      dialogue: s.dialogue && isVerbatimQuoteInStory(s.dialogue, storyDescription) ? s.dialogue : undefined,
+    }));
   }
 
   try {
@@ -628,10 +644,14 @@ export async function splitStoryIntoScenesMulti(
     }
     // Phòng thủ phía code (không chỉ dựa Agent nghe lời): cảnh ≥2 người LUÔN ép dialogue = null, kể cả
     // khi Agent lỡ trả dialogue cho cảnh đó — giới hạn kỹ thuật lipsync 1 mặt/clip là bắt buộc, không
-    // phải gợi ý.
+    // phải gợi ý. Đồng thời chặn trường hợp Agent dịch câu thoại sang tiếng Anh (xem
+    // isVerbatimQuoteInStory) — không khớp nguyên văn truyện gốc thì coi như không có thoại.
     return (parsed as MultiSceneSplitResult[]).map((s) => ({
       ...s,
-      dialogue: s.characters.length === 1 ? s.dialogue ?? null : null,
+      dialogue:
+        s.characters.length === 1 && s.dialogue && isVerbatimQuoteInStory(s.dialogue.line, storyDescription)
+          ? s.dialogue
+          : null,
     }));
   }
 
