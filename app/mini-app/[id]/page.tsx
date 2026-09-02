@@ -1310,7 +1310,7 @@ export default function MiniAppDetailPage() {
           genreKey: storyGenreKey !== "default" ? storyGenreKey : undefined,
           characters,
           locationReferenceUrl,
-          continuousMotion: !hasMultipleCharacters && storyContinuousMotion,
+          continuousMotion: storyContinuousMotion,
         }),
       });
       const data = await res.json();
@@ -3181,7 +3181,7 @@ export default function MiniAppDetailPage() {
                       <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
                         Đơn giá đã chọn: <strong className="text-zinc-900 dark:text-zinc-50">{storyVideoCost ?? "?"} credit</strong>
                       </p>
-                      {storyVideoModelKey === "kling-o1-flfv" && storyExtraCharacters.length === 0 && (
+                      {storyVideoModelKey === "kling-o1-flfv" && (
                         <label className="mt-3 flex items-start gap-2 text-sm text-zinc-600 dark:text-zinc-400">
                           <input
                             type="checkbox"
