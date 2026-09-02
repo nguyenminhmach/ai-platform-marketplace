@@ -739,14 +739,17 @@ type ImageSceneRefRow = {
   location: string | null;
 };
 
-// Scene State — tiêm (inject) BỐI CẢNH/TƯ THẾ nối tiếp vào ĐẦU prompt tạo ảnh BẰNG CODE, không trông
-// chờ Agent tự nhớ nhắc lại trong "description" (cách cũ, chỉ dựa prompt, không chắc chắn). Chỉ dùng ở
+// Scene State — tiêm (inject) BỐI CẢNH nối tiếp vào ĐẦU prompt tạo ảnh BẰNG CODE, không trông chờ
+// Agent tự nhớ nhắc lại trong "description" (cách cũ, chỉ dựa prompt, không chắc chắn). Chỉ dùng ở
 // nhánh KHÔNG bật continuousMotion (chế độ đó đã có cơ chế nối ẢNH thật mạnh hơn — xem runSceneStage).
+// LƯU Ý (đã xác nhận qua test thật): KHÔNG dùng câu "Continuing directly from this moment: {end_pose}"
+// — model ảnh (Flux Kontext, có thể cả model khác) hiểu nhầm câu này là yêu cầu VẼ RA cả khoảnh khắc
+// trước lẫn khoảnh khắc hiện tại trong CÙNG 1 tấm (ra ảnh 2 khung dính liền như storyboard/before-after)
+// thay vì chỉ dùng làm ngữ cảnh cho 1 ảnh tĩnh — previousEndPose vẫn được tính/truyền vào (dùng cho
+// tương lai nếu tìm được cách diễn đạt an toàn hơn) nhưng KHÔNG được đưa vào prompt thật ở đây.
 function buildContinuityPrefix(location: string | null | undefined, previousEndPose: string | null | undefined): string {
-  let prefix = "";
-  if (previousEndPose) prefix += `Continuing directly from this moment: ${previousEndPose}. `;
-  if (location) prefix += `Setting: ${location}. `;
-  return prefix;
+  void previousEndPose;
+  return location ? `Setting: ${location}. ` : "";
 }
 
 // Build prompt + chọn ảnh tham chiếu + submit Fal.ai cho ĐÚNG 1 cảnh — dùng chung cho batch tạo lần
