@@ -740,6 +740,9 @@ async function submitSceneImageForRow(
   if (hasLocation) {
     scenePrompt += ` The LAST reference image shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
   }
+  // Ép ảnh chụp thật — model dễ ngả sang phong cách minh hoạ/tranh vẽ khi scene_description dùng
+  // ngôn từ giàu chất thơ (hoàng hôn, khu vườn hoa...) mà không có chỉ dẫn phong cách hình ảnh rõ ràng.
+  scenePrompt += ` Photorealistic photo, shot on a real camera — not an illustration, painting, drawing, anime, or digital art.`;
   const body = buildImageRequestBody(
     job.image_model as string,
     scenePrompt,
@@ -812,6 +815,7 @@ async function submitMultiCharacterSceneImageForRow(
   if (hasLocation) {
     scenePrompt += ` The LAST reference image shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
   }
+  scenePrompt += ` Photorealistic photo, shot on a real camera — not an illustration, painting, drawing, anime, or digital art.`;
   const body = buildImageRequestBody(
     job.image_model as string,
     scenePrompt,
