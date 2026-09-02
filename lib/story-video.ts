@@ -59,8 +59,10 @@ Trạng thái liên tục giữa các cảnh (quan trọng): MỖI cảnh đư�
 Thân người và mặt/ánh nhìn lệch hướng nhau (chỉ áp dụng khi ý tưởng gốc NÓI RÕ 2 hướng khác nhau, ví dụ "thân quay sang phải nhưng mắt vẫn nhìn thẳng camera"): "camera_view" LUÔN đại diện cho hướng THÂN NGƯỜI như bình thường; nếu mặt/ánh nhìn của nhân vật đang hướng KHÁC với thân, thêm khoá "face_view" (1 trong 6 giá trị góc như "camera_view", đại diện cho hướng MẶT) — ví dụ thân quay "three_quarter_right" nhưng mặt nhìn thẳng thì "camera_view": "three_quarter_right", "face_view": "front". Nếu mặt và thân cùng hướng (đa số trường hợp — mặc định), KHÔNG thêm khoá "face_view" (bỏ hẳn khoá này). Không tự suy diễn thêm hướng nhìn nếu ý tưởng gốc không nói.
 Không tự bịa chi tiết không có trong ý tưởng gốc: nếu ý tưởng gốc không nhắc phụ kiện (túi, kính, mũ...) thì không tự thêm; nếu không nhắc biểu cảm thì giữ biểu cảm trung tính tự nhiên theo hành động, không tự thêm "cười"/"buồn" nếu không có căn cứ.
 Lời thoại (chỉ áp dụng khi ý tưởng gốc CÓ trích dẫn/thể hiện rõ ràng nhân vật đang NÓI THÀNH LỜI ở đúng cảnh đó, ví dụ có dấu ngoặc kép hoặc "X nói:"): thêm khoá "dialogue" (chuỗi tiếng Việt, giữ NGUYÊN VĂN đúng câu nhân vật nói, KHÔNG dịch/diễn giải lại, dưới khoảng 15 từ để vừa thời lượng clip ngắn của 1 cảnh — nếu câu gốc dài hơn thì rút gọn nhưng giữ đúng ý chính). Cảnh nào truyện gốc không thể hiện lời nói thì KHÔNG thêm khoá "dialogue" (bỏ hẳn khoá này, không để rỗng/null). Không tự bịa thêm lời thoại không có trong ý tưởng gốc.
-Chỉ trả về DUY NHẤT 1 mảng JSON gồm đúng N phần tử, mỗi phần tử là 1 object có khoá "description" (chuỗi tiếng Anh mô tả cảnh, dùng để tạo ảnh AI), "camera_view" (1 trong 6 giá trị ở trên), "outfit_override" (tuỳ chọn), "face_view" (tuỳ chọn) và "dialogue" (tuỳ chọn) như hướng dẫn trên — không kèm markdown fence, không giải thích, không đánh số.
-Ví dụ format: [{"description": "a young woman walking into a coffee shop, morning light", "camera_view": "front"}, {"description": "still at the coffee shop, she turns her head and looks outside the window, smiling", "camera_view": "three_quarter_left", "dialogue": "Quán này đẹp thật đấy"}, {"description": "later, standing by her front door at home, about to head out", "camera_view": "front", "outfit_override": "a beige knit cardigan over a white t-shirt"}]`;
+Bối cảnh vật lý (bắt buộc, MỌI cảnh): thêm khoá "location" (chuỗi tiếng Anh NGẮN GỌN, ví dụ "a cozy coffee shop interior, window table") mô tả nơi cảnh đang diễn ra. QUAN TRỌNG: nếu nhiều cảnh liên tiếp cùng diễn ra ở 1 chỗ, "location" của những cảnh đó PHẢI viết Y HỆT NHAU, ĐÚNG TỪNG CHỮ (không diễn đạt lại khác đi dù cùng ý nghĩa) — áp dụng đúng quy tắc như "outfit_override": chỉ đổi "location" khi ý tưởng gốc nói RÕ RÀNG nhân vật di chuyển sang nơi khác.
+Trạng thái kết thúc cảnh (bắt buộc, MỌI cảnh): thêm khoá "end_pose" (chuỗi tiếng Anh NGẮN GỌN, ví dụ "she has just turned to look out the window, smiling") mô tả tư thế/hành động của nhân vật ở khoảnh khắc KẾT THÚC cảnh đó (sau khi hành động trong "description" đã diễn ra) — dùng làm điểm nối sang cảnh kế tiếp.
+Chỉ trả về DUY NHẤT 1 mảng JSON gồm đúng N phần tử, mỗi phần tử là 1 object có khoá "description" (chuỗi tiếng Anh mô tả cảnh, dùng để tạo ảnh AI), "camera_view" (1 trong 6 giá trị ở trên), "outfit_override" (tuỳ chọn), "face_view" (tuỳ chọn), "dialogue" (tuỳ chọn), "location" (bắt buộc) và "end_pose" (bắt buộc) như hướng dẫn trên — không kèm markdown fence, không giải thích, không đánh số.
+Ví dụ format: [{"description": "a young woman walking into a coffee shop, morning light", "camera_view": "front", "location": "a cozy coffee shop interior, window table", "end_pose": "she has just sat down and is looking around"}, {"description": "still at the coffee shop, she turns her head and looks outside the window, smiling", "camera_view": "three_quarter_left", "dialogue": "Quán này đẹp thật đấy", "location": "a cozy coffee shop interior, window table", "end_pose": "she is smiling, looking out the window"}, {"description": "later, standing by her front door at home, about to head out", "camera_view": "front", "outfit_override": "a beige knit cardigan over a white t-shirt", "location": "the front door of her home, entryway", "end_pose": "she is about to open the door and step outside"}]`;
 
 // Bước "Tạo Character" — chạy trước khi chia cảnh: biến (các) ảnh gốc khách tải lên (thường 1 góc,
 // ánh sáng/nền lộn xộn) thành 1 ảnh sheet nhiều góc chuẩn (chính diện/3-4 trái/3-4 phải/nghiêng/sau
@@ -172,6 +174,8 @@ export type SceneRow = {
   scene_description: string | null;
   camera_view: string | null;
   motion_prompt: string | null;
+  location: string | null;
+  end_pose: string | null;
   character_positions: number[] | null;
   image_fal_request_id: string | null;
   image_url: string | null;
@@ -454,6 +458,8 @@ export type SceneSplitResult = {
   face_view?: CharacterAngleKey;
   dialogue?: string;
   end_description?: string;
+  location: string;
+  end_pose: string;
 };
 
 // Câu chỉ dẫn thêm khi bật "chuyển động liên tục giữa các cảnh" (continuousMotion) — mỗi cảnh cần
@@ -519,6 +525,10 @@ export async function splitStoryIntoScenes(
             CHARACTER_ANGLE_LABELS.includes((s as { face_view?: unknown }).face_view as CharacterAngleKey)) &&
           ((s as { dialogue?: unknown }).dialogue === undefined ||
             (typeof (s as { dialogue?: unknown }).dialogue === "string" && (s as { dialogue: string }).dialogue.trim())) &&
+          typeof (s as { location?: unknown }).location === "string" &&
+          (s as { location: string }).location.trim() &&
+          typeof (s as { end_pose?: unknown }).end_pose === "string" &&
+          (s as { end_pose: string }).end_pose.trim() &&
           (!continuousMotion ||
             (typeof (s as { end_description?: unknown }).end_description === "string" &&
               (s as { end_description: string }).end_description.trim()))
@@ -553,6 +563,8 @@ export type MultiSceneSplitResult = {
   dialogue?: { speaker: number; line: string } | null;
   end_description?: string;
   end_characters?: number[];
+  location: string;
+  end_pose: string;
 };
 
 // Câu chỉ dẫn continuity riêng cho nhiều nhân vật — nối thêm CONTINUOUS_MOTION_INSTRUCTION (đã định
@@ -569,8 +581,8 @@ function buildMultiSceneSplitPrompt(characterLabels: string[]): string {
   const list = characterLabels.map((label, i) => `${i}: ${label}`).join(", ");
   const example =
     characterLabels.length >= 2
-      ? `[{"description": "${characterLabels[0]} stands alone by the entrance, waiting nervously, morning light", "characters": [0], "dialogue": {"speaker": 0, "line": "Sao mãi chưa thấy ai đến vậy"}}, {"description": "${characterLabels[0]} and ${characterLabels[1]} stand together, holding hands, smiling warmly", "characters": [0, 1]}]`
-      : `[{"description": "a scene description", "characters": [0]}]`;
+      ? `[{"description": "${characterLabels[0]} stands alone by the entrance, waiting nervously, morning light", "characters": [0], "dialogue": {"speaker": 0, "line": "Sao mãi chưa thấy ai đến vậy"}, "location": "a wedding venue entrance, evening", "end_pose": "she is glancing anxiously toward the road"}, {"description": "${characterLabels[0]} and ${characterLabels[1]} stand together, holding hands, smiling warmly", "characters": [0, 1], "location": "a wedding venue entrance, evening", "end_pose": "they are smiling at each other, hands still held"}]`
+      : `[{"description": "a scene description", "characters": [0], "location": "a scene location", "end_pose": "a brief pose description"}]`;
   return `Bạn là đạo diễn dựng phân cảnh cho 1 video có NHIỀU nhân vật thật cùng xuất hiện. Người dùng đưa 1 ý tưởng truyện/kịch bản ngắn.
 Danh sách nhân vật trong video này (đánh số bắt đầu từ 0): ${list}.
 Nhiệm vụ: chia thành ĐÚNG N phân cảnh liên tục, mỗi cảnh là 1 khoảnh khắc hình ảnh cụ thể (ai đang làm gì, ở đâu, bối cảnh gì).
@@ -581,7 +593,9 @@ Trang phục — TUYỆT ĐỐI KHÔNG tự mô tả cụ thể màu sắc/kiể
 Trạng thái liên tục giữa các cảnh (quan trọng): MỖI cảnh được gửi cho model tạo ảnh RIÊNG BIỆT, độc lập — model đó KHÔNG thấy ảnh của cảnh trước, chỉ thấy đúng "description" của cảnh đang xét. Vì vậy mỗi "description" phải TỰ ĐẦY ĐỦ ngữ cảnh (self-contained): nếu nhiều cảnh liên tiếp cùng diễn ra ở 1 địa điểm kế thừa từ cảnh trước, PHẢI nhắc lại rõ địa điểm/bối cảnh đó trong CHÍNH cảnh đang viết.
 Không tự bịa phụ kiện/biểu cảm không có trong ý tưởng gốc nếu không có căn cứ.
 Lời thoại (chỉ áp dụng khi ý tưởng gốc CÓ trích dẫn/thể hiện rõ ràng 1 nhân vật đang NÓI THÀNH LỜI ở đúng cảnh đó): thêm khoá "dialogue" là 1 object {"speaker": số (đúng chỉ số nhân vật đang nói), "line": chuỗi tiếng Việt giữ NGUYÊN VĂN lời nói, KHÔNG dịch/diễn giải lại, dưới khoảng 15 từ}. QUAN TRỌNG: chỉ được thêm "dialogue" khi mảng "characters" của cảnh đó có ĐÚNG 1 phần tử (chỉ 1 người trong khung hình) — lý do kỹ thuật: hệ thống lồng tiếng hiện chỉ khớp môi được cho video có 1 người, cảnh có từ 2 người trở lên LUÔN LUÔN không có khoá "dialogue" dù truyện gốc có viết lời thoại ở đó. Cảnh không có lời nói (hoặc có từ 2 người trở lên) thì KHÔNG thêm khoá "dialogue" (bỏ hẳn khoá này). Không tự bịa thêm lời thoại không có trong ý tưởng gốc.
-Chỉ trả về DUY NHẤT 1 mảng JSON gồm đúng N phần tử, mỗi phần tử có khoá "description" (chuỗi tiếng Anh), "characters" (mảng số) và "dialogue" (tuỳ chọn, xem hướng dẫn trên) — không kèm markdown fence, không giải thích, không đánh số.
+Bối cảnh vật lý (bắt buộc, MỌI cảnh): thêm khoá "location" (chuỗi tiếng Anh NGẮN GỌN) mô tả nơi cảnh đang diễn ra. Nếu nhiều cảnh liên tiếp cùng diễn ra ở 1 chỗ, "location" của những cảnh đó PHẢI viết Y HỆT NHAU, ĐÚNG TỪNG CHỮ — chỉ đổi khi ý tưởng gốc nói RÕ RÀNG có sự di chuyển sang nơi khác.
+Trạng thái kết thúc cảnh (bắt buộc, MỌI cảnh): thêm khoá "end_pose" (chuỗi tiếng Anh NGẮN GỌN) mô tả tư thế/hành động của (các) nhân vật ở khoảnh khắc KẾT THÚC cảnh đó — dùng làm điểm nối sang cảnh kế tiếp.
+Chỉ trả về DUY NHẤT 1 mảng JSON gồm đúng N phần tử, mỗi phần tử có khoá "description" (chuỗi tiếng Anh), "characters" (mảng số), "dialogue" (tuỳ chọn), "location" (bắt buộc) và "end_pose" (bắt buộc) như hướng dẫn trên — không kèm markdown fence, không giải thích, không đánh số.
 Ví dụ format: ${example}`;
 }
 
@@ -630,6 +644,10 @@ export async function splitStoryIntoScenesMulti(
               typeof (s as { dialogue: { speaker?: unknown } }).dialogue.speaker === "number" &&
               typeof (s as { dialogue: { line?: unknown } }).dialogue.line === "string" &&
               (s as { dialogue: { line: string } }).dialogue.line.trim())) &&
+          typeof (s as { location?: unknown }).location === "string" &&
+          (s as { location: string }).location.trim() &&
+          typeof (s as { end_pose?: unknown }).end_pose === "string" &&
+          (s as { end_pose: string }).end_pose.trim() &&
           (!continuousMotion ||
             (typeof (s as { end_description?: unknown }).end_description === "string" &&
               (s as { end_description: string }).end_description.trim() &&
@@ -718,12 +736,25 @@ type ImageSceneRefRow = {
   camera_view: string | null;
   outfit_override: string | null;
   face_view: string | null;
+  location: string | null;
 };
+
+// Scene State — tiêm (inject) BỐI CẢNH/TƯ THẾ nối tiếp vào ĐẦU prompt tạo ảnh BẰNG CODE, không trông
+// chờ Agent tự nhớ nhắc lại trong "description" (cách cũ, chỉ dựa prompt, không chắc chắn). Chỉ dùng ở
+// nhánh KHÔNG bật continuousMotion (chế độ đó đã có cơ chế nối ẢNH thật mạnh hơn — xem runSceneStage).
+function buildContinuityPrefix(location: string | null | undefined, previousEndPose: string | null | undefined): string {
+  let prefix = "";
+  if (previousEndPose) prefix += `Continuing directly from this moment: ${previousEndPose}. `;
+  if (location) prefix += `Setting: ${location}. `;
+  return prefix;
+}
 
 // Build prompt + chọn ảnh tham chiếu + submit Fal.ai cho ĐÚNG 1 cảnh — dùng chung cho batch tạo lần
 // đầu (runSceneStage) và tạo lại riêng lẻ 1 cảnh (regenerateSceneImage), tránh lặp logic ở 2 nơi
 // (từng gây lệch bug multi_image trước đây khi chỉ sửa 1 chỗ). regen=true thêm cờ &regen=1 vào
-// webhook URL để applyImageStageResult biết không cần chờ/kiểm tra các cảnh khác.
+// webhook URL để applyImageStageResult biết không cần chờ/kiểm tra các cảnh khác. previousEndPose (Scene
+// State — chỉ nhánh không continuousMotion mới truyền vào): end_pose của cảnh liền trước, tiêm vào đầu
+// prompt qua buildContinuityPrefix() để nối tiếp chắc chắn bằng code thay vì chỉ trông chờ Agent.
 async function submitSceneImageForRow(
   job: Pick<
     JobRow,
@@ -732,7 +763,8 @@ async function submitSceneImageForRow(
   row: ImageSceneRefRow,
   imageEntry: ImageModelEntry | undefined,
   regen: boolean,
-  stage: "image" | "image_end" = "image"
+  stage: "image" | "image_end" = "image",
+  previousEndPose?: string | null
 ): Promise<string> {
   // MARKER_SINGLE_CHARACTER_IMAGE_SUBMIT
   const characterImages = selectReferenceImagesForScene(
@@ -749,9 +781,10 @@ async function submitSceneImageForRow(
   // Tầng 2 (Appearance) — chỉ cảnh có outfit_override mới chèn thêm chỉ dẫn đổi đồ vào cuối prompt,
   // đè lên đồ trong ảnh tham chiếu (Tầng 1 mặt/tóc/dáng người vẫn giữ nguyên qua ảnh tham chiếu như
   // bình thường). Không đổi gì với cảnh không có outfit_override.
+  const continuityPrefix = buildContinuityPrefix(row.location, previousEndPose);
   let scenePrompt = row.outfit_override
-    ? `${row.scene_description} Change the character's outfit to: ${row.outfit_override}. Keep the exact same face, hairstyle, and body proportions as shown in the reference image — only the clothing changes.`
-    : row.scene_description;
+    ? `${continuityPrefix}${row.scene_description} Change the character's outfit to: ${row.outfit_override}. Keep the exact same face, hairstyle, and body proportions as shown in the reference image — only the clothing changes.`
+    : `${continuityPrefix}${row.scene_description}`;
   // 2 ảnh tham chiếu (thử nghiệm): ảnh 1 = hướng thân, ảnh 2 = mặt. Câu chỉ dẫn khác nhau tuỳ trường
   // hợp: Priority 3 (face_view lệch hướng camera_view) cần model đổi HƯỚNG mặt theo ảnh 2; Rule 28
   // (mặc định, mọi cảnh còn thấy mặt) chỉ cần model GIỮ ĐÚNG danh tính khuôn mặt theo ảnh 2, không đổi
@@ -816,24 +849,28 @@ type MultiCharacterSceneRefRow = {
   id: number;
   scene_description: string | null;
   character_positions: number[] | null;
+  location: string | null;
 };
 
 // Build prompt (liệt kê rõ ảnh nào ứng với ai) + submit Fal.ai cho ĐÚNG 1 cảnh nhiều nhân vật — dùng
 // chung cho batch tạo lần đầu (runMultiCharacterSceneStage) và tạo lại riêng lẻ sau này (Bước 3).
+// previousEndPose (Scene State — chỉ nhánh không continuousMotion mới truyền vào): xem
+// buildContinuityPrefix() ở submitSceneImageForRow (cùng cơ chế, dùng chung).
 async function submitMultiCharacterSceneImageForRow(
   job: Pick<JobRow, "id" | "image_model" | "aspect_ratio" | "image_resolution_key" | "location_reference_url">,
   row: MultiCharacterSceneRefRow,
   jobCharacters: JobCharacterRefRow[],
   imageEntry: ImageModelEntry | undefined,
   regen: boolean,
-  stage: "image" | "image_end" = "image"
+  stage: "image" | "image_end" = "image",
+  previousEndPose?: string | null
 ): Promise<string> {
   const refs = selectReferenceImagesForMultiScene(row.character_positions ?? [], jobCharacters);
   // Ảnh Bối cảnh/Địa điểm (tuỳ chọn, dùng chung cho cả job) — nối THÊM vào cuối, sau các ảnh nhân
   // vật. Chỉ gửi khi model thật sự hỗ trợ đa ảnh, không thì im lặng bỏ qua.
   const hasLocation = !!job.location_reference_url && (imageEntry?.multi_image ?? false);
   const referenceImages = hasLocation ? [...refs.map((r) => r.url), job.location_reference_url as string] : refs.map((r) => r.url);
-  let scenePrompt = row.scene_description ?? "";
+  let scenePrompt = buildContinuityPrefix(row.location, previousEndPose) + (row.scene_description ?? "");
   if (refs.length >= 2) {
     const mapping = refs.map((r, i) => `Image ${i + 1} = ${r.label}`).join(", ");
     scenePrompt += ` Multiple reference images are provided, each showing a DIFFERENT real person: ${mapping}. Combine them so ALL of these people appear together in the scene as described — preserve each person's exact facial identity, hairstyle, and skin tone from their own reference image, do not blend or merge their faces into a single person, do not invent extra people.`;
@@ -949,9 +986,11 @@ async function runSceneStage(
           outfit_override: scene.outfit_override ?? null,
           face_view: scene.face_view ?? null,
           dialogue_line: scene.dialogue?.trim() || null,
+          location: scene.location,
+          end_pose: scene.end_pose,
         }))
       )
-      .select("id, position, scene_description, camera_view, outfit_override, face_view");
+      .select("id, position, scene_description, camera_view, outfit_override, face_view, location");
     if (sceneError || !sceneRows) throw new Error(sceneError?.message ?? "Không tạo được phân cảnh");
 
     if (job.continuous_motion) {
@@ -974,9 +1013,13 @@ async function runSceneStage(
         }),
       ]);
     } else {
+      // Scene State: cảnh N (N>0) được tiêm thêm end_pose của cảnh N-1 (lấy từ mảng "scenes" trong bộ
+      // nhớ, đã có sẵn TRƯỚC khi insert — cùng thứ tự "position" nên scenes[row.position - 1] đúng là
+      // cảnh liền trước). Chỉ áp dụng nhánh này — continuousMotion đã có cơ chế nối ẢNH riêng mạnh hơn.
       await Promise.all(
         sceneRows.map(async (row) => {
-          const requestId = await submitSceneImageForRow(job, row, imageEntry, false, "image");
+          const previousEndPose = row.position > 0 ? scenes[row.position - 1]?.end_pose : undefined;
+          const requestId = await submitSceneImageForRow(job, row, imageEntry, false, "image", previousEndPose);
           await supabase.from("story_video_scenes").update({ image_fal_request_id: requestId }).eq("id", row.id);
         })
       );
@@ -1418,9 +1461,11 @@ async function runMultiCharacterSceneStage(
           character_positions: scene.characters,
           dialogue_line: scene.dialogue?.line?.trim() || null,
           dialogue_speaker_position: scene.dialogue ? scene.dialogue.speaker : null,
+          location: scene.location,
+          end_pose: scene.end_pose,
         }))
       )
-      .select("id, position, scene_description, character_positions");
+      .select("id, position, scene_description, character_positions, location");
     if (sceneError || !sceneRows) throw new Error(sceneError?.message ?? "Không tạo được phân cảnh");
 
     if (job.continuous_motion) {
@@ -1450,9 +1495,11 @@ async function runMultiCharacterSceneStage(
         }),
       ]);
     } else {
+      // Scene State — mirror runSceneStage (luồng 1 nhân vật): tiêm end_pose của cảnh liền trước.
       await Promise.all(
         sceneRows.map(async (row) => {
-          const requestId = await submitMultiCharacterSceneImageForRow(job, row, jobCharacters, imageEntry, false, "image");
+          const previousEndPose = row.position > 0 ? scenes[row.position - 1]?.end_pose : undefined;
+          const requestId = await submitMultiCharacterSceneImageForRow(job, row, jobCharacters, imageEntry, false, "image", previousEndPose);
           await supabase.from("story_video_scenes").update({ image_fal_request_id: requestId }).eq("id", row.id);
         })
       );
@@ -1622,10 +1669,23 @@ export async function regenerateSceneImage(userId: string, sceneId: number, idem
   const supabase = getSupabaseAdmin();
   const { data: sceneData } = await supabase
     .from("story_video_scenes")
-    .select("id, job_id, scene_description, camera_view, outfit_override, face_view, character_positions")
+    .select("id, job_id, position, scene_description, camera_view, outfit_override, face_view, character_positions, location")
     .eq("id", sceneId)
     .single();
   if (!sceneData) throw new Error("Không tìm thấy phân cảnh");
+
+  // Scene State — tạo lại 1 cảnh giữa chừng vẫn cần giữ đúng continuity với cảnh liền trước (không có
+  // sẵn trong "scenes" mảng bộ nhớ như lúc chia cảnh lần đầu, phải tự fetch lại từ DB).
+  let previousEndPose: string | null | undefined;
+  if (sceneData.position > 0) {
+    const { data: prevScene } = await supabase
+      .from("story_video_scenes")
+      .select("end_pose")
+      .eq("job_id", sceneData.job_id)
+      .eq("position", sceneData.position - 1)
+      .maybeSingle();
+    previousEndPose = prevScene?.end_pose;
+  }
 
   const { data: jobData } = await supabase.from("story_video_jobs").select("*").eq("id", sceneData.job_id).single();
   if (!jobData) throw new Error("Không tìm thấy job");
@@ -1651,9 +1711,17 @@ export async function regenerateSceneImage(userId: string, sceneId: number, idem
         .select("position, label, character_sheet_url, character_angle_urls")
         .eq("job_id", job.id)
         .order("position", { ascending: true });
-      requestId = await submitMultiCharacterSceneImageForRow(job, sceneData, (jobCharacters as JobCharacterRefRow[]) ?? [], imageEntry, true);
+      requestId = await submitMultiCharacterSceneImageForRow(
+        job,
+        sceneData,
+        (jobCharacters as JobCharacterRefRow[]) ?? [],
+        imageEntry,
+        true,
+        "image",
+        previousEndPose
+      );
     } else {
-      requestId = await submitSceneImageForRow(job, sceneData, imageEntry, true);
+      requestId = await submitSceneImageForRow(job, sceneData, imageEntry, true, "image", previousEndPose);
     }
     await supabase.from("story_video_scenes").update({ image_fal_request_id: requestId, image_url: null }).eq("id", sceneId);
   } catch (err) {
