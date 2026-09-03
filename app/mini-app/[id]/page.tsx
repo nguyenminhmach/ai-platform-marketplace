@@ -283,13 +283,12 @@ export default function MiniAppDetailPage() {
   // tương ứng (khách vẫn tự bấm đổi lại được). Tránh bắt khách tự đếm hành động trong truyện.
   const [suggestingScenes, setSuggestingScenes] = useState(false);
   const [sceneSuggestError, setSceneSuggestError] = useState<string | null>(null);
-  async function handleSuggestSceneCount() {
-    if (!input.trim()) {
-      setSceneSuggestError("Nhập truyện trước đã");
-      return;
-    }
-    setSuggestingScenes(true);
-    setSceneSuggestError(null);
+  // Chỉ gọi API, KHÔNG đụng state — trả thẳng số cảnh (hoặc null nếu lỗi) để nơi gọi dùng NGAY trong
+  // cùng 1 lượt submit, tránh race condition: setNumScenes() là bất đồng bộ (chờ re-render mới thấy),
+  // nếu handleRunStoryVideo chỉ đọc biến numScenes hiện tại thì có thể đọc trúng giá trị CŨ nếu khách
+  // bấm "Tạo ảnh phân cảnh" ngay sau khi rời ô nhập, trước khi lượt gợi ý (chạy nền, mất vài giây) kịp
+  // xong.
+  async function fetchSuggestedSceneCount(): Promise<number | null> {
     try {
       const res = await fetch("/api/story-video/suggest-scenes", {
         method: "POST",
@@ -299,12 +298,27 @@ export default function MiniAppDetailPage() {
       const data = await res.json();
       if (!res.ok) {
         setSceneSuggestError(data.error ?? "Không gợi ý được");
-        return;
+        return null;
       }
-      setNumScenes(data.numScenes);
-      setSceneCountChosen(true);
+      return data.numScenes as number;
     } catch {
       setSceneSuggestError("Không kết nối được tới server");
+      return null;
+    }
+  }
+  async function handleSuggestSceneCount() {
+    if (!input.trim()) {
+      setSceneSuggestError("Nhập truyện trước đã");
+      return;
+    }
+    setSuggestingScenes(true);
+    setSceneSuggestError(null);
+    try {
+      const n = await fetchSuggestedSceneCount();
+      if (n !== null) {
+        setNumScenes(n);
+        setSceneCountChosen(true);
+      }
     } finally {
       setSuggestingScenes(false);
     }
@@ -1245,6 +1259,18 @@ export default function MiniAppDetailPage() {
       setStoryError("Có nhân vật chưa tải ảnh — xoá bớt hoặc tải ảnh cho đủ trước khi chạy");
       return;
     }
+    // Nếu khách bấm chạy ngay sau khi rời ô truyện, lượt gợi ý số cảnh (chạy nền từ onBlur) có thể
+    // chưa kịp xong — tự đợi nốt ở đây, dùng biến cục bộ (không đọc numScenes từ state, tránh đọc
+    // trúng giá trị cũ do setState là bất đồng bộ) để đảm bảo submit đúng số cảnh AI vừa tính.
+    let resolvedNumScenes = numScenes;
+    if (!sceneCountChosen && !storyUseOwnSceneImages && input.trim()) {
+      const suggested = await fetchSuggestedSceneCount();
+      if (suggested !== null) {
+        resolvedNumScenes = suggested;
+        setNumScenes(suggested);
+        setSceneCountChosen(true);
+      }
+    }
     setStoryActiveButton("images");
     setStoryRunning(true);
     setStoryResult(null);
@@ -1330,7 +1356,7 @@ export default function MiniAppDetailPage() {
           userId: user.id,
           miniAppId: app!.id,
           storyDescription: input.trim(),
-          numScenes,
+          numScenes: resolvedNumScenes,
           characterImageUrls,
           imageModelKey: storyImageModelKey,
           videoModelKey: storyVideoModelKey,
