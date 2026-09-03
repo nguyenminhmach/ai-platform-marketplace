@@ -408,13 +408,17 @@ function buildVideoRequestBody(
     // image-to-video" ở nhánh trên, chỉ nhận 1 ảnh). Đã tra schema thật: "first_frame_url" +
     // "last_frame_url" đều BẮT BUỘC (không tuỳ chọn như Kling O1's end_image_url) — model này chỉ được
     // chọn khi continuousMotion đang bật (ép ở lớp gọi, xem submitStoryVideoJob), nên endImageUrl luôn
-    // có giá trị tới đây. Duration có hậu tố "s" giống VEO thường, KHÔNG như Kling O1.
+    // có giá trị tới đây.
+    // LƯU Ý (đã xác nhận qua lỗi 422 thật trên Fal.ai dashboard): dù trang docs không ghi rõ, model
+    // FLF này chỉ chấp nhận ĐÚNG "8s" — mọi giá trị khác (vd "4s", "6s") đều bị từ chối với thông báo
+    // "Đầu vào phải là '8s'". ÉP CỨNG "8s" tại đây, bỏ qua durationKey hoàn toàn (khác các model VEO/
+    // Kling khác vẫn cho chọn nhiều mức) — an toàn hơn dựa vào catalog DB (admin có thể lỡ sửa sai).
     return {
       prompt,
       first_frame_url: imageUrl,
       last_frame_url: endImageUrl,
       aspect_ratio: aspectRatio,
-      duration: `${durationKey ?? "6"}s`,
+      duration: "8s",
       generate_audio: false,
     };
   }
