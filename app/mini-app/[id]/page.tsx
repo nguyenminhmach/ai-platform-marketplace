@@ -2662,14 +2662,7 @@ export default function MiniAppDetailPage() {
                   <div className="mt-3">
                     <div className="mb-1 flex items-center justify-between gap-2">
                       <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Số phân cảnh</p>
-                      <button
-                        type="button"
-                        onClick={handleSuggestSceneCount}
-                        disabled={suggestingScenes}
-                        className="text-xs font-medium text-emerald-600 hover:underline disabled:opacity-50 dark:text-emerald-400"
-                      >
-                        {suggestingScenes ? "Đang đếm..." : "🤖 AI gợi ý số cảnh"}
-                      </button>
+                      {suggestingScenes && <p className="text-xs text-zinc-400 dark:text-zinc-500">Đang tính...</p>}
                     </div>
                     {sceneSuggestError && <p className="mb-1 text-xs text-red-500">{sceneSuggestError}</p>}
                     <div className="flex flex-wrap gap-2">
