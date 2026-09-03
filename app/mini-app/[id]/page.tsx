@@ -3129,6 +3129,9 @@ export default function MiniAppDetailPage() {
                                   setStoryVideoModelKey(e.target.value);
                                   const m = storyVideoModels.find((x) => x.key === e.target.value);
                                   setStoryDurationKey(m?.duration_price_vnd ? Object.keys(m.duration_price_vnd)[0] : null);
+                                  // "veo31-lite-flf" bắt buộc cả ảnh đầu lẫn ảnh cuối (API Fal.ai không cho tuỳ chọn như
+                                  // Kling O1) - tự bật chuyển động liên tục, không chờ khách tick tay.
+                                  if (e.target.value === "veo31-lite-flf") setStoryContinuousMotion(true);
                                 }}
                                 className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                               >
@@ -3181,17 +3184,19 @@ export default function MiniAppDetailPage() {
                       <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
                         Đơn giá đã chọn: <strong className="text-zinc-900 dark:text-zinc-50">{storyVideoCost ?? "?"} credit</strong>
                       </p>
-                      {storyVideoModelKey === "kling-o1-flfv" && (
+                      {(storyVideoModelKey === "kling-o1-flfv" || storyVideoModelKey === "veo31-lite-flf") && (
                         <label className="mt-3 flex items-start gap-2 text-sm text-zinc-600 dark:text-zinc-400">
                           <input
                             type="checkbox"
                             checked={storyContinuousMotion}
+                            disabled={storyVideoModelKey === "veo31-lite-flf"}
                             onChange={(e) => setStoryContinuousMotion(e.target.checked)}
                             className="mt-0.5"
                           />
                           <span>
                             🎬 Chuyển động liên tục giữa các cảnh — mỗi cảnh nối liền mạch sang cảnh sau (thêm ~1 ảnh cho cả video, không
                             phải nhân đôi). Khi bật, không dùng được nút &quot;Tạo lại&quot; riêng từng cảnh.
+                            {storyVideoModelKey === "veo31-lite-flf" && " Model này bắt buộc bật, không tắt được."}
                           </span>
                         </label>
                       )}

@@ -1,4 +1,10 @@
-import { computeStoryVideoCreditCost, computeCharacterCreditCost, MIN_SCENES, MAX_SCENES } from "@/lib/story-video";
+import {
+  computeStoryVideoCreditCost,
+  computeCharacterCreditCost,
+  MIN_SCENES,
+  MAX_SCENES,
+  REQUIRES_CONTINUOUS_MOTION_VIDEO_KEYS,
+} from "@/lib/story-video";
 
 // Giá "Video từ ý tưởng truyện" tăng theo số phân cảnh khách chọn (2-5) — route riêng vì
 // /api/mini-app/[id]/price chỉ tính theo 1 mức giá cố định/app, không nhận thêm tham số.
@@ -10,7 +16,8 @@ export async function GET(req: Request) {
   const videoModelKey = searchParams.get("videoModelKey") ?? undefined;
   const resolutionKey = searchParams.get("resolutionKey") ?? undefined;
   const durationKey = searchParams.get("durationKey") ?? undefined;
-  const continuousMotion = searchParams.get("continuousMotion") === "1";
+  const continuousMotion =
+    searchParams.get("continuousMotion") === "1" || (!!videoModelKey && REQUIRES_CONTINUOUS_MOTION_VIDEO_KEYS.has(videoModelKey));
 
   if (!miniAppId) return Response.json({ error: "Thiếu miniAppId" }, { status: 400 });
   if (!numScenes || numScenes < MIN_SCENES || numScenes > MAX_SCENES) {

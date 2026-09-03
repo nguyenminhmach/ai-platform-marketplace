@@ -6,6 +6,7 @@ import {
   MIN_CHARACTER_IMAGES,
   MAX_CHARACTER_IMAGES,
   MAX_STORY_CHARACTERS,
+  REQUIRES_CONTINUOUS_MOTION_VIDEO_KEYS,
   type MultiCharacterInput,
 } from "@/lib/story-video";
 import { InsufficientCreditError } from "@/lib/credit-system";
@@ -114,7 +115,7 @@ export async function POST(req: Request) {
       typeof genreKey === "string" ? genreKey : undefined,
       parsedCharacters,
       typeof locationReferenceUrl === "string" && locationReferenceUrl ? locationReferenceUrl : undefined,
-      continuousMotion === true
+      continuousMotion === true || (typeof videoModelKey === "string" && REQUIRES_CONTINUOUS_MOTION_VIDEO_KEYS.has(videoModelKey))
     );
     return Response.json({ success: true, jobId: result.jobId, newBalance: result.newBalance });
   } catch (err) {

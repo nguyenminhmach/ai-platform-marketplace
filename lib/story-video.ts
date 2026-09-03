@@ -32,6 +32,10 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://ai-platform-market
 
 export const MIN_SCENES = 1;
 export const MAX_SCENES = 8;
+// Catalog key của các model video mà API Fal.ai BẮT BUỘC cả ảnh đầu lẫn ảnh cuối (không tuỳ chọn như
+// Kling O1) — chọn 1 trong các key này thì continuousMotion phải luôn = true, không phụ thuộc checkbox
+// người dùng. Dùng ở app/api/story-video/submit + price route để tự ép, tránh submit thiếu last_frame.
+export const REQUIRES_CONTINUOUS_MOTION_VIDEO_KEYS = new Set(["veo31-lite-flf"]);
 export const MIN_CHARACTER_IMAGES = 1;
 // Không giới hạn số ảnh nhân vật theo yêu cầu — chỉ giữ 1 trần an toàn kỹ thuật (tránh payload quá
 // lớn/timeout, và một số model multi-image như Nano Banana Pro tự giới hạn tối đa 14 ảnh ở phía Fal.ai).
@@ -397,6 +401,21 @@ function buildVideoRequestBody(
   if (model === "fal-ai/minimax/hailuo-02/standard/image-to-video") {
     // Đã tra schema thật — model này KHÔNG có tham số tỉ lệ khung hình, luôn theo đúng ảnh đầu vào.
     return { prompt, image_url: imageUrl, duration: durationKey ?? "6", resolution: "768P" };
+  }
+  if (model === "fal-ai/veo3.1/lite/first-last-frame-to-video") {
+    // VEO 3.1 Lite FLF (First-Last-Frame-to-Video) — model Fal.ai RIÊNG (khác hẳn "fal-ai/veo3.1/lite/
+    // image-to-video" ở nhánh trên, chỉ nhận 1 ảnh). Đã tra schema thật: "first_frame_url" +
+    // "last_frame_url" đều BẮT BUỘC (không tuỳ chọn như Kling O1's end_image_url) — model này chỉ được
+    // chọn khi continuousMotion đang bật (ép ở lớp gọi, xem submitStoryVideoJob), nên endImageUrl luôn
+    // có giá trị tới đây. Duration có hậu tố "s" giống VEO thường, KHÔNG như Kling O1.
+    return {
+      prompt,
+      first_frame_url: imageUrl,
+      last_frame_url: endImageUrl,
+      aspect_ratio: aspectRatio,
+      duration: `${durationKey ?? "6"}s`,
+      generate_audio: false,
+    };
   }
   if (model === "fal-ai/kling-video/o1/standard/image-to-video") {
     // Kling O1 FLFV (First-Last-Frame-to-Video) — đã tra schema thật: nhận start_image_url (bắt
