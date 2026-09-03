@@ -2587,21 +2587,43 @@ const STALE_CHECK_MS = 30_000;
 // đợi dài hơn hẳn 60s để không vô tình gọi ghép trùng khi lượt đầu vẫn đang chạy hợp lệ trong giới hạn.
 const STITCH_STALE_CHECK_MS = 90_000;
 
+// Xác nhận bằng gọi tay trực tiếp Fal.ai (job #70, model fal-ai/veo3.1/lite/first-last-frame-to-video):
+// endpoint status/result CHỈ nhận đúng app id gốc (2 đoạn đầu, vd "fal-ai/veo3.1"), gọi bằng NGUYÊN
+// path đầy đủ dùng lúc submit (có thêm "/lite/first-last-frame-to-video") trả về 405 Method Not
+// Allowed — khiến hàm này coi job "chưa xong" MÃI MÃI dù Fal.ai đã xử lý xong thật từ lâu. Sửa: thử
+// path đầy đủ trước (không đổi hành vi các model đang chạy đúng), chỉ fallback sang app id gốc (2 đoạn
+// đầu) khi gặp đúng 405 — không đoán mò áp dụng cho mọi model, chỉ tự sửa khi có bằng chứng rõ (405).
 async function pollFalResult(model: string, requestId: string): Promise<Record<string, unknown> | null> {
   const apiKey = process.env.FAL_KEY;
   if (!apiKey) return null;
-  const statusRes = await fetch(`https://queue.fal.run/${model}/requests/${requestId}/status`, {
-    headers: { Authorization: `Key ${apiKey}` },
-  });
-  if (!statusRes.ok) return null;
+
+  const modelSegments = model.split("/");
+  const baseApp = modelSegments.slice(0, 2).join("/");
+  const buildUrls = (suffix: string) => [`https://queue.fal.run/${model}${suffix}`, `https://queue.fal.run/${baseApp}${suffix}`];
+
+  async function getWithFallback(suffix: string): Promise<Response | null> {
+    const [fullUrl, baseUrl] = buildUrls(suffix);
+    const res = await fetch(fullUrl, { headers: { Authorization: `Key ${apiKey}` } });
+    if (res.status === 405 && baseUrl !== fullUrl) {
+      return fetch(baseUrl, { headers: { Authorization: `Key ${apiKey}` } });
+    }
+    return res;
+  }
+
+  const statusRes = await getWithFallback(`/requests/${requestId}/status`);
+  if (!statusRes || !statusRes.ok) return null;
   const statusData = await statusRes.json();
   if (statusData.status !== "COMPLETED") return null;
 
-  const resultRes = await fetch(`https://queue.fal.run/${model}/requests/${requestId}`, {
-    headers: { Authorization: `Key ${apiKey}` },
-  });
-  if (!resultRes.ok) return null;
-  const resultData = await resultRes.json();
+  const resultRes = await getWithFallback(`/requests/${requestId}`);
+  if (!resultRes) return null;
+  const resultData = await resultRes.json().catch(() => null);
+  if (!resultRes.ok) {
+    // Request "COMPLETED" ở tầng queue nhưng bản thân hàm xử lý lỗi (vd 422 sai tham số) — Fal trả
+    // thẳng body lỗi kèm mã HTTP lỗi ở đây, KHÔNG phải "chưa xong". Trước đây coi mọi !ok là null
+    // (chưa xong) nên lỗi loại này không bao giờ được phát hiện, job kẹt vĩnh viễn.
+    return { status: "ERROR", error: resultData ? JSON.stringify(resultData) : `HTTP ${resultRes.status}` };
+  }
   return { status: "OK", payload: resultData };
 }
 
