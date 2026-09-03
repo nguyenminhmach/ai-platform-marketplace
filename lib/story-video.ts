@@ -2291,7 +2291,10 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
       })
     );
 
-    await supabase.from("story_video_jobs").update({ status: "generating_videos" }).eq("id", jobId);
+    // Xoá error_message cũ (nếu đây là lượt thử lại sau khi job từng "failed" ở bước video trước đó) —
+    // không xoá thì job chuyển lại "generating_videos" nhưng vẫn còn lỗi cũ trong DB, gây hiểu nhầm job
+    // bị kẹt mâu thuẫn (status đang chạy nhưng error_message vẫn còn từ lần lỗi trước).
+    await supabase.from("story_video_jobs").update({ status: "generating_videos", error_message: null }).eq("id", jobId);
   } catch (err) {
     await failJob(jobId, err instanceof Error ? err.message : String(err));
   }
