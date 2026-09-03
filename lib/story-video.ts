@@ -473,6 +473,25 @@ function extractImageUrl(falPayload: Record<string, unknown>): string | undefine
 // không cho truyền chuỗi model tuỳ ý từ client để tránh gọi nhầm model lạ/tốn phí ngoài ý muốn.
 const ALLOWED_CHAT_MODELS = ["google/gemini-3-flash-preview", "anthropic/claude-sonnet-4.6"];
 
+// Gợi ý số phân cảnh phù hợp cho khách — trước đây khách phải tự đếm số hành động/thay đổi tư thế
+// trong truyện rồi tự chọn nút "N cảnh", không thực tế với khách không rành kỹ thuật. Gọi 1 lượt
+// Gemini Flash rẻ (~18đ, cùng model dùng cho classifyCharacterImage) đếm hộ, trả về đúng 1 số nguyên.
+// Kết quả chỉ là gợi ý — khách vẫn có thể tự bấm đổi sang số khác trên UI.
+const SUGGEST_SCENE_COUNT_SYSTEM_PROMPT = `Bạn là đạo diễn dựng phân cảnh. Đọc ý tưởng truyện/kịch bản ngắn (tiếng Việt) người dùng đưa, đếm số hành động hoặc thay đổi tư thế/trạng thái LỚN của nhân vật chính (ví dụ: ngồi xuống, đứng dậy, quay người, bắt đầu đi, dừng lại, cầm/đặt đồ vật, đổi biểu cảm rõ rệt...) — mỗi hành động lớn như vậy nên chiếm ĐÚNG 1 phân cảnh riêng để video ra mượt mà, không bị nhảy cóc tư thế giữa 2 cảnh.
+Trả về DUY NHẤT 1 số nguyên (không kèm chữ, không giải thích, không markdown) — đúng bằng số hành động lớn đếm được, tối thiểu 2, tối đa 8.`;
+
+export async function suggestSceneCount(storyDescription: string): Promise<number> {
+  try {
+    const { output } = await callOpenRouter("google/gemini-3-flash-preview", 10, SUGGEST_SCENE_COUNT_SYSTEM_PROMPT, storyDescription);
+    const n = parseInt(output.trim().match(/\d+/)?.[0] ?? "", 10);
+    if (!Number.isFinite(n)) return 3;
+    return Math.min(MAX_SCENES, Math.max(MIN_SCENES, n));
+  } catch (err) {
+    console.error("[suggestSceneCount] Lỗi gọi AI gợi ý số cảnh:", err);
+    return 3;
+  }
+}
+
 export type SceneSplitResult = {
   description: string;
   camera_view: CharacterAngleKey;

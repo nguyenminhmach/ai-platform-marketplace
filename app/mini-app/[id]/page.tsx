@@ -275,6 +275,35 @@ export default function MiniAppDetailPage() {
   // cảnh + tạo ảnh trước, dừng lại cho khách xem, ưng mới bấm "Tạo video" (đỡ tốn credit video oan
   // nếu ảnh ra không đúng ý).
   const [storyAutoVideo, setStoryAutoVideo] = useState(false);
+  // "AI gợi ý số cảnh" — đếm hộ số hành động/thay đổi tư thế lớn trong truyện, tự chọn nút số cảnh
+  // tương ứng (khách vẫn tự bấm đổi lại được). Tránh bắt khách tự đếm hành động trong truyện.
+  const [suggestingScenes, setSuggestingScenes] = useState(false);
+  const [sceneSuggestError, setSceneSuggestError] = useState<string | null>(null);
+  async function handleSuggestSceneCount() {
+    if (!input.trim()) {
+      setSceneSuggestError("Nhập truyện trước đã");
+      return;
+    }
+    setSuggestingScenes(true);
+    setSceneSuggestError(null);
+    try {
+      const res = await fetch("/api/story-video/suggest-scenes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ storyDescription: input.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSceneSuggestError(data.error ?? "Không gợi ý được");
+        return;
+      }
+      setNumScenes(data.numScenes);
+    } catch {
+      setSceneSuggestError("Không kết nối được tới server");
+    } finally {
+      setSuggestingScenes(false);
+    }
+  }
   const [storyRunning, setStoryRunning] = useState(false);
   const [storyContinuing, setStoryContinuing] = useState(false);
   // 2 nút "Tạo ảnh phân cảnh" / "Viết mô tả chuyển động để tạo video" độc lập nhau, nhưng vẫn dùng
@@ -2595,7 +2624,18 @@ export default function MiniAppDetailPage() {
                   </p>
                 ) : (
                   <div className="mt-3">
-                    <p className="mb-1 text-sm font-medium text-zinc-500 dark:text-zinc-400">Số phân cảnh</p>
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Số phân cảnh</p>
+                      <button
+                        type="button"
+                        onClick={handleSuggestSceneCount}
+                        disabled={suggestingScenes}
+                        className="text-xs font-medium text-emerald-600 hover:underline disabled:opacity-50 dark:text-emerald-400"
+                      >
+                        {suggestingScenes ? "Đang đếm..." : "🤖 AI gợi ý số cảnh"}
+                      </button>
+                    </div>
+                    {sceneSuggestError && <p className="mb-1 text-xs text-red-500">{sceneSuggestError}</p>}
                     <div className="flex flex-wrap gap-2">
                       {Array.from({ length: STORY_MAX_SCENES - STORY_MIN_SCENES + 1 }, (_, i) => STORY_MIN_SCENES + i).map((n) => (
                         <button
