@@ -176,6 +176,10 @@ export default function MiniAppDetailPage() {
   // file server đó — sharp/child_process — nên khai lại hằng số ở đây).
   const STORY_MAX_CHARACTERS = 4;
   const [numScenes, setNumScenes] = useState(3);
+  // "3 cảnh" là giá trị khởi tạo kỹ thuật (để price effect/submit luôn có số hợp lệ), KHÔNG phải lựa
+  // chọn thật — chỉ hiện nút nào đó "sáng" sau khi AI đã gợi ý xong hoặc khách tự bấm chọn, tránh
+  // khách tưởng nhầm "3 cảnh" là quyết định có sẵn.
+  const [sceneCountChosen, setSceneCountChosen] = useState(false);
   const [storyCharacterImages, setStoryCharacterImages] = useState<string[]>([]);
   // Nhân vật #2, #3, #4 (nếu có) — nhân vật #1 vẫn dùng nguyên storyCharacterImages/
   // storySelectedSavedCharacterId ở trên, không đổi gì, để giữ đúng luồng 1-nhân-vật hiện có khi khách
@@ -298,6 +302,7 @@ export default function MiniAppDetailPage() {
         return;
       }
       setNumScenes(data.numScenes);
+      setSceneCountChosen(true);
     } catch {
       setSceneSuggestError("Không kết nối được tới server");
     } finally {
@@ -2645,9 +2650,12 @@ export default function MiniAppDetailPage() {
                       {Array.from({ length: STORY_MAX_SCENES - STORY_MIN_SCENES + 1 }, (_, i) => STORY_MIN_SCENES + i).map((n) => (
                         <button
                           key={n}
-                          onClick={() => setNumScenes(n)}
+                          onClick={() => {
+                            setNumScenes(n);
+                            setSceneCountChosen(true);
+                          }}
                           className={`rounded-full border px-4 py-1.5 text-sm font-medium ${
-                            numScenes === n
+                            sceneCountChosen && numScenes === n
                               ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
                               : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
                           }`}
