@@ -2612,6 +2612,11 @@ export default function MiniAppDetailPage() {
                 <textarea
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
+                  onBlur={() => {
+                    // Tự gợi ý số cảnh ngay khi khách gõ xong (click ra khỏi ô) — tránh bẫy quên bấm nút
+                    // riêng rồi lỡ chạy job với số cảnh mặc định/cũ không đủ cho truyện vừa viết.
+                    if (!storyUseOwnSceneImages && input.trim() && !suggestingScenes) handleSuggestSceneCount();
+                  }}
                   placeholder="Mô tả mạch truyện, bối cảnh — AI sẽ chia thành phân cảnh"
                   rows={8}
                   maxLength={2000}
