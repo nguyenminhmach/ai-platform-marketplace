@@ -2748,7 +2748,9 @@ async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
     if (clipPaths.length === 1) {
       // Chỉ 1 cảnh (vd khách dùng "Ghép video, bỏ cảnh lỗi" chỉ còn đúng 1 cảnh) — không có điểm ghép
       // nào để chuyển mờ, chỉ cần chuẩn hoá kích thước.
-      await execFileAsync(ffmpegPath, ["-i", clipPaths[0], "-vf", scaleFilter, "-c:v", "libx264", "-c:a", "aac", "-y", outputPath]);
+      await execFileAsync(ffmpegPath, [
+        "-i", clipPaths[0], "-vf", scaleFilter, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-y", outputPath,
+      ]);
     } else {
       // Chuyển mờ ngắn (crossfade) giữa các cảnh thay vì cắt cứng ("-f concat" cũ) — cắt cứng khiến bất
       // kỳ lệch nhỏ nào ở khung hình cuối/đầu giữa 2 clip (model video không luôn bám sát 100% ảnh đích
@@ -2796,11 +2798,15 @@ async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
         mapArgs.push("-map", "[aout]");
       }
 
+      // "-pix_fmt yuv420p" bắt buộc — filter "xfade" tự chuyển sang không gian màu 4:4:4 khi chuyển mờ,
+      // nếu không ép lại libx264 sẽ encode ra profile "High 4:4:4 Predictive" (yuv444p) mà hầu hết trình
+      // phát thường (kể cả Windows Media Player mặc định) không phát được — chỉ phần mềm chuyên dụng mới
+      // đọc được. yuv420p là chuẩn phổ thông mọi trình phát/trình duyệt đều hỗ trợ.
       await execFileAsync(ffmpegPath, [
         ...inputArgs,
         "-filter_complex", filterParts.join(";"),
         ...mapArgs,
-        "-c:v", "libx264", "-c:a", "aac", "-y", outputPath,
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-y", outputPath,
       ]);
     }
 
