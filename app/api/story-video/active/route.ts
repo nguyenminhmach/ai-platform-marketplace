@@ -14,11 +14,15 @@ export async function GET() {
   // 7 ngày (trước là 24h) — khách phản ánh ảnh phân cảnh "biến mất" khi đóng tab rồi mở lại sau hơn 1
   // ngày dù job vẫn còn nguyên trong DB, chỉ là ngoài cửa sổ khôi phục cũ.
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  // KHÔNG loại trừ status "done" nữa — trước đây loại trừ với giả định "job xong rồi thì khách đã thấy
+  // kết quả trong lúc đang ở trang", nhưng nếu khách tải lại trang ĐÚNG LÚC job vừa chuyển "stitching" ->
+  // "done" (vd job đang ghép, khách F5), lượt fetch /active này chạy SAU khi job đã "done" nên bị lọc
+  // mất, khách không thấy được kết quả dù đã ghép xong (phải tự tra DB mới biết) — frontend vốn đã xử
+  // lý đúng status "done" khi khôi phục (hiện video kết quả), nên bỏ hẳn điều kiện loại trừ này an toàn.
   const { data: job } = await supabase
     .from("story_video_jobs")
     .select("id, story_description, character_image_urls, location_reference_url")
     .eq("user_id", userId)
-    .neq("status", "done")
     .gte("created_at", sevenDaysAgo)
     .order("created_at", { ascending: false })
     .limit(1)
