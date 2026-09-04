@@ -2301,9 +2301,16 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
 }
 
 // Khách chỉ ưng 1 phần video phân cảnh — tạo lại ĐÚNG 1 cảnh (không đụng các cảnh khác), trừ credit
-// đúng bằng giá 1 cảnh video (không phải cả N cảnh). Dùng lại nguyên motion_prompt đã sinh sẵn (không
-// gọi lại AI viết chuyển động) — chỉ đổi clip xuất ra, giữ đúng ảnh nguồn của cảnh đó.
-export async function regenerateSceneVideo(userId: string, sceneId: number, idempotencyKey: string): Promise<{ newBalance: number }> {
+// đúng bằng giá 1 cảnh video (không phải cả N cảnh). Mặc định dùng lại nguyên motion_prompt đã sinh
+// sẵn — nhưng cho phép truyền customPrompt để đổi câu mô tả trước khi tạo lại, vì nhiều lỗi (model
+// video từ chối nội dung, vd Veo "no_media_generated") lặp lại y hệt nếu gửi lại đúng câu cũ — khách
+// cần cơ hội né đúng chỗ bị chặn thay vì tạo lại vô ích với input giống hệt lần fail.
+export async function regenerateSceneVideo(
+  userId: string,
+  sceneId: number,
+  idempotencyKey: string,
+  customPrompt?: string
+): Promise<{ newBalance: number }> {
   const supabase = getSupabaseAdmin();
   const { data: sceneData } = await supabase
     .from("story_video_scenes")
@@ -2312,6 +2319,7 @@ export async function regenerateSceneVideo(userId: string, sceneId: number, idem
     .single();
   if (!sceneData) throw new Error("Không tìm thấy phân cảnh");
   if (!sceneData.image_url) throw new Error("Cảnh này chưa có ảnh để tạo video");
+  if (customPrompt?.trim()) sceneData.motion_prompt = customPrompt.trim();
 
   const { data: jobData } = await supabase.from("story_video_jobs").select("*").eq("id", sceneData.job_id).single();
   if (!jobData) throw new Error("Không tìm thấy job");
@@ -2343,7 +2351,14 @@ export async function regenerateSceneVideo(userId: string, sceneId: number, idem
     // để nguyên sẽ khiến stitchAndFinish lỡ dùng nhầm bản lồng tiếng cũ (lipsync_url ?? video_url).
     await supabase
       .from("story_video_scenes")
-      .update({ video_fal_request_id: requestId, video_url: null, lipsync_url: null, lipsync_fal_request_id: null, dialogue_audio_url: null })
+      .update({
+        video_fal_request_id: requestId,
+        video_url: null,
+        lipsync_url: null,
+        lipsync_fal_request_id: null,
+        dialogue_audio_url: null,
+        ...(customPrompt?.trim() ? { motion_prompt: sceneData.motion_prompt } : {}),
+      })
       .eq("id", sceneId);
   } catch (err) {
     if (deduction.txId) await refundCredit(deduction.txId);

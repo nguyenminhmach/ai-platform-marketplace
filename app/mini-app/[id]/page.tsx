@@ -333,10 +333,22 @@ export default function MiniAppDetailPage() {
   const [storyStatus, setStoryStatus] = useState<string | null>(null);
   const [storyJobId, setStoryJobId] = useState<number | null>(null);
   const [storyScenes, setStoryScenes] = useState<
-    { id: number; position: number; imageUrl: string | null; videoUrl: string | null; hasDialogue?: boolean }[] | null
+    | {
+        id: number;
+        position: number;
+        imageUrl: string | null;
+        videoUrl: string | null;
+        hasDialogue?: boolean;
+        motionPrompt?: string;
+      }[]
+    | null
   >(null);
   const [storyRegeneratingSceneId, setStoryRegeneratingSceneId] = useState<number | null>(null);
   const [storyRegeneratingVideoSceneId, setStoryRegeneratingVideoSceneId] = useState<number | null>(null);
+  // Sửa câu mô tả chuyển động trước khi tạo lại video 1 cảnh — dùng khi lỗi lặp lại y hệt (vd bị model
+  // chặn nội dung), gửi lại đúng câu cũ dễ ra lỗi y hệt, cần chỗ để khách đổi cách diễn đạt.
+  const [storyEditingPromptSceneId, setStoryEditingPromptSceneId] = useState<number | null>(null);
+  const [storyEditedPrompt, setStoryEditedPrompt] = useState("");
   const [storyResult, setStoryResult] = useState<string | null>(null);
   const [storyError, setStoryError] = useState<string | null>(null);
   const storyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1050,15 +1062,16 @@ export default function MiniAppDetailPage() {
     }, 180000);
   }
 
-  async function handleRegenerateSceneVideo(sceneId: number) {
+  async function handleRegenerateSceneVideo(sceneId: number, customPrompt?: string) {
     if (!user || !storyJobId) return;
     setStoryRegeneratingVideoSceneId(sceneId);
+    setStoryEditingPromptSceneId(null);
     setStoryError(null);
     try {
       const res = await fetch("/api/story-video/regenerate-scene-video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user.id, sceneId }),
+        body: JSON.stringify({ userId: user.id, sceneId, customPrompt }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -3567,15 +3580,16 @@ export default function MiniAppDetailPage() {
                       // hiện card kèm nút 🔄 — trước đây return null nên cảnh lỗi biến mất hoàn toàn khỏi
                       // khung này, khách không có cách nào bấm tạo lại đúng cảnh đó qua UI.
                       if (!scene.videoUrl && !scene.imageUrl && !isRegeneratingThisVideo) return null;
+                      const isEditingThisPrompt = storyEditingPromptSceneId === scene.id;
                       return (
                         <div key={scene.id} className="relative w-full" style={{ aspectRatio: storyAspectRatio.replace(":", " / ") }}>
                           {scene.videoUrl && <video src={scene.videoUrl} controls className="h-full w-full rounded-lg object-cover" />}
                           {!scene.videoUrl && scene.imageUrl && (
                             <div className="relative h-full w-full">
                               <img src={scene.imageUrl} alt={`Cảnh ${index + 1}`} className="h-full w-full rounded-lg object-cover opacity-50" />
-                              {!isRegeneratingThisVideo && (
+                              {!isRegeneratingThisVideo && !isEditingThisPrompt && (
                                 <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/40 px-2 text-center text-xs text-white">
-                                  Chưa có video (lỗi lúc tạo) — bấm 🔄 để tạo lại
+                                  Chưa có video (lỗi lúc tạo) — bấm 🔄 để sửa mô tả và tạo lại
                                 </div>
                               )}
                             </div>
@@ -3583,6 +3597,33 @@ export default function MiniAppDetailPage() {
                           {isRegeneratingThisVideo && (
                             <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/60 text-xs text-white">
                               Đang tạo lại...
+                            </div>
+                          )}
+                          {isEditingThisPrompt && (
+                            <div className="absolute inset-0 flex flex-col gap-1.5 rounded-lg bg-black/85 p-2">
+                              <p className="text-xs text-zinc-300">
+                                Sửa câu mô tả chuyển động trước khi tạo lại (đổi cách diễn đạt nếu bị model từ chối):
+                              </p>
+                              <textarea
+                                value={storyEditedPrompt}
+                                onChange={(e) => setStoryEditedPrompt(e.target.value)}
+                                rows={4}
+                                className="flex-1 resize-none rounded border border-zinc-600 bg-zinc-900 p-1.5 text-xs text-white"
+                              />
+                              <div className="flex gap-1.5">
+                                <button
+                                  onClick={() => handleRegenerateSceneVideo(scene.id, storyEditedPrompt)}
+                                  className="flex-1 rounded-full bg-white px-2 py-1 text-xs font-medium text-zinc-900"
+                                >
+                                  Tạo lại
+                                </button>
+                                <button
+                                  onClick={() => setStoryEditingPromptSceneId(null)}
+                                  className="rounded-full border border-zinc-500 px-2 py-1 text-xs text-white"
+                                >
+                                  Huỷ
+                                </button>
+                              </div>
                             </div>
                           )}
                           <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
@@ -3596,16 +3637,27 @@ export default function MiniAppDetailPage() {
                               🗣️
                             </span>
                           )}
-                          <button
-                            onClick={() => {
-                              if (!isRegeneratingThisVideo) handleRegenerateSceneVideo(scene.id);
-                            }}
-                            disabled={!!storyRegeneratingVideoSceneId}
-                            title="Tạo lại đúng video cảnh này (tốn thêm credit như 1 video phân cảnh)"
-                            className="absolute right-1 top-1 rounded-full bg-black/70 px-1.5 py-1 text-xs text-white hover:bg-black/90 disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            🔄
-                          </button>
+                          {!isEditingThisPrompt && (
+                            <button
+                              onClick={() => {
+                                if (isRegeneratingThisVideo) return;
+                                // Cảnh chưa có video (lỗi lần trước) — mở ô sửa mô tả trước khi gửi lại,
+                                // vì gửi lại y hệt câu cũ dễ bị model từ chối y hệt lần trước (đã xác nhận
+                                // thật với lỗi "no_media_generated" của Veo, lặp lại 2/2 lần thử).
+                                if (!scene.videoUrl) {
+                                  setStoryEditedPrompt(scene.motionPrompt ?? "");
+                                  setStoryEditingPromptSceneId(scene.id);
+                                } else {
+                                  handleRegenerateSceneVideo(scene.id);
+                                }
+                              }}
+                              disabled={!!storyRegeneratingVideoSceneId}
+                              title="Tạo lại đúng video cảnh này (tốn thêm credit như 1 video phân cảnh)"
+                              className="absolute right-1 top-1 rounded-full bg-black/70 px-1.5 py-1 text-xs text-white hover:bg-black/90 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              🔄
+                            </button>
+                          )}
                         </div>
                       );
                     })}
