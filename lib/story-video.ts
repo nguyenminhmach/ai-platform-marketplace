@@ -2583,6 +2583,10 @@ export async function applyVideoStageResult(
   const isError = falPayload.status === "ERROR" || !!falPayload.error;
 
   if (isError) {
+    // Log FULL payload (không chỉ falPayload.error, chuỗi ngắn kiểu "Unexpected status code: 422"
+    // không đủ chẩn đoán được nguyên nhân thật) — mirror đúng cách đã làm cho lỗi tạo ảnh phân cảnh
+    // (applyImageStageResult) và lỗi lồng tiếng (applyLipsyncStageResult), bước video trước đây bị sót.
+    console.error(`[story-video] Lỗi tạo video cảnh #${sceneId}, full payload:`, JSON.stringify(falPayload));
     if (isRegenerate) {
       console.error(`[story-video] Lỗi tạo lại video cho cảnh #${sceneId}:`, falPayload.error ?? "unknown");
       return;
