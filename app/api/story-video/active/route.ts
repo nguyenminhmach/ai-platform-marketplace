@@ -11,13 +11,15 @@ export async function GET() {
   if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
 
   const supabase = getSupabaseAdmin();
-  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  // 7 ngày (trước là 24h) — khách phản ánh ảnh phân cảnh "biến mất" khi đóng tab rồi mở lại sau hơn 1
+  // ngày dù job vẫn còn nguyên trong DB, chỉ là ngoài cửa sổ khôi phục cũ.
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const { data: job } = await supabase
     .from("story_video_jobs")
     .select("id, story_description, character_image_urls, location_reference_url")
     .eq("user_id", userId)
     .neq("status", "done")
-    .gte("created_at", oneDayAgo)
+    .gte("created_at", sevenDaysAgo)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
