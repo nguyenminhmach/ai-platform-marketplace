@@ -3557,16 +3557,29 @@ export default function MiniAppDetailPage() {
                 </div>
               )}
 
-              {storyScenes && storyScenes.some((s) => s.videoUrl) && (
+              {storyScenes && storyScenes.some((s) => s.videoUrl || s.imageUrl) && (
                 <div className="mt-4 rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
                   <p className="mb-2 text-sm font-semibold text-zinc-700 dark:text-zinc-300">🎬 Video từng cảnh</p>
                   <div className="grid grid-cols-4 gap-3">
                     {storyScenes.map((scene, index) => {
                       const isRegeneratingThisVideo = storyRegeneratingVideoSceneId === scene.id;
-                      if (!scene.videoUrl && !isRegeneratingThisVideo) return null;
+                      // Cảnh có ảnh nhưng chưa/không có video (lỗi lúc tạo, vd bị chặn nội dung) vẫn cần
+                      // hiện card kèm nút 🔄 — trước đây return null nên cảnh lỗi biến mất hoàn toàn khỏi
+                      // khung này, khách không có cách nào bấm tạo lại đúng cảnh đó qua UI.
+                      if (!scene.videoUrl && !scene.imageUrl && !isRegeneratingThisVideo) return null;
                       return (
                         <div key={scene.id} className="relative w-full" style={{ aspectRatio: storyAspectRatio.replace(":", " / ") }}>
                           {scene.videoUrl && <video src={scene.videoUrl} controls className="h-full w-full rounded-lg object-cover" />}
+                          {!scene.videoUrl && scene.imageUrl && (
+                            <div className="relative h-full w-full">
+                              <img src={scene.imageUrl} alt={`Cảnh ${index + 1}`} className="h-full w-full rounded-lg object-cover opacity-50" />
+                              {!isRegeneratingThisVideo && (
+                                <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/40 px-2 text-center text-xs text-white">
+                                  Chưa có video (lỗi lúc tạo) — bấm 🔄 để tạo lại
+                                </div>
+                              )}
+                            </div>
+                          )}
                           {isRegeneratingThisVideo && (
                             <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/60 text-xs text-white">
                               Đang tạo lại...
