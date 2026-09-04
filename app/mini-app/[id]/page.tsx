@@ -325,6 +325,7 @@ export default function MiniAppDetailPage() {
   }
   const [storyRunning, setStoryRunning] = useState(false);
   const [storyContinuing, setStoryContinuing] = useState(false);
+  const [storyFinalizingPartial, setStoryFinalizingPartial] = useState(false);
   // 2 nút "Tạo ảnh phân cảnh" / "Viết mô tả chuyển động để tạo video" độc lập nhau, nhưng vẫn dùng
   // chung storyRunning để khoá nhau tránh chạy đè job (storyJobId/storyScenes dùng chung 1 chỗ) — cờ
   // này chỉ để nhãn nút hiện đúng "Đang xử lý..." trên nút khách vừa bấm, không hiện nhầm sang nút kia.
@@ -1254,6 +1255,34 @@ export default function MiniAppDetailPage() {
     } catch {
       setStoryError("Không kết nối được tới server");
       setStoryContinuing(false);
+    }
+  }
+
+  // Khách chấp nhận bỏ cảnh mãi không tạo video được (vd bị model chặn nội dung) — ghép video cuối
+  // chỉ từ các cảnh đã có video, không chờ đủ tất cả cảnh nữa.
+  async function handleFinalizePartial() {
+    if (!user || !storyJobId) return;
+    setStoryFinalizingPartial(true);
+    setStoryError(null);
+    try {
+      const res = await fetch("/api/story-video/finalize-partial", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, jobId: storyJobId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStoryError(data.error ?? "Có lỗi xảy ra");
+        setStoryFinalizingPartial(false);
+        return;
+      }
+      setStoryRunning(true);
+      setStoryStatusText("Đang ghép video từ các cảnh đã có...");
+      pollStoryVideoStatus(storyJobId);
+    } catch {
+      setStoryError("Không kết nối được tới server");
+    } finally {
+      setStoryFinalizingPartial(false);
     }
   }
 
@@ -3567,6 +3596,21 @@ export default function MiniAppDetailPage() {
                       {storyContinuing ? "Đang gửi..." : "Thử lại tạo video"}
                     </button>
                   </div>
+                  {storyScenes.some((s) => s.videoUrl) && (
+                    <div className="mt-3 flex items-center justify-between border-t border-zinc-200 pt-3 dark:border-zinc-700">
+                      <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                        Có cảnh mãi không tạo video được (vd bị model từ chối nội dung) — ghép video cuối chỉ từ các
+                        cảnh đã có video, bỏ hẳn cảnh lỗi
+                      </span>
+                      <button
+                        onClick={handleFinalizePartial}
+                        disabled={storyFinalizingPartial}
+                        className="rounded-full border border-zinc-400 px-5 py-2 text-sm font-medium text-zinc-700 disabled:opacity-40 dark:border-zinc-500 dark:text-zinc-300"
+                      >
+                        {storyFinalizingPartial ? "Đang ghép..." : "Ghép video, bỏ cảnh lỗi"}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 

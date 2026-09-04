@@ -2595,6 +2595,23 @@ async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
   }
 }
 
+// Khách chấp nhận bỏ qua 1-vài cảnh mãi không tạo video được (vd bị model chặn nội dung, đã thử đổi
+// prompt nhiều lần vẫn lỗi) — ghép video CUỐI chỉ từ những cảnh đã có video thật, bỏ hẳn cảnh lỗi thay
+// vì chờ mãi không bao giờ đủ N/N cảnh để tự động ghép. stitchAndFinish() vốn chỉ lặp qua mảng scenes
+// được truyền vào, không đòi hỏi liền vị trí hay đủ N cảnh — chỉ cần lọc trước khi gọi.
+export async function finalizeStoryVideoSkippingFailedScenes(userId: string, jobId: number): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const { data: jobData } = await supabase.from("story_video_jobs").select("user_id, status").eq("id", jobId).single();
+  if (!jobData) throw new Error("Không tìm thấy job");
+  if (jobData.user_id !== userId) throw new Error("Không có quyền với job này");
+
+  const scenes = await getScenes(jobId);
+  const readyScenes = scenes.filter((s) => s.lipsync_url ?? s.video_url);
+  if (readyScenes.length === 0) throw new Error("Chưa có cảnh nào có video để ghép");
+
+  await stitchAndFinish(jobId, readyScenes);
+}
+
 const STALE_CHECK_MS = 30_000;
 // stitchAndFinish() chạy ngay trong webhook nhận video cảnh cuối cùng, route đó giới hạn maxDuration=60s
 // — tải N clip + ffmpeg re-encode + upload Storage có thể vượt quá 60s, khiến Vercel ngắt hàm giữa
