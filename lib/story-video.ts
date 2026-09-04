@@ -512,7 +512,7 @@ export type SceneSplitResult = {
 // (khoảnh khắc chính/đầu cảnh) — ảnh cuối cảnh N sẽ được dùng làm ảnh đầu cảnh N+1 (xem lib này,
 // runSceneStage) nên "end_description" của cảnh N và "description" của cảnh N+1 nên tự nhiên nối tiếp.
 const CONTINUOUS_MOTION_INSTRUCTION =
-  'Chế độ chuyển động liên tục ĐANG BẬT: với MỌI cảnh, thêm khoá "end_description" (chuỗi tiếng Anh) mô tả khoảnh khắc KẾT THÚC của cảnh đó (sau khi hành động trong "description" đã diễn ra một chút) — đây sẽ là điểm nối sang cảnh tiếp theo, nên "end_description" của cảnh này và "description" của cảnh sau nó nên là 2 khoảnh khắc liền mạch tự nhiên (không nhảy cóc hành động/bối cảnh). "end_description" bắt buộc có ở MỌI cảnh, kể cả cảnh cuối cùng. Bối cảnh/địa điểm VÀ ánh sáng/thời điểm trong ngày (khu vườn, bãi biển, ban công, nắng sáng, hoàng hôn...) PHẢI GIỮ NGUYÊN xuyên suốt "description" và "end_description" của MỌI cảnh trong toàn bộ video — đây là 1 cảnh quay liên tục (như 1 shot phim dài), không phải nhiều cảnh phim rời rạc ở nhiều nơi/thời điểm khác nhau. CHỈ đổi bối cảnh hoặc ánh sáng giữa các cảnh nếu ý tưởng truyện gốc yêu cầu RÕ RÀNG (vd truyện tự viết "họ di chuyển từ vườn ra biển", hoặc "trời chuyển tối dần") — hành động nhân vật chuẩn bị rời đi/đứng dậy KHÔNG tự động là lý do để đổi ánh sáng sang tông hoàng hôn/kịch tính hơn nếu truyện không nói. Khung hình/bố cục camera (vị trí bàn, cửa sổ, cửa ra vào... trong khung hình, mức độ zoom/cỡ cảnh) cũng PHẢI giữ nguyên xuyên suốt như 1 shot phim dài quay từ 1 vị trí camera cố định — không được tự đổi góc/khoảng cách máy quay giữa các cảnh trừ khi truyện mô tả rõ nhân vật di chuyển sang chỗ khác.';
+  'Chế độ chuyển động liên tục ĐANG BẬT: với MỌI cảnh, thêm khoá "end_description" (chuỗi tiếng Anh) mô tả khoảnh khắc KẾT THÚC của cảnh đó (sau khi hành động trong "description" đã diễn ra một chút) — đây sẽ là điểm nối sang cảnh tiếp theo, nên "end_description" của cảnh này và "description" của cảnh sau nó nên là 2 khoảnh khắc liền mạch tự nhiên (không nhảy cóc hành động/bối cảnh). "end_description" bắt buộc có ở MỌI cảnh, kể cả cảnh cuối cùng. Bối cảnh/địa điểm VÀ ánh sáng/thời điểm trong ngày (khu vườn, bãi biển, ban công, nắng sáng, hoàng hôn...) PHẢI GIỮ NGUYÊN xuyên suốt "description" và "end_description" của MỌI cảnh trong toàn bộ video — đây là 1 cảnh quay liên tục (như 1 shot phim dài), không phải nhiều cảnh phim rời rạc ở nhiều nơi/thời điểm khác nhau. CHỈ đổi bối cảnh hoặc ánh sáng giữa các cảnh nếu ý tưởng truyện gốc yêu cầu RÕ RÀNG (vd truyện tự viết "họ di chuyển từ vườn ra biển", hoặc "trời chuyển tối dần") — hành động nhân vật chuẩn bị rời đi/đứng dậy KHÔNG tự động là lý do để đổi ánh sáng sang tông hoàng hôn/kịch tính hơn nếu truyện không nói. Khung hình/bố cục camera (vị trí bàn, cửa sổ, cửa ra vào... trong khung hình, mức độ zoom/cỡ cảnh) cũng PHẢI giữ nguyên xuyên suốt như 1 shot phim dài quay từ 1 vị trí camera cố định — không được tự đổi góc/khoảng cách máy quay giữa các cảnh trừ khi truyện mô tả rõ nhân vật di chuyển sang chỗ khác. Đặc biệt: MỌI đồ vật/nội thất cụ thể xuất hiện trong khung hình (giường, sofa, bàn, ghế, tủ, thảm...) phải được nêu rõ và giữ NGUYÊN VĂN cùng 1 danh từ xuyên suốt "description" và "end_description" của cùng 1 cảnh VÀ giữa các cảnh liên tiếp — ví dụ đã nói "a sofa" ở đầu cảnh thì "end_description" của chính cảnh đó và "description" của cảnh kế tiếp cũng phải nói "the same sofa", TUYỆT ĐỐI không đổi thành "a bed" hay đồ vật khác dù cùng là "phòng ngủ/phòng khách" chung chung — mỗi cảnh là 1 lần gọi ảnh riêng biệt nên nếu mô tả không nêu cụ thể, model tạo ảnh dễ tự ý đổi đồ nội thất giữa các lần gọi.';
 
 // Phòng thủ phía code (không chỉ dựa Agent nghe lời): dù prompt đã yêu cầu rõ "giữ nguyên văn tiếng
 // Việt, KHÔNG dịch", model chat vẫn có rủi ro thật dịch câu thoại sang tiếng Anh (cả JSON xung quanh
@@ -855,6 +855,9 @@ async function submitSceneImageForRow(
   // Ép ảnh chụp thật — model dễ ngả sang phong cách minh hoạ/tranh vẽ khi scene_description dùng
   // ngôn từ giàu chất thơ (hoàng hôn, khu vườn hoa...) mà không có chỉ dẫn phong cách hình ảnh rõ ràng.
   scenePrompt += ` Photorealistic photo, shot on a real camera — not an illustration, painting, drawing, anime, or digital art.`;
+  // Chặn chữ dính từ ảnh tham chiếu — character sheet có nhãn in sẵn ("1) FRONT VIEW", "5) BACK
+  // VIEW"...) nên model đôi khi bị dính vụn chữ đó vào ảnh cảnh mới dù không liên quan.
+  scenePrompt += ` The output image must contain NO text, letters, numbers, labels, captions, watermarks, or UI overlays anywhere in the frame — completely ignore and do not reproduce any panel numbers or text labels visible in the reference images.`;
   const body = buildImageRequestBody(
     job.image_model as string,
     scenePrompt,
@@ -932,6 +935,9 @@ async function submitMultiCharacterSceneImageForRow(
     scenePrompt += ` The LAST reference image shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
   }
   scenePrompt += ` Photorealistic photo, shot on a real camera — not an illustration, painting, drawing, anime, or digital art.`;
+  // Chặn chữ dính từ ảnh tham chiếu — character sheet có nhãn in sẵn ("1) FRONT VIEW", "5) BACK
+  // VIEW"...) nên model đôi khi bị dính vụn chữ đó vào ảnh cảnh mới dù không liên quan.
+  scenePrompt += ` The output image must contain NO text, letters, numbers, labels, captions, watermarks, or UI overlays anywhere in the frame — completely ignore and do not reproduce any panel numbers or text labels visible in the reference images.`;
   const body = buildImageRequestBody(
     job.image_model as string,
     scenePrompt,
