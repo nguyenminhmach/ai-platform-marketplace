@@ -224,7 +224,8 @@ export default function MiniAppDetailPage() {
   const [storyDurationKey, setStoryDurationKey] = useState<string | null>(null);
   // Chuyển động liên tục giữa các cảnh (Kling O1 FLFV) — chỉ có ý nghĩa khi model video đang chọn hỗ
   // trợ ảnh đầu/cuối (key "kling-o1-flfv"), ẩn checkbox khi chọn model khác. Bật thì mỗi cảnh có thêm
-  // 1 ảnh cuối, nối chuỗi ảnh cuối cảnh trước = ảnh đầu cảnh sau — không hỗ trợ "Tạo lại" từng cảnh.
+  // 1 ảnh cuối, nối chuỗi ảnh cuối cảnh trước = ảnh đầu cảnh sau — "Tạo lại" từng cảnh dùng route riêng
+  // /api/story-video/regenerate-continuous-scene (theo "position", không phải sceneId thẳng).
   const [storyContinuousMotion, setStoryContinuousMotion] = useState(false);
   // "Model chat" — LLM thực thi bước chia cảnh (tách biệt với "Agent" = persona/hướng dẫn) — đúng 2
   // lựa chọn admin đang dùng cho app tự tạo dạng text (xem MODEL_OPTIONS trong app/admin/page.tsx).
@@ -345,6 +346,9 @@ export default function MiniAppDetailPage() {
     | null
   >(null);
   const [storyRegeneratingSceneId, setStoryRegeneratingSceneId] = useState<number | null>(null);
+  // Chế độ chuyển động liên tục — "Tạo lại" theo VỊ TRÍ hiển thị trên UI (không phải sceneId trực
+  // tiếp), xem regenerateContinuousMotionSceneImage() trong lib/story-video.ts để hiểu vì sao.
+  const [storyRegeneratingContinuousPosition, setStoryRegeneratingContinuousPosition] = useState<number | null>(null);
   const [storyRegeneratingVideoSceneId, setStoryRegeneratingVideoSceneId] = useState<number | null>(null);
   // Sửa câu mô tả chuyển động trước khi tạo lại video 1 cảnh — dùng khi lỗi lặp lại y hệt (vd bị model
   // chặn nội dung), gửi lại đúng câu cũ dễ ra lỗi y hệt, cần chỗ để khách đổi cách diễn đạt.
@@ -1031,6 +1035,57 @@ export default function MiniAppDetailPage() {
     } catch {
       setStoryError("Không kết nối được tới server");
       setStoryRegeneratingSceneId(null);
+    }
+  }
+
+  // Poll cho tạo lại ảnh chế độ chuyển động liên tục — theo dõi VỊ TRÍ (không phải sceneId, xem
+  // handleRegenerateContinuousScene) vì ảnh mới có thể được ghi vào 1 cảnh KHÁC (cảnh liền trước) rồi
+  // copy sang image_url của đúng vị trí này.
+  function pollContinuousSceneRegenerate(jobId: number, position: number, previousUrl: string | null) {
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/story-video/status?jobId=${jobId}`);
+        const data = await res.json();
+        const scene = Array.isArray(data.scenes)
+          ? data.scenes.find((s: { position: number; imageUrl: string | null }) => s.position === position)
+          : null;
+        if (scene?.imageUrl && scene.imageUrl !== previousUrl) {
+          setStoryScenes(data.scenes);
+          clearInterval(interval);
+          setStoryRegeneratingContinuousPosition((cur) => (cur === position ? null : cur));
+        }
+      } catch {
+        // bỏ qua lỗi mạng tạm thời, vòng poll tiếp theo sẽ thử lại
+      }
+    }, 4000);
+    setTimeout(() => {
+      clearInterval(interval);
+      setStoryRegeneratingContinuousPosition((cur) => (cur === position ? null : cur));
+    }, 120000);
+  }
+
+  async function handleRegenerateContinuousScene(position: number) {
+    if (!user || !storyJobId) return;
+    const previousUrl = storyScenes?.find((s) => s.position === position)?.imageUrl ?? null;
+    setStoryRegeneratingContinuousPosition(position);
+    setStoryError(null);
+    try {
+      const res = await fetch("/api/story-video/regenerate-continuous-scene", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: storyJobId, position }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStoryError(data.error ?? "Có lỗi xảy ra");
+        setStoryRegeneratingContinuousPosition(null);
+        return;
+      }
+      window.dispatchEvent(new Event("balance-updated"));
+      pollContinuousSceneRegenerate(storyJobId, position, previousUrl);
+    } catch {
+      setStoryError("Không kết nối được tới server");
+      setStoryRegeneratingContinuousPosition(null);
     }
   }
 
@@ -3318,7 +3373,7 @@ export default function MiniAppDetailPage() {
                           />
                           <span>
                             🎬 Chuyển động liên tục giữa các cảnh — mỗi cảnh nối liền mạch sang cảnh sau (thêm ~1 ảnh cho cả video, không
-                            phải nhân đôi). Khi bật, không dùng được nút &quot;Tạo lại&quot; riêng từng cảnh.
+                            phải nhân đôi).
                             {storyVideoModelKey === "veo31-lite-flf" && " Model này bắt buộc bật, không tắt được."}
                           </span>
                         </label>
@@ -3351,6 +3406,7 @@ export default function MiniAppDetailPage() {
                             {storySceneImages.map((img, index) => {
                               const aiScene = !storyUseOwnSceneImages ? storyScenes?.[index] : undefined;
                               const isRegeneratingThis = aiScene && storyRegeneratingSceneId === aiScene.id;
+                              const isRegeneratingThisContinuous = aiScene && storyRegeneratingContinuousPosition === aiScene.position;
                               return (
                               <div key={index} className="space-y-1">
                                 <div
@@ -3365,7 +3421,7 @@ export default function MiniAppDetailPage() {
                                     className="h-full w-full cursor-zoom-in object-contain"
                                     title="Bấm để xem to"
                                   />
-                                  {isRegeneratingThis && (
+                                  {(isRegeneratingThis || isRegeneratingThisContinuous) && (
                                     <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/60 text-xs text-white">
                                       Đang tạo lại...
                                     </div>
@@ -3380,6 +3436,19 @@ export default function MiniAppDetailPage() {
                                         if (!isRegeneratingThis) handleRegenerateScene(aiScene.id);
                                       }}
                                       disabled={!!storyRegeneratingSceneId}
+                                      title="Tạo lại đúng cảnh này (tốn thêm credit như 1 ảnh phân cảnh)"
+                                      className="absolute right-1 top-1 rounded-full bg-black/70 px-1.5 py-1 text-xs text-white hover:bg-black/90 disabled:cursor-not-allowed disabled:opacity-40"
+                                    >
+                                      🔄
+                                    </button>
+                                  )}
+                                  {aiScene && storyContinuousMotion && storyStatus === "images_ready" && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (!isRegeneratingThisContinuous) handleRegenerateContinuousScene(aiScene.position);
+                                      }}
+                                      disabled={storyRegeneratingContinuousPosition !== null}
                                       title="Tạo lại đúng cảnh này (tốn thêm credit như 1 ảnh phân cảnh)"
                                       className="absolute right-1 top-1 rounded-full bg-black/70 px-1.5 py-1 text-xs text-white hover:bg-black/90 disabled:cursor-not-allowed disabled:opacity-40"
                                     >

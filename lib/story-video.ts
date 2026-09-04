@@ -179,7 +179,10 @@ export type SceneRow = {
   job_id: number;
   position: number;
   scene_description: string | null;
+  end_description: string | null;
   camera_view: string | null;
+  outfit_override: string | null;
+  face_view: string | null;
   motion_prompt: string | null;
   location: string | null;
   end_pose: string | null;
@@ -815,7 +818,8 @@ async function submitSceneImageForRow(
   imageEntry: ImageModelEntry | undefined,
   regen: boolean,
   stage: "image" | "image_end" = "image",
-  previousEndPose?: string | null
+  previousEndPose?: string | null,
+  propagateToSceneId?: number
 ): Promise<string> {
   // MARKER_SINGLE_CHARACTER_IMAGE_SUBMIT
   const characterImages = selectReferenceImagesForScene(
@@ -869,7 +873,9 @@ async function submitSceneImageForRow(
   return submitFalJob(
     job.image_model as string,
     body,
-    `${SITE_URL}/api/story-video/webhook?jobId=${job.id}&sceneId=${row.id}&stage=${stage}${regen ? "&regen=1" : ""}`
+    `${SITE_URL}/api/story-video/webhook?jobId=${job.id}&sceneId=${row.id}&stage=${stage}${regen ? "&regen=1" : ""}${
+      propagateToSceneId ? `&propagateToSceneId=${propagateToSceneId}` : ""
+    }`
   );
 }
 
@@ -917,7 +923,8 @@ async function submitMultiCharacterSceneImageForRow(
   imageEntry: ImageModelEntry | undefined,
   regen: boolean,
   stage: "image" | "image_end" = "image",
-  previousEndPose?: string | null
+  previousEndPose?: string | null,
+  propagateToSceneId?: number
 ): Promise<string> {
   const refs = selectReferenceImagesForMultiScene(row.character_positions ?? [], jobCharacters);
   // Ảnh Bối cảnh/Địa điểm (tuỳ chọn, dùng chung cho cả job) — nối THÊM vào cuối, sau các ảnh nhân
@@ -949,7 +956,9 @@ async function submitMultiCharacterSceneImageForRow(
   return submitFalJob(
     job.image_model as string,
     body,
-    `${SITE_URL}/api/story-video/webhook?jobId=${job.id}&sceneId=${row.id}&stage=${stage}${regen ? "&regen=1" : ""}`
+    `${SITE_URL}/api/story-video/webhook?jobId=${job.id}&sceneId=${row.id}&stage=${stage}${regen ? "&regen=1" : ""}${
+      propagateToSceneId ? `&propagateToSceneId=${propagateToSceneId}` : ""
+    }`
   );
 }
 
@@ -1039,6 +1048,7 @@ async function runSceneStage(
           job_id: job.id,
           position: index,
           scene_description: scene.description,
+          end_description: scene.end_description ?? null,
           camera_view: scene.camera_view,
           outfit_override: scene.outfit_override ?? null,
           face_view: scene.face_view ?? null,
@@ -1515,6 +1525,7 @@ async function runMultiCharacterSceneStage(
           job_id: job.id,
           position: index,
           scene_description: scene.description,
+          end_description: scene.end_description ?? null,
           character_positions: scene.characters,
           dialogue_line: scene.dialogue?.line?.trim() || null,
           dialogue_speaker_position: scene.dialogue ? scene.dialogue.speaker : null,
@@ -1789,6 +1800,81 @@ export async function regenerateSceneImage(userId: string, sceneId: number, idem
       requestId = await submitSceneImageForRow(job, sceneData, imageEntry, true, "image", previousEndPose);
     }
     await supabase.from("story_video_scenes").update({ image_fal_request_id: requestId, image_url: null }).eq("id", sceneId);
+  } catch (err) {
+    if (deduction.txId) await refundCredit(deduction.txId);
+    throw err;
+  }
+
+  return { newBalance: deduction.newBalance };
+}
+
+// "Tạo lại" ảnh cho ĐÚNG 1 vị trí khi job bật chuyển động liên tục — không dùng chung được với
+// regenerateSceneImage() ở trên vì ảnh hiển thị ở "Cảnh (position+1)" trong UI thực ra là end_image_url
+// của cảnh (position-1) đã được copy sang làm image_url lúc tạo lần đầu (xem "chuỗi liên tục" trong
+// applyImageStageResult). Vậy tạo lại ảnh ở vị trí P nghĩa là:
+//  - P = 0: tạo lại ĐÚNG ảnh đầu của chính cảnh 0 — không ảnh hưởng cảnh nào khác.
+//  - P > 0: tạo lại ẢNH CUỐI của cảnh (P-1) — cảnh đó độc lập tự sinh end_image_url từ character sheet
+//    (không phụ thuộc ảnh cảnh khác) rồi copy sang làm image_url của cảnh P, nên KHÔNG cần tạo lại/động
+//    tới bất kỳ cảnh nào khác trong chuỗi (webhook trả về tự copy sang cảnh P qua propagateToSceneId).
+export async function regenerateContinuousMotionSceneImage(
+  userId: string,
+  jobId: number,
+  position: number,
+  idempotencyKey: string
+): Promise<{ newBalance: number }> {
+  const supabase = getSupabaseAdmin();
+  const { data: jobData } = await supabase.from("story_video_jobs").select("*").eq("id", jobId).single();
+  if (!jobData) throw new Error("Không tìm thấy job");
+  const job = jobData as JobRow;
+  if (job.user_id !== userId) throw new Error("Không có quyền với job này");
+  if (!job.continuous_motion) throw new Error("Job này không bật chuyển động liên tục");
+  if (job.status !== "images_ready") throw new Error("Chỉ tạo lại được khi ảnh đã xong, chưa bắt đầu tạo video");
+  if (!job.image_provider_cost_vnd_per_scene) throw new Error("Thiếu dữ liệu giá của job");
+
+  const scenes = await getScenes(jobId);
+  const targetPosition = position > 0 ? position - 1 : 0;
+  const targetScene = scenes.find((s) => s.position === targetPosition);
+  if (!targetScene) throw new Error("Không tìm thấy phân cảnh");
+  const nextScene = position > 0 ? scenes.find((s) => s.position === position) : undefined;
+  const stage: "image" | "image_end" = position > 0 ? "image_end" : "image";
+  // Ảnh cuối dùng đúng "end_description" đã lưu lúc chia cảnh (khoảnh khắc KẾT THÚC); ảnh đầu (P=0)
+  // dùng scene_description gốc (khoảnh khắc chính của chính cảnh đó). Thiếu end_description (job cũ
+  // tạo trước khi có cột này) thì đành fallback về scene_description, còn hơn báo lỗi không tạo lại được.
+  const descriptionForThisImage =
+    stage === "image_end" ? targetScene.end_description ?? targetScene.scene_description ?? "" : targetScene.scene_description ?? "";
+  if (!descriptionForThisImage) throw new Error("Cảnh này thiếu mô tả để tạo lại ảnh");
+
+  const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
+  const cost = computeDynamicCreditCost(job.image_provider_cost_vnd_per_scene, marginPercent, vndPerCredit);
+  const deduction = await deductCredit(userId, cost, job.mini_app_id, idempotencyKey);
+  if (!deduction.success) throw new InsufficientCreditError();
+
+  try {
+    const miniApp = await getMiniAppModelConfig(job.mini_app_id);
+    const imageEntry = miniApp.model_config.image_models.find((m) => m.model === job.image_model);
+    const rowForSubmit = { ...targetScene, scene_description: descriptionForThisImage };
+    let requestId: string;
+    if (targetScene.character_positions && targetScene.character_positions.length > 0) {
+      const { data: jobCharacters } = await supabase
+        .from("story_video_job_characters")
+        .select("position, label, character_sheet_url, character_angle_urls")
+        .eq("job_id", job.id)
+        .order("position", { ascending: true });
+      requestId = await submitMultiCharacterSceneImageForRow(
+        job,
+        rowForSubmit,
+        (jobCharacters as JobCharacterRefRow[]) ?? [],
+        imageEntry,
+        true,
+        stage,
+        undefined,
+        nextScene?.id
+      );
+    } else {
+      requestId = await submitSceneImageForRow(job, rowForSubmit, imageEntry, true, stage, undefined, nextScene?.id);
+    }
+    const requestIdField = stage === "image_end" ? "end_image_fal_request_id" : "image_fal_request_id";
+    await supabase.from("story_video_scenes").update({ [requestIdField]: requestId }).eq("id", targetScene.id);
   } catch (err) {
     if (deduction.txId) await refundCredit(deduction.txId);
     throw err;
@@ -2110,7 +2196,8 @@ export async function applyImageStageResult(
   sceneId: number,
   falPayload: Record<string, unknown>,
   isRegenerate = false,
-  stage: "image" | "image_end" = "image"
+  stage: "image" | "image_end" = "image",
+  propagateToSceneId?: number
 ) {
   const supabase = getSupabaseAdmin();
   const isError = falPayload.status === "ERROR" || !!falPayload.error;
@@ -2139,7 +2226,15 @@ export async function applyImageStageResult(
   }
 
   await supabase.from("story_video_scenes").update(stage === "image_end" ? { end_image_url: imageUrl } : { image_url: imageUrl }).eq("id", sceneId);
-  if (isRegenerate) return;
+  if (isRegenerate) {
+    // Tạo lại ảnh CUỐI 1 cảnh trong chế độ chuyển động liên tục (regenerateContinuousMotionSceneImage) —
+    // ảnh này còn được dùng làm ảnh ĐẦU của cảnh kế tiếp (đã copy lúc tạo lần đầu), nên phải copy đè
+    // URL mới sang luôn, không thì cảnh kế tiếp vẫn giữ ảnh cũ/lỗi dù cảnh này đã tạo lại xong.
+    if (propagateToSceneId) {
+      await supabase.from("story_video_scenes").update({ image_url: imageUrl }).eq("id", propagateToSceneId);
+    }
+    return;
+  }
 
   const scenes = await getScenes(jobId);
 

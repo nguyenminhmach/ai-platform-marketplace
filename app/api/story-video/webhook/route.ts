@@ -16,6 +16,8 @@ export async function POST(req: Request) {
     const isRegenerate = searchParams.get("regen") === "1";
     const characterPositionRaw = searchParams.get("characterPosition");
     const characterPosition = characterPositionRaw !== null ? Number(characterPositionRaw) : undefined;
+    const propagateToSceneIdRaw = searchParams.get("propagateToSceneId");
+    const propagateToSceneId = propagateToSceneIdRaw !== null ? Number(propagateToSceneIdRaw) : undefined;
 
     if (!jobId || (stage !== "character" && stage !== "image" && stage !== "image_end" && stage !== "video" && stage !== "lipsync")) {
       return Response.json({ error: "Thiếu hoặc sai jobId/stage" }, { status: 400 });
@@ -29,7 +31,7 @@ export async function POST(req: Request) {
     if (stage === "character") {
       await applyCharacterStageResult(Number(jobId), payload, characterPosition);
     } else if (stage === "image" || stage === "image_end") {
-      await applyImageStageResult(Number(jobId), Number(sceneId), payload, isRegenerate, stage);
+      await applyImageStageResult(Number(jobId), Number(sceneId), payload, isRegenerate, stage, propagateToSceneId);
     } else if (stage === "video") {
       await applyVideoStageResult(Number(jobId), Number(sceneId), payload, isRegenerate);
     } else {
