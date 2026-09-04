@@ -2307,7 +2307,7 @@ export async function regenerateSceneVideo(userId: string, sceneId: number, idem
   const supabase = getSupabaseAdmin();
   const { data: sceneData } = await supabase
     .from("story_video_scenes")
-    .select("id, job_id, image_url, scene_description, motion_prompt, dialogue_line")
+    .select("id, job_id, image_url, end_image_url, scene_description, motion_prompt, dialogue_line")
     .eq("id", sceneId)
     .single();
   if (!sceneData) throw new Error("Không tìm thấy phân cảnh");

@@ -3583,18 +3583,16 @@ export default function MiniAppDetailPage() {
                               🗣️
                             </span>
                           )}
-                          {!storyContinuousMotion && (
-                            <button
-                              onClick={() => {
-                                if (!isRegeneratingThisVideo) handleRegenerateSceneVideo(scene.id);
-                              }}
-                              disabled={!!storyRegeneratingVideoSceneId}
-                              title="Tạo lại đúng video cảnh này (tốn thêm credit như 1 video phân cảnh)"
-                              className="absolute right-1 top-1 rounded-full bg-black/70 px-1.5 py-1 text-xs text-white hover:bg-black/90 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                              🔄
-                            </button>
-                          )}
+                          <button
+                            onClick={() => {
+                              if (!isRegeneratingThisVideo) handleRegenerateSceneVideo(scene.id);
+                            }}
+                            disabled={!!storyRegeneratingVideoSceneId}
+                            title="Tạo lại đúng video cảnh này (tốn thêm credit như 1 video phân cảnh)"
+                            className="absolute right-1 top-1 rounded-full bg-black/70 px-1.5 py-1 text-xs text-white hover:bg-black/90 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            🔄
+                          </button>
                         </div>
                       );
                     })}
