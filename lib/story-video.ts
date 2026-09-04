@@ -2683,6 +2683,32 @@ const STITCH_CANVAS_BY_ASPECT_RATIO: Record<string, { width: number; height: num
   "1:1": { width: 720, height: 720 },
 };
 
+// Thời lượng chuyển mờ giữa 2 cảnh khi ghép — ngắn vừa đủ để che lệch nhỏ ở khung hình cuối/đầu giữa
+// 2 clip (model video không luôn bám sát 100% ảnh đích khi tạo 8 giây chuyển động, xem stitchAndFinish),
+// không đủ dài để làm mất nội dung cảnh.
+const STITCH_FADE_SECONDS = 0.25;
+
+// Đọc thời lượng + có track âm thanh hay không của 1 clip bằng chính ffmpeg-static đã có sẵn (không
+// thêm dependency ffprobe-static mới — dự án từng tốn nhiều công sửa lỗi ffmpeg-static bị mất quyền
+// thực thi trên Vercel, không muốn lặp lại rủi ro đó với 1 binary khác). "ffmpeg -i <file>" luôn thoát
+// với exit code khác 0 khi không có output, nhưng vẫn in "Duration: ..." + danh sách stream ra stderr.
+// Cần biết có audio hay không vì clip video từ Fal.ai thường KHÔNG có track âm thanh (generate_audio:
+// false) — chỉ những cảnh có lời thoại lồng tiếng (lipsync_url) mới có; ghép crossfade phải xử lý được
+// cả trường hợp lẫn lộn trong cùng 1 job.
+async function probeClip(clipPath: string): Promise<{ durationSeconds: number; hasAudio: boolean }> {
+  try {
+    await execFileAsync(ffmpegPath as string, ["-i", clipPath]);
+    throw new Error(`Không đọc được thông tin clip: ${clipPath}`);
+  } catch (err) {
+    const stderr = (err as { stderr?: string })?.stderr ?? "";
+    const match = stderr.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+    if (!match) throw new Error(`Không đọc được thông tin clip: ${clipPath}`);
+    const durationSeconds = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+    const hasAudio = /Stream #\d+:\d+.*: Audio:/.test(stderr);
+    return { durationSeconds, hasAudio };
+  }
+}
+
 async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
   const supabase = getSupabaseAdmin();
   const { data: job } = await supabase.from("story_video_jobs").select("user_id, mini_app_id, aspect_ratio").eq("id", jobId).single();
@@ -2702,7 +2728,6 @@ async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
   } catch {}
 
   const workDir = await mkdtemp(path.join(tmpdir(), "story-video-"));
-  const listPath = path.join(workDir, "list.txt");
   const outputPath = path.join(workDir, "output.mp4");
   const clipPaths: string[] = [];
 
@@ -2718,18 +2743,66 @@ async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
       })
     );
 
-    const listContent = clipPaths.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join("\n") + "\n";
-    await writeFile(listPath, listContent);
+    const scaleFilter = `scale=${canvas.width}:${canvas.height}:force_original_aspect_ratio=decrease,pad=${canvas.width}:${canvas.height}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
 
-    // Re-encode khi ghép (không dùng "-c copy") — mỗi cảnh là 1 lần gọi model ảnh + model video độc
-    // lập, không đảm bảo cùng codec/tỉ lệ khung hình như dialogue-video (vốn dùng chung 1 ảnh nguồn).
-    // Ép về cùng kích thước bằng scale+pad trước khi ghép để tránh lỗi/lệch khung giữa các đoạn.
-    await execFileAsync(ffmpegPath, [
-      "-f", "concat", "-safe", "0", "-i", listPath,
-      "-vf",
-      `scale=${canvas.width}:${canvas.height}:force_original_aspect_ratio=decrease,pad=${canvas.width}:${canvas.height}:(ow-iw)/2:(oh-ih)/2,setsar=1`,
-      "-c:v", "libx264", "-c:a", "aac", "-y", outputPath,
-    ]);
+    if (clipPaths.length === 1) {
+      // Chỉ 1 cảnh (vd khách dùng "Ghép video, bỏ cảnh lỗi" chỉ còn đúng 1 cảnh) — không có điểm ghép
+      // nào để chuyển mờ, chỉ cần chuẩn hoá kích thước.
+      await execFileAsync(ffmpegPath, ["-i", clipPaths[0], "-vf", scaleFilter, "-c:v", "libx264", "-c:a", "aac", "-y", outputPath]);
+    } else {
+      // Chuyển mờ ngắn (crossfade) giữa các cảnh thay vì cắt cứng ("-f concat" cũ) — cắt cứng khiến bất
+      // kỳ lệch nhỏ nào ở khung hình cuối/đầu giữa 2 clip (model video không luôn bám sát 100% ảnh đích
+      // khi tạo 8 giây chuyển động) đều lộ rõ thành giật ngay tại điểm nối. xfade cần biết trước thời
+      // lượng THẬT của từng clip để tính đúng "offset" bắt đầu chuyển mờ — không dùng đúng số giây đã
+      // yêu cầu lúc submit vì model có thể trả về clip hơi lệch thời lượng.
+      const clipInfo = await Promise.all(clipPaths.map((p) => probeClip(p)));
+      const durations = clipInfo.map((c) => c.durationSeconds);
+      const inputArgs = clipPaths.flatMap((p) => ["-i", p]);
+      const scaleLabels = clipPaths.map((_, i) => `[${i}:v]${scaleFilter}[v${i}]`);
+
+      let videoChain = "";
+      let runningLabel = "v0";
+      let cumulativeDuration = durations[0];
+      for (let i = 1; i < clipPaths.length; i++) {
+        const outLabel = i === clipPaths.length - 1 ? "vout" : `vx${i}`;
+        const offset = Math.max(0, cumulativeDuration - STITCH_FADE_SECONDS);
+        videoChain += `[${runningLabel}][v${i}]xfade=transition=fade:duration=${STITCH_FADE_SECONDS}:offset=${offset.toFixed(3)}[${outLabel}];`;
+        runningLabel = outLabel;
+        cumulativeDuration = offset + durations[i];
+      }
+
+      const filterParts = [...scaleLabels, videoChain.replace(/;$/, "")];
+      const mapArgs = ["-map", "[vout]"];
+      // Clip video từ Fal.ai thường KHÔNG có track âm thanh (generate_audio: false) — chỉ cảnh có lời
+      // thoại lồng tiếng mới có. Không có cảnh nào có audio thì bỏ hẳn track âm thanh (khớp hành vi cũ).
+      // Có ít nhất 1 cảnh có audio thì sinh audio câm (anullsrc, đúng thời lượng clip đó) bù cho cảnh
+      // không có, rồi CHUYỂN MỜ (acrossfade) audio y hệt công thức video (cùng STITCH_FADE_SECONDS) —
+      // bắt buộc phải chuyển mờ chứ không nối thẳng, vì nối thẳng giữ nguyên tổng thời lượng trong khi
+      // video đã bị rút ngắn do xfade, gây lệch tiếng/hình tăng dần theo số cảnh.
+      if (clipInfo.some((c) => c.hasAudio)) {
+        const audioGenerators = clipInfo.map((c, i) =>
+          c.hasAudio
+            ? `[${i}:a]aformat=sample_rates=44100:channel_layouts=stereo[a${i}]`
+            : `anullsrc=channel_layout=stereo:sample_rate=44100:d=${durations[i].toFixed(3)}[a${i}]`
+        );
+        let audioChain = "";
+        let runningAudioLabel = "a0";
+        for (let i = 1; i < clipPaths.length; i++) {
+          const outLabel = i === clipPaths.length - 1 ? "aout" : `ax${i}`;
+          audioChain += `[${runningAudioLabel}][a${i}]acrossfade=d=${STITCH_FADE_SECONDS}[${outLabel}];`;
+          runningAudioLabel = outLabel;
+        }
+        filterParts.push(...audioGenerators, audioChain.replace(/;$/, ""));
+        mapArgs.push("-map", "[aout]");
+      }
+
+      await execFileAsync(ffmpegPath, [
+        ...inputArgs,
+        "-filter_complex", filterParts.join(";"),
+        ...mapArgs,
+        "-c:v", "libx264", "-c:a", "aac", "-y", outputPath,
+      ]);
+    }
 
     const outputBuffer = await readFile(outputPath);
     const filePath = `${job.user_id}/story-${jobId}-${randomUUID()}.mp4`;
