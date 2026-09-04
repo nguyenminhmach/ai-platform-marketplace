@@ -2146,14 +2146,20 @@ export async function applyImageStageResult(
     }
   }
 
-  const { data: job } = await supabase.from("story_video_jobs").select("auto_video, continuous_motion").eq("id", jobId).single();
-  const missing = (s: SceneRow) => !s.image_url || (job?.continuous_motion && !s.end_image_url);
-  if (scenes.length === 0 || scenes.some(missing)) return; // chờ cảnh còn lại
+  // Chốt "đủ ảnh chưa" bằng 1 RPC atomic (khoá dòng job ở DB) thay vì đọc-rồi-so-sánh ở phía JS —
+  // nhiều webhook ảnh của cùng job có thể đến gần như cùng lúc (7 lệnh song song khi continuous
+  // motion), đọc-rồi-so-sánh ở JS có thể khiến KHÔNG webhook nào tự nhận là "cái cuối cùng" và job
+  // kẹt mãi dù ảnh đã đủ. Xem migration-story-video-atomic-images-ready.sql.
+  const { data: becameReady, error: claimError } = await supabase.rpc("try_mark_story_video_images_ready", { p_job_id: jobId });
+  if (claimError) {
+    console.error(`[story-video] Lỗi kiểm tra hoàn tất ảnh cho job #${jobId}:`, claimError.message);
+    return;
+  }
+  if (!becameReady) return; // hoặc chưa đủ cảnh, hoặc job khác đã chuyển status trước rồi
 
+  const { data: job } = await supabase.from("story_video_jobs").select("auto_video").eq("id", jobId).single();
   if (job?.auto_video) {
     await proceedToVideoStage(jobId, scenes);
-  } else {
-    await supabase.from("story_video_jobs").update({ status: "images_ready" }).eq("id", jobId);
   }
 }
 
