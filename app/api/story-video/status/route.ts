@@ -33,6 +33,7 @@ export async function GET(req: Request) {
         id: number;
         position: number;
         imageUrl: string | null;
+        endImageUrl: string | null;
         videoUrl: string | null;
         hasDialogue: boolean;
         motionPrompt: string;
@@ -67,7 +68,7 @@ export async function GET(req: Request) {
   if (["generating_images", "images_ready", "generating_videos", "stitching", "failed"].includes(data.status)) {
     const { data: sceneRows } = await supabase
       .from("story_video_scenes")
-      .select("id, position, image_url, video_url, lipsync_url, dialogue_line, motion_prompt, scene_description")
+      .select("id, position, image_url, end_image_url, video_url, lipsync_url, dialogue_line, motion_prompt, scene_description")
       .eq("job_id", jobId)
       .order("position", { ascending: true });
     if (sceneRows) {
@@ -75,10 +76,13 @@ export async function GET(req: Request) {
       // không cần biết gì về lồng tiếng, chỉ thấy đúng video đã sẵn sàng. hasDialogue chỉ để hiện badge
       // 🗣️ tham khảo trên UI, không ảnh hưởng logic tạo video. motionPrompt để khách sửa lại trước khi
       // bấm tạo lại video (vd lỗi bị model chặn nội dung, gửi lại y hệt câu cũ dễ lặp lại lỗi).
+      // endImageUrl chỉ có giá trị khi job bật chuyển động liên tục — dùng cho nút "Kiểm tra lệch ảnh
+      // đầu/cuối" (so sánh image_url và end_image_url của CÙNG 1 cảnh).
       scenes = sceneRows.map((s) => ({
         id: s.id,
         position: s.position,
         imageUrl: s.image_url,
+        endImageUrl: s.end_image_url,
         videoUrl: s.lipsync_url ?? s.video_url,
         hasDialogue: !!s.dialogue_line,
         motionPrompt: s.motion_prompt ?? s.scene_description ?? "",

@@ -138,6 +138,47 @@ export async function classifyAllAreSheets(imageUrls: string[]): Promise<boolean
   return true;
 }
 
+type SceneQcResult = { ok: boolean; issue?: string };
+
+function parseSceneQcResponse(output: string): SceneQcResult {
+  const cleaned = output.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  const parsed = JSON.parse(cleaned);
+  if (typeof parsed?.ok !== "boolean") throw new Error("Phản hồi AI không hợp lệ");
+  return { ok: parsed.ok, issue: typeof parsed.issue === "string" ? parsed.issue : undefined };
+}
+
+const SCENE_ANATOMY_CHECK_PROMPT = `Bạn là chuyên gia kiểm tra ảnh do AI tạo ra để phát hiện lỗi. Xem kỹ bức ảnh và trả lời ĐÚNG 1 dòng JSON duy nhất, không thêm chữ nào khác:
+{"ok": true} nếu ảnh không có lỗi rõ ràng, hoặc
+{"ok": false, "issue": "<mô tả ngắn gọn bằng tiếng Việt lỗi tìm thấy>"} nếu có ít nhất 1 trong các lỗi sau:
+- Thiếu tay/chân, thừa/thiếu ngón tay, chi thể bị biến dạng bất thường
+- Khuôn mặt bị lỗi, nhân đôi, hoặc mờ chồng lên nhau (ghosting)
+- Có chữ, số, nhãn, watermark xuất hiện trong ảnh
+- Có nhiều hơn 1 người trong ảnh (kể cả 1 người mờ/khuất trong nền)
+Chỉ báo lỗi khi THẬT SỰ rõ ràng nhìn thấy được — không đoán hoặc báo lỗi vì lý do thẩm mỹ (dáng hơi gượng, ánh sáng chưa đẹp...), những điểm đó KHÔNG tính là lỗi.`;
+
+// "Kiểm tra thiếu chi thể" — nút thủ công, khách tự bấm khi nghi ngờ ảnh phân cảnh bị lỗi (không trừ
+// credit, cùng tiền lệ classifyCharacterImage: Gemini Flash rẻ, ~18đ/lượt). Xem chú thích
+// checkSceneContinuity() bên dưới cho loại kiểm tra thứ 2 (lệch ảnh đầu/cuối).
+export async function checkSceneAnatomy(imageUrl: string): Promise<SceneQcResult> {
+  const { output } = await callOpenRouter("google/gemini-3-flash-preview", 200, SCENE_ANATOMY_CHECK_PROMPT, "Kiểm tra ảnh này.", imageUrl);
+  return parseSceneQcResponse(output);
+}
+
+const SCENE_CONTINUITY_CHECK_PROMPT = `Bạn là chuyên gia kiểm tra ảnh do AI tạo ra. Bạn được xem 2 ảnh: ảnh THỨ NHẤT là khung hình ĐẦU của 1 cảnh quay, ảnh THỨ HAI là khung hình CUỐI của CHÍNH cảnh đó (2 khung hình cách nhau vài giây trong cùng 1 cú máy quay liên tục, không cắt cảnh). Kiểm tra xem 2 ảnh có thể hiện ĐÚNG cùng 1 vị trí/không gian không — cùng đồ nội thất (giường/sofa/bàn/ghế...), cùng bố cục phòng, cùng góc máy/khung hình. Trả lời ĐÚNG 1 dòng JSON duy nhất, không thêm chữ nào khác:
+{"ok": true} nếu 2 ảnh khớp nhau về không gian/đồ nội thất/góc máy, hoặc
+{"ok": false, "issue": "<mô tả ngắn gọn tiếng Việt điểm khác biệt bất thường>"} nếu phát hiện khác biệt rõ ràng (vd đồ nội thất đổi khác, phòng khác hẳn, góc máy nhảy cóc).
+Chỉ báo lỗi khi khác biệt THẬT RÕ RÀNG — thay đổi nhỏ về ánh sáng/tư thế nhân vật KHÔNG tính là lỗi.`;
+
+// "Kiểm tra lệch ảnh đầu/cuối" — chỉ áp dụng cho job bật chuyển động liên tục (mỗi cảnh có cả
+// image_url và end_image_url). Gửi CẢ 2 ảnh trong 1 lượt gọi (callOpenRouter đã hỗ trợ mảng ảnh).
+export async function checkSceneContinuity(startImageUrl: string, endImageUrl: string): Promise<SceneQcResult> {
+  const { output } = await callOpenRouter("google/gemini-3-flash-preview", 200, SCENE_CONTINUITY_CHECK_PROMPT, "Kiểm tra 2 ảnh này.", [
+    startImageUrl,
+    endImageUrl,
+  ]);
+  return parseSceneQcResponse(output);
+}
+
 // count > 1 dùng cho job nhiều nhân vật — chỉ tính phí đúng số người THẬT SỰ cần AI tạo Character mới
 // (bỏ qua người tái dùng thư viện/đã là sheet sẵn), mặc định 1 giữ nguyên hành vi cho mọi chỗ gọi cũ.
 export async function computeCharacterCreditCost(count = 1): Promise<{ providerCostVnd: number; creditCost: number }> {

@@ -164,15 +164,16 @@ export async function callOpenRouter(
   maxTokens: number,
   systemPrompt: string,
   userInput: string,
-  imageDataUrl?: string
+  imageDataUrl?: string | string[]
 ): Promise<{ output: string; costUsd: number; tokensUsed: number }> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("Chưa cấu hình OPENROUTER_API_KEY trong .env.local");
 
-  const userContent = imageDataUrl
+  const imageUrls = Array.isArray(imageDataUrl) ? imageDataUrl : imageDataUrl ? [imageDataUrl] : [];
+  const userContent = imageUrls.length
     ? [
         { type: "text", text: userInput || "Hãy viết mô tả bán hàng cho sản phẩm trong ảnh này." },
-        { type: "image_url", image_url: { url: imageDataUrl } },
+        ...imageUrls.map((url) => ({ type: "image_url", image_url: { url } })),
       ]
     : userInput;
 

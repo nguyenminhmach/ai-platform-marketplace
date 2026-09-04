@@ -339,6 +339,7 @@ export default function MiniAppDetailPage() {
         id: number;
         position: number;
         imageUrl: string | null;
+        endImageUrl?: string | null;
         videoUrl: string | null;
         hasDialogue?: boolean;
         motionPrompt?: string;
@@ -349,6 +350,12 @@ export default function MiniAppDetailPage() {
   // Chế độ chuyển động liên tục — "Tạo lại" theo VỊ TRÍ hiển thị trên UI (không phải sceneId trực
   // tiếp), xem regenerateContinuousMotionSceneImage() trong lib/story-video.ts để hiểu vì sao.
   const [storyRegeneratingContinuousPosition, setStoryRegeneratingContinuousPosition] = useState<number | null>(null);
+  // 2 nút "Kiểm tra" thủ công (thiếu chi thể / lệch ảnh đầu-cuối) — key theo sceneId, giá trị null =
+  // đang chạy, undefined = chưa kiểm tra lần nào, {ok,issue} = kết quả lần gần nhất.
+  const [storyAnatomyChecking, setStoryAnatomyChecking] = useState<Record<number, boolean>>({});
+  const [storyAnatomyResults, setStoryAnatomyResults] = useState<Record<number, { ok: boolean; issue?: string }>>({});
+  const [storyContinuityChecking, setStoryContinuityChecking] = useState<Record<number, boolean>>({});
+  const [storyContinuityResults, setStoryContinuityResults] = useState<Record<number, { ok: boolean; issue?: string }>>({});
   const [storyRegeneratingVideoSceneId, setStoryRegeneratingVideoSceneId] = useState<number | null>(null);
   // Sửa câu mô tả chuyển động trước khi tạo lại video 1 cảnh — dùng khi lỗi lặp lại y hệt (vd bị model
   // chặn nội dung), gửi lại đúng câu cũ dễ ra lỗi y hệt, cần chỗ để khách đổi cách diễn đạt.
@@ -1086,6 +1093,51 @@ export default function MiniAppDetailPage() {
     } catch {
       setStoryError("Không kết nối được tới server");
       setStoryRegeneratingContinuousPosition(null);
+    }
+  }
+
+  // "Kiểm tra thiếu chi thể" — nút thủ công, không trừ credit, gọi trực tiếp qua sceneId+imageUrl.
+  async function handleCheckSceneAnatomy(sceneId: number, imageUrl: string) {
+    setStoryAnatomyChecking((prev) => ({ ...prev, [sceneId]: true }));
+    try {
+      const res = await fetch("/api/story-video/check-scene-anatomy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageUrl }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStoryError(data.error ?? "Có lỗi xảy ra khi kiểm tra");
+        return;
+      }
+      setStoryAnatomyResults((prev) => ({ ...prev, [sceneId]: { ok: data.ok, issue: data.issue } }));
+    } catch {
+      setStoryError("Không kết nối được tới server");
+    } finally {
+      setStoryAnatomyChecking((prev) => ({ ...prev, [sceneId]: false }));
+    }
+  }
+
+  // "Kiểm tra lệch ảnh đầu/cuối" — chỉ áp dụng cảnh có đủ image_url + endImageUrl (chuyển động liên
+  // tục), không trừ credit.
+  async function handleCheckSceneContinuity(sceneId: number, startImageUrl: string, endImageUrl: string) {
+    setStoryContinuityChecking((prev) => ({ ...prev, [sceneId]: true }));
+    try {
+      const res = await fetch("/api/story-video/check-scene-continuity", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ startImageUrl, endImageUrl }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStoryError(data.error ?? "Có lỗi xảy ra khi kiểm tra");
+        return;
+      }
+      setStoryContinuityResults((prev) => ({ ...prev, [sceneId]: { ok: data.ok, issue: data.issue } }));
+    } catch {
+      setStoryError("Không kết nối được tới server");
+    } finally {
+      setStoryContinuityChecking((prev) => ({ ...prev, [sceneId]: false }));
     }
   }
 
@@ -3475,6 +3527,40 @@ export default function MiniAppDetailPage() {
                                     ⬇
                                   </a>
                                 </div>
+                                {aiScene && (
+                                  <div className="flex flex-wrap gap-1">
+                                    <button
+                                      onClick={() => handleCheckSceneAnatomy(aiScene.id, img)}
+                                      disabled={!!storyAnatomyChecking[aiScene.id]}
+                                      title="Nhờ AI kiểm tra ảnh này có thiếu/lỗi tay chân, chữ lạ, nhiều người không (miễn phí)"
+                                      className="rounded border border-zinc-300 px-1.5 py-0.5 text-[11px] text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                                    >
+                                      {storyAnatomyChecking[aiScene.id] ? "Đang kiểm tra..." : "🩻 Kiểm tra chi thể"}
+                                    </button>
+                                    {aiScene.endImageUrl && (
+                                      <button
+                                        onClick={() => handleCheckSceneContinuity(aiScene.id, aiScene.imageUrl as string, aiScene.endImageUrl as string)}
+                                        disabled={!!storyContinuityChecking[aiScene.id]}
+                                        title="Nhờ AI so sánh ảnh đầu/cuối cảnh này có cùng phòng/đồ nội thất không (miễn phí)"
+                                        className="rounded border border-zinc-300 px-1.5 py-0.5 text-[11px] text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                                      >
+                                        {storyContinuityChecking[aiScene.id] ? "Đang kiểm tra..." : "🔗 Kiểm tra đầu/cuối"}
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                                {storyAnatomyResults[aiScene?.id ?? -1] && (
+                                  <p className={`text-[11px] ${storyAnatomyResults[aiScene!.id].ok ? "text-emerald-600" : "text-red-500"}`}>
+                                    {storyAnatomyResults[aiScene!.id].ok ? "✅ Chi thể ổn" : `⚠️ ${storyAnatomyResults[aiScene!.id].issue ?? "Có lỗi"}`}
+                                  </p>
+                                )}
+                                {storyContinuityResults[aiScene?.id ?? -1] && (
+                                  <p className={`text-[11px] ${storyContinuityResults[aiScene!.id].ok ? "text-emerald-600" : "text-red-500"}`}>
+                                    {storyContinuityResults[aiScene!.id].ok
+                                      ? "✅ Đầu/cuối khớp nhau"
+                                      : `⚠️ ${storyContinuityResults[aiScene!.id].issue ?? "Lệch đầu/cuối"}`}
+                                  </p>
+                                )}
                                 {storyUseOwnSceneImages && (
                                   <textarea
                                     value={storySceneHints[index] ?? ""}
