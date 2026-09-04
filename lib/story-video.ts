@@ -1656,6 +1656,14 @@ export async function submitStoryVideoJobWithOwnImages(
   const supabase = getSupabaseAdmin();
   const miniApp = await getMiniAppModelConfig(miniAppId);
   const videoEntry = resolveModelEntry(miniApp.model_config.video_models, videoModelKey);
+  // Luồng "khách tự tải ảnh phân cảnh" chỉ có đúng 1 ảnh/cảnh, không có cơ chế tạo ảnh CUỐI cảnh —
+  // model nào bắt buộc cả ảnh đầu lẫn ảnh cuối (vd "veo31-lite-flf") sẽ luôn lỗi 422 thiếu last_frame_url
+  // nếu chọn ở đây. Chặn sớm bằng lỗi rõ ràng thay vì để job chạy tới lúc tạo video mới báo lỗi.
+  if (REQUIRES_CONTINUOUS_MOTION_VIDEO_KEYS.has(videoEntry.key)) {
+    throw new Error(
+      `Model video "${videoEntry.label}" yêu cầu cả ảnh đầu lẫn ảnh cuối cảnh — không dùng được khi tự tải ảnh phân cảnh có sẵn. Vui lòng chọn model video khác.`
+    );
+  }
 
   let videoProviderCostVnd = videoEntry.provider_cost_vnd;
   let resolvedDurationKey: string | undefined;

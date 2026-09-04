@@ -3249,10 +3249,19 @@ export default function MiniAppDetailPage() {
                                 }}
                                 className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                               >
-                                {Array.from(new Set(storyVideoModels.map((m) => m.provider))).map((provider) => (
+                                {/* "veo31-lite-flf" bắt buộc có ảnh CUỐI cảnh (last_frame_url) — luồng "khách tự tải ảnh
+                                    phân cảnh" chỉ có đúng 1 ảnh/cảnh, không có cơ chế tạo ảnh cuối, nên model này luôn
+                                    lỗi 422 (thiếu field) nếu chọn ở chế độ đó. Ẩn khỏi danh sách khi đang bật chế độ này. */}
+                                {Array.from(
+                                  new Set(
+                                    storyVideoModels
+                                      .filter((m) => !(storyUseOwnSceneImages && m.key === "veo31-lite-flf"))
+                                      .map((m) => m.provider)
+                                  )
+                                ).map((provider) => (
                                   <optgroup key={provider} label={provider}>
                                     {storyVideoModels
-                                      .filter((m) => m.provider === provider)
+                                      .filter((m) => m.provider === provider && !(storyUseOwnSceneImages && m.key === "veo31-lite-flf"))
                                       .map((m) => (
                                         <option key={m.key} value={m.key}>
                                           {m.label} — {m.provider_cost_vnd}đ/cảnh
@@ -3324,7 +3333,16 @@ export default function MiniAppDetailPage() {
                         <input
                           type="checkbox"
                           checked={storyUseOwnSceneImages}
-                          onChange={(e) => setStoryUseOwnSceneImages(e.target.checked)}
+                          onChange={(e) => {
+                            setStoryUseOwnSceneImages(e.target.checked);
+                            // "veo31-lite-flf" không dùng được ở chế độ này (xem chú thích ở dropdown Model video) —
+                            // đổi sang model khác nếu đang chọn dở, tránh submit với model không tương thích.
+                            if (e.target.checked && storyVideoModelKey === "veo31-lite-flf") {
+                              const fallback = storyVideoModels.find((m) => m.key !== "veo31-lite-flf");
+                              setStoryVideoModelKey(fallback?.key ?? null);
+                              setStoryContinuousMotion(false);
+                            }
+                          }}
                         />
                         Đã có sẵn ảnh phân cảnh — tải lên thay vì để AI tạo
                       </label>
