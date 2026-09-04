@@ -2763,55 +2763,74 @@ async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
       // yêu cầu lúc submit vì model có thể trả về clip hơi lệch thời lượng.
       const clipInfo = await Promise.all(clipPaths.map((p) => probeClip(p)));
       const durations = clipInfo.map((c) => c.durationSeconds);
-      const inputArgs = clipPaths.flatMap((p) => ["-i", p]);
-      const scaleLabels = clipPaths.map((_, i) => `[${i}:v]${scaleFilter}[v${i}]`);
+      const anyHasAudio = clipInfo.some((c) => c.hasAudio);
 
-      let videoChain = "";
-      let runningLabel = "v0";
-      let cumulativeDuration = durations[0];
-      for (let i = 1; i < clipPaths.length; i++) {
-        const outLabel = i === clipPaths.length - 1 ? "vout" : `vx${i}`;
-        const offset = Math.max(0, cumulativeDuration - STITCH_FADE_SECONDS);
-        videoChain += `[${runningLabel}][v${i}]xfade=transition=fade:duration=${STITCH_FADE_SECONDS}:offset=${offset.toFixed(3)}[${outLabel}];`;
-        runningLabel = outLabel;
-        cumulativeDuration = offset + durations[i];
-      }
+      // Ghép NỐI TIẾP từng cặp 2 clip một (không mở cùng lúc N clip trong 1 lệnh ffmpeg như bản đầu) —
+      // mở nhiều clip cùng lúc trong 1 filter_complex khiến ffmpeg phải giữ TẤT CẢ luồng giải mã trong
+      // bộ nhớ cùng lúc, đã từng làm hàm bị Vercel kill do hết RAM ("instance was killed because it ran
+      // out of available memory") khi job có nhiều cảnh. Gộp dần: [tích luỹ] + [clip tiếp theo] ->
+      // [tích luỹ mới] — RAM ở mỗi bước chỉ cần giữ đúng 2 luồng, không phụ thuộc tổng số cảnh trong job.
+      let accPath = clipPaths[0];
+      let accDuration = durations[0];
 
-      const filterParts = [...scaleLabels, videoChain.replace(/;$/, "")];
-      const mapArgs = ["-map", "[vout]"];
-      // Clip video từ Fal.ai thường KHÔNG có track âm thanh (generate_audio: false) — chỉ cảnh có lời
-      // thoại lồng tiếng mới có. Không có cảnh nào có audio thì bỏ hẳn track âm thanh (khớp hành vi cũ).
-      // Có ít nhất 1 cảnh có audio thì sinh audio câm (anullsrc, đúng thời lượng clip đó) bù cho cảnh
-      // không có, rồi CHUYỂN MỜ (acrossfade) audio y hệt công thức video (cùng STITCH_FADE_SECONDS) —
-      // bắt buộc phải chuyển mờ chứ không nối thẳng, vì nối thẳng giữ nguyên tổng thời lượng trong khi
-      // video đã bị rút ngắn do xfade, gây lệch tiếng/hình tăng dần theo số cảnh.
-      if (clipInfo.some((c) => c.hasAudio)) {
-        const audioGenerators = clipInfo.map((c, i) =>
-          c.hasAudio
-            ? `[${i}:a]aformat=sample_rates=44100:channel_layouts=stereo[a${i}]`
-            : `anullsrc=channel_layout=stereo:sample_rate=44100:d=${durations[i].toFixed(3)}[a${i}]`
-        );
-        let audioChain = "";
-        let runningAudioLabel = "a0";
-        for (let i = 1; i < clipPaths.length; i++) {
-          const outLabel = i === clipPaths.length - 1 ? "aout" : `ax${i}`;
-          audioChain += `[${runningAudioLabel}][a${i}]acrossfade=d=${STITCH_FADE_SECONDS}[${outLabel}];`;
-          runningAudioLabel = outLabel;
+      // Chuẩn hoá kích thước/màu/audio ngay từ clip đầu tiên để mọi bước gộp sau chỉ cần xfade/
+      // acrossfade thẳng, không phải lo lệch định dạng giữa 2 vế mỗi lần gộp.
+      const firstNormalized = path.join(workDir, "acc-0.mp4");
+      {
+        const filterParts = [`[0:v]${scaleFilter}[vout]`];
+        const mapArgs = ["-map", "[vout]"];
+        if (anyHasAudio) {
+          filterParts.push(
+            clipInfo[0].hasAudio
+              ? `[0:a]aformat=sample_rates=44100:channel_layouts=stereo[aout]`
+              : `anullsrc=channel_layout=stereo:sample_rate=44100:d=${accDuration.toFixed(3)}[aout]`
+          );
+          mapArgs.push("-map", "[aout]");
         }
-        filterParts.push(...audioGenerators, audioChain.replace(/;$/, ""));
-        mapArgs.push("-map", "[aout]");
+        await execFileAsync(ffmpegPath, [
+          "-i", accPath,
+          "-filter_complex", filterParts.join(";"),
+          ...mapArgs,
+          "-c:v", "libx264", "-pix_fmt", "yuv420p",
+          ...(anyHasAudio ? ["-c:a", "aac"] : ["-an"]),
+          "-y", firstNormalized,
+        ]);
       }
+      accPath = firstNormalized;
 
-      // "-pix_fmt yuv420p" bắt buộc — filter "xfade" tự chuyển sang không gian màu 4:4:4 khi chuyển mờ,
-      // nếu không ép lại libx264 sẽ encode ra profile "High 4:4:4 Predictive" (yuv444p) mà hầu hết trình
-      // phát thường (kể cả Windows Media Player mặc định) không phát được — chỉ phần mềm chuyên dụng mới
-      // đọc được. yuv420p là chuẩn phổ thông mọi trình phát/trình duyệt đều hỗ trợ.
-      await execFileAsync(ffmpegPath, [
-        ...inputArgs,
-        "-filter_complex", filterParts.join(";"),
-        ...mapArgs,
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-y", outputPath,
-      ]);
+      for (let i = 1; i < clipPaths.length; i++) {
+        const isLast = i === clipPaths.length - 1;
+        const stepOutput = isLast ? outputPath : path.join(workDir, `acc-${i}.mp4`);
+        const offset = Math.max(0, accDuration - STITCH_FADE_SECONDS);
+        // "-pix_fmt yuv420p" bắt buộc — filter "xfade" tự chuyển sang không gian màu 4:4:4 khi chuyển
+        // mờ, nếu không ép lại libx264 sẽ encode ra profile "High 4:4:4 Predictive" (yuv444p) mà hầu
+        // hết trình phát thường (kể cả Windows Media Player mặc định) không phát được.
+        const filterParts = [
+          `[0:v]${scaleFilter}[v0]`,
+          `[1:v]${scaleFilter}[v1]`,
+          `[v0][v1]xfade=transition=fade:duration=${STITCH_FADE_SECONDS}:offset=${offset.toFixed(3)}[vout]`,
+        ];
+        const mapArgs = ["-map", "[vout]"];
+        if (anyHasAudio) {
+          filterParts.push(
+            clipInfo[i].hasAudio
+              ? `[1:a]aformat=sample_rates=44100:channel_layouts=stereo[a1]`
+              : `anullsrc=channel_layout=stereo:sample_rate=44100:d=${durations[i].toFixed(3)}[a1]`,
+            `[0:a][a1]acrossfade=d=${STITCH_FADE_SECONDS}[aout]`
+          );
+          mapArgs.push("-map", "[aout]");
+        }
+        await execFileAsync(ffmpegPath, [
+          "-i", accPath, "-i", clipPaths[i],
+          "-filter_complex", filterParts.join(";"),
+          ...mapArgs,
+          "-c:v", "libx264", "-pix_fmt", "yuv420p",
+          ...(anyHasAudio ? ["-c:a", "aac"] : ["-an"]),
+          "-y", stepOutput,
+        ]);
+        accPath = stepOutput;
+        accDuration = offset + durations[i];
+      }
     }
 
     const outputBuffer = await readFile(outputPath);
