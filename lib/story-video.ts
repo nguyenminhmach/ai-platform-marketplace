@@ -2876,6 +2876,85 @@ export async function applyVideoStageResult(
 // cảnh ở đúng 1 cảnh đó, nhưng chắc chắn đúng mặt) — xem applyFrameChainImageResult().
 const MAX_IDENTITY_RETRY = 2;
 
+// Lưới an toàn lớp 2 — dùng chung cho CẢ 2 nơi tạo ảnh cảnh chain: (a) đường vẽ lại bằng AI (khi Vision
+// phát hiện sai danh tính, xem bên dưới), (b) đường ghép ảnh THẬT trực tiếp mới thêm (applyFrameChainVideoResult).
+// Trả về true = danh tính ổn, cứ submit video luôn; false = đã tự gửi yêu cầu vẽ lại ảnh khác (bằng AI),
+// gọi hàm này KHÔNG được submit video — phải đợi webhook ảnh mới quay lại gọi applyFrameChainImageResult.
+async function checkFrameChainIdentity(
+  jobId: number,
+  scene: {
+    id: number;
+    position: number;
+    image_url: string | null;
+    scene_description: string | null;
+    motion_prompt: string | null;
+    camera_view: string | null;
+    face_view: string | null;
+    outfit_override: string | null;
+    location: string | null;
+    identity_retry_count: number | null;
+  },
+  job: Pick<
+    JobRow,
+    "id" | "mini_app_id" | "image_model" | "aspect_ratio" | "image_resolution_key" | "character_sheet_url" | "character_angle_urls" | "location_reference_url"
+  >
+): Promise<boolean> {
+  const supabase = getSupabaseAdmin();
+  // Chỉ kiểm tra từ cảnh thứ 2 trở đi (cảnh có thật sự dùng khung hình chain) — cảnh đầu tiên dùng
+  // đúng ảnh Character gốc như luồng thường, không có gì để trôi danh tính. Bỏ qua nếu đã vượt số lần
+  // thử tối đa (đã dùng phương án dự phòng ở lượt trước) — chấp nhận kết quả hiện có, không lặp vô hạn.
+  const retryCount = scene.identity_retry_count ?? 0;
+  if (!(scene.position > 0 && job.character_sheet_url && scene.image_url && retryCount <= MAX_IDENTITY_RETRY)) {
+    return true;
+  }
+
+  let identityOk = true;
+  let issue: string | undefined;
+  try {
+    const faceReference = (job.character_angle_urls as CharacterAngleUrls | null)?.front || job.character_sheet_url;
+    const check = await checkSceneIdentityMatch(faceReference, scene.image_url as string, job.mini_app_id);
+    identityOk = check.ok;
+    issue = check.issue;
+  } catch (err) {
+    console.error(`[story-video] Lỗi kiểm tra danh tính cảnh #${scene.id}, coi như đạt:`, err);
+  }
+  if (identityOk) return true;
+
+  try {
+    const miniApp = await getMiniAppModelConfig(job.mini_app_id);
+    const imageEntry = miniApp.model_config.image_models.find((m) => m.model === job.image_model);
+    if (retryCount < MAX_IDENTITY_RETRY) {
+      console.error(`[story-video] Frame-chain cảnh #${scene.id} nghi sai danh tính (lần ${retryCount + 1}): ${issue}`);
+      const { data: prevScene } = await supabase
+        .from("story_video_scenes")
+        .select("last_frame_url")
+        .eq("job_id", jobId)
+        .eq("position", scene.position - 1)
+        .maybeSingle();
+      const requestId = await submitSceneImageForRow(
+        job, scene, imageEntry, true, "image", undefined, undefined, prevScene?.last_frame_url ?? undefined
+      );
+      await supabase
+        .from("story_video_scenes")
+        .update({ identity_retry_count: retryCount + 1, image_url: null, image_fal_request_id: requestId })
+        .eq("id", scene.id);
+    } else {
+      // Hết số lần thử — quay về ảnh Character gốc (bỏ khung hình chain) cho ĐÚNG cảnh này, đảm bảo
+      // đúng mặt dù mất liền mạch tư thế/bối cảnh ở đúng 1 cảnh đó. Đánh dấu vượt ngưỡng để lần webhook
+      // tới (kết quả của lượt vẽ này) không kiểm tra lại nữa, tránh lặp vô hạn nếu vẫn lỡ sai.
+      console.error(`[story-video] Cảnh #${scene.id} hết lượt thử, quay về ảnh Character gốc.`);
+      const requestId = await submitSceneImageForRow(job, scene, imageEntry, true, "image");
+      await supabase
+        .from("story_video_scenes")
+        .update({ identity_retry_count: MAX_IDENTITY_RETRY + 1, image_url: null, image_fal_request_id: requestId })
+        .eq("id", scene.id);
+    }
+  } catch (err) {
+    await failJob(jobId, err instanceof Error ? err.message : String(err));
+  }
+  return false;
+}
+
 async function applyFrameChainImageResult(jobId: number, sceneId: number) {
   const supabase = getSupabaseAdmin();
   const { data: job } = await supabase
@@ -2892,58 +2971,7 @@ async function applyFrameChainImageResult(jobId: number, sceneId: number) {
     .single();
   if (!job || !scene) return;
 
-  // Chỉ kiểm tra từ cảnh thứ 2 trở đi (cảnh có thật sự dùng khung hình chain) — cảnh đầu tiên dùng
-  // đúng ảnh Character gốc như luồng thường, không có gì để trôi danh tính. Bỏ qua nếu đã vượt số lần
-  // thử tối đa (đã dùng phương án dự phòng ở lượt trước) — chấp nhận kết quả hiện có, không lặp vô hạn.
-  const retryCount = scene.identity_retry_count ?? 0;
-  if (scene.position > 0 && job.character_sheet_url && scene.image_url && retryCount <= MAX_IDENTITY_RETRY) {
-    let identityOk = true;
-    let issue: string | undefined;
-    try {
-      const faceReference = (job.character_angle_urls as CharacterAngleUrls | null)?.front || job.character_sheet_url;
-      const check = await checkSceneIdentityMatch(faceReference, scene.image_url, job.mini_app_id);
-      identityOk = check.ok;
-      issue = check.issue;
-    } catch (err) {
-      console.error(`[story-video] Lỗi kiểm tra danh tính cảnh #${sceneId}, coi như đạt:`, err);
-    }
-
-    if (!identityOk) {
-      try {
-        const miniApp = await getMiniAppModelConfig(job.mini_app_id);
-        const imageEntry = miniApp.model_config.image_models.find((m) => m.model === job.image_model);
-        if (retryCount < MAX_IDENTITY_RETRY) {
-          console.error(`[story-video] Frame-chain cảnh #${sceneId} nghi sai danh tính (lần ${retryCount + 1}): ${issue}`);
-          const { data: prevScene } = await supabase
-            .from("story_video_scenes")
-            .select("last_frame_url")
-            .eq("job_id", jobId)
-            .eq("position", scene.position - 1)
-            .maybeSingle();
-          const requestId = await submitSceneImageForRow(
-            job, scene, imageEntry, true, "image", undefined, undefined, prevScene?.last_frame_url ?? undefined
-          );
-          await supabase
-            .from("story_video_scenes")
-            .update({ identity_retry_count: retryCount + 1, image_url: null, image_fal_request_id: requestId })
-            .eq("id", sceneId);
-        } else {
-          // Hết số lần thử — quay về ảnh Character gốc (bỏ khung hình chain) cho ĐÚNG cảnh này, đảm bảo
-          // đúng mặt dù mất liền mạch tư thế/bối cảnh ở đúng 1 cảnh đó. Đánh dấu vượt ngưỡng để lần webhook
-          // tới (kết quả của lượt vẽ này) không kiểm tra lại nữa, tránh lặp vô hạn nếu vẫn lỡ sai.
-          console.error(`[story-video] Cảnh #${sceneId} hết lượt thử, quay về ảnh Character gốc.`);
-          const requestId = await submitSceneImageForRow(job, scene, imageEntry, true, "image");
-          await supabase
-            .from("story_video_scenes")
-            .update({ identity_retry_count: MAX_IDENTITY_RETRY + 1, image_url: null, image_fal_request_id: requestId })
-            .eq("id", sceneId);
-        }
-      } catch (err) {
-        await failJob(jobId, err instanceof Error ? err.message : String(err));
-      }
-      return; // đợi webhook ảnh mới, chưa submit video vội
-    }
-  }
+  if (!(await checkFrameChainIdentity(jobId, scene, job))) return; // đợi webhook ảnh mới, chưa submit video vội
 
   try {
     const requestId = await submitSceneVideoForRow(job, scene, false);
@@ -2971,7 +2999,7 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
 
   const { data: nextScene } = await supabase
     .from("story_video_scenes")
-    .select("id, scene_description, camera_view, outfit_override, face_view, location")
+    .select("id, position, scene_description, motion_prompt, camera_view, outfit_override, face_view, location, identity_retry_count")
     .eq("job_id", jobId)
     .eq("position", scene.position + 1)
     .maybeSingle();
@@ -2979,15 +3007,29 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
   if (nextScene) {
     const { data: job } = await supabase
       .from("story_video_jobs")
-      .select("id, mini_app_id, character_angle_urls, character_sheet_url, image_model, aspect_ratio, image_resolution_key, location_reference_url")
+      .select(
+        "id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url"
+      )
       .eq("id", jobId)
       .single();
     if (!job) return;
+
+    // Dùng THẲNG khung hình thật vừa tách làm ảnh đầu cảnh kế tiếp — liền mạch tuyệt đối (đúng pixel,
+    // không qua AI vẽ lại nên không còn sai số bố cục/góc máy nào cả). Bản trước nhờ AI "vẽ lại 1 ảnh
+    // tham khảo" khung hình này — dù đã ép prompt giữ khung hình/góc máy, vẫn chỉ là xác suất theo lời
+    // model, không chắc chắn 100% (đúng phản hồi thật của user: ảnh đầu cảnh sau vẫn không giống hệt
+    // khung cuối cảnh trước). Đánh đổi: mất bước AI "chỉnh lại cho đúng mặt" mỗi cảnh — bù lại bằng đúng
+    // lưới an toàn danh tính đã có (checkFrameChainIdentity), chạy NGAY trên khung hình thật này; nếu
+    // model video tự làm trôi mặt trong lúc quay (hiếm nhưng có thể), lưới vẫn bắt được và mới nhờ AI vẽ
+    // lại làm phương án dự phòng, y hệt cơ chế cũ — chỉ khác là giờ đây là NGOẠI LỆ, không phải mặc định.
+    await supabase.from("story_video_scenes").update({ image_url: lastFrameUrl }).eq("id", nextScene.id);
+    const nextSceneWithImage = { ...nextScene, image_url: lastFrameUrl };
+
+    if (!(await checkFrameChainIdentity(jobId, nextSceneWithImage, job))) return; // đã tự vẽ lại ảnh khác, đợi webhook ảnh mới
+
     try {
-      const miniApp = await getMiniAppModelConfig(job.mini_app_id);
-      const imageEntry = miniApp.model_config.image_models.find((m) => m.model === job.image_model);
-      const requestId = await submitSceneImageForRow(job, nextScene, imageEntry, false, "image", undefined, undefined, lastFrameUrl);
-      await supabase.from("story_video_scenes").update({ image_fal_request_id: requestId }).eq("id", nextScene.id);
+      const requestId = await submitSceneVideoForRow(job, nextSceneWithImage, false);
+      await supabase.from("story_video_scenes").update({ video_fal_request_id: requestId }).eq("id", nextScene.id);
     } catch (err) {
       await failJob(jobId, err instanceof Error ? err.message : String(err));
     }
