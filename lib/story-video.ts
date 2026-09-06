@@ -1008,7 +1008,13 @@ async function submitSceneImageForRow(
   // Tầng 2 (Appearance) — chỉ cảnh có outfit_override mới chèn thêm chỉ dẫn đổi đồ vào cuối prompt,
   // đè lên đồ trong ảnh tham chiếu (Tầng 1 mặt/tóc/dáng người vẫn giữ nguyên qua ảnh tham chiếu như
   // bình thường). Không đổi gì với cảnh không có outfit_override.
-  const continuityPrefix = buildContinuityPrefix(row.location, previousEndPose);
+  // Khi đang frame-chain: BỎ câu "Setting: {location}" — location này do Agent viết cho cảnh MỚI, có
+  // thể diễn đạt khác chữ với bối cảnh THẬT đã có sẵn trong chainedFrameUrl (vd Agent viết "phòng
+  // khách" trong khi khung hình chain vẫn đang là phòng ngủ) — 2 nguồn "bối cảnh" xung đột nhau khiến
+  // model phải chọn 1 trong 2, thường ưu tiên chữ mô tả cảnh mới hơn ảnh, gây "nhảy cóc" hẳn sang bối
+  // cảnh/khung hình khác thay vì tiếp nối mượt — xem chỉ dẫn camera/framing bên dưới, đã đủ để dẫn dắt
+  // bối cảnh đúng nghĩa "tiếp nối thật" mà không cần câu địa điểm bằng chữ giẫm chân lên nhau.
+  const continuityPrefix = chainedFrameUrl ? "" : buildContinuityPrefix(row.location, previousEndPose);
   let scenePrompt = row.outfit_override
     ? `${continuityPrefix}${row.scene_description} Change the character's outfit to: ${row.outfit_override}. Keep the exact same face, hairstyle, and body proportions as shown in the reference image — only the clothing changes.`
     : `${continuityPrefix}${row.scene_description}`;
@@ -1030,7 +1036,14 @@ async function submitSceneImageForRow(
   // test thật đây là nguyên nhân "khuôn mặt trôi dần thành người khác" qua nhiều cảnh liên tiếp.
   if (chainedFrameUrl) {
     const faceRefLabel = characterImages.length === 2 ? "FIRST and SECOND reference images" : "FIRST reference image";
-    scenePrompt += ` The LAST reference image shows the exact current pose, outfit, and physical environment to continue this scene from — use it ONLY for the pose, clothing, and setting, never for the face. For the character's face and identity, always match the ${faceRefLabel} exactly — keep the identical face even if the last reference image's face looks slightly different due to motion blur, camera angle, or lighting.`;
+    // Bản đầu chỉ nói "dùng làm tham khảo tư thế/bối cảnh" — quá lỏng, model tự do vẽ lại bố cục hoàn
+    // toàn khác (đổi khoảng cách máy quay, góc chụp, tư thế tĩnh mới) miễn còn "hợp" với mô tả cảnh, gây
+    // hiệu ứng "nhảy cóc" giữa 2 cảnh dù đã crossfade — xác nhận qua so khung hình thật ở đúng điểm nối
+    // (job story-97: 2 điểm nối đều đổi hẳn phòng/tư thế đột ngột). Sửa: ép rõ đây là ẢNH BẮT ĐẦU của
+    // khoảnh khắc NGAY SAU khung hình chain — giữ nguyên khoảng cách/góc máy/bố cục, chỉ thay đổi đúng
+    // phần mô tả cảnh yêu cầu, và nếu cảnh mới đổi bối cảnh thì phải là chuyển động tự nhiên tiếp diễn
+    // (vd đang bước đi tới) chứ không phải bị "dịch chuyển tức thời" sang khung hình/tư thế tĩnh khác.
+    scenePrompt += ` The LAST reference image is the real frame this scene continues from, one instant later in the same continuous shot. This new image MUST keep the same camera distance, framing, and angle as that reference image, and continue the character's body position and motion naturally from it — only change what the scene description above requires, changing gradually, never resetting to a different framing, a different angle, or an unrelated static pose. If the scene description moves to a different setting, show it as a natural continuation of that motion (e.g. still mid-step, mid-turn), not an abrupt jump to an already-arrived, already-posed shot. Use the reference image for pose, motion continuation, clothing, and setting, never for the face. For the character's face and identity, always match the ${faceRefLabel} exactly — keep the identical face even if the last reference image's face looks slightly different due to motion blur, camera angle, or lighting.`;
   } else if (characterImages.length === 2 && imageEntry?.multi_image) {
     scenePrompt += row.face_view && row.face_view !== row.camera_view
       ? ` The FIRST reference image shows the body pose/angle to follow, the SECOND shows the face/gaze direction to follow — combine them: keep the body pose from the first image, but the face orientation and eye direction from the second image.`
