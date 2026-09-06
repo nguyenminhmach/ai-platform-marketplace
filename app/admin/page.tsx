@@ -118,13 +118,13 @@ type SkillField = "storyExtractorPrompt" | "storyValidatorPrompt" | "sceneImageP
 const SKILL_FIELDS: { field: SkillField; label: string; placeholder: string }[] = [
   {
     field: "storyExtractorPrompt",
-    label: "Skill: story-extractor (đọc/chuẩn hoá ý tưởng truyện) — chưa dùng, để dành",
-    placeholder: "Chưa có bước riêng dùng field này — hiện story-planner tự đọc thẳng ý tưởng truyện gốc.",
+    label: "Skill: story-extractor (viết lại ý tưởng truyện rõ ràng hơn trước khi chia cảnh)",
+    placeholder: "Để trống dùng bản mặc định: viết lại rõ ràng, giữ nguyên mọi tình tiết, không tóm tắt/bịa thêm.",
   },
   {
     field: "storyValidatorPrompt",
-    label: "Skill: story-validator (kiểm tra chia cảnh hợp lý) — chưa dùng, để dành",
-    placeholder: "Chưa có bước tự động dùng field này — để dành cho vòng PASS/FAIL tự động sau này.",
+    label: "Skill: story-validator (kiểm tra bản chia cảnh có đúng truyện gốc không, tự chia lại 1 lần nếu sai)",
+    placeholder: "Để trống dùng bản mặc định: kiểm tra không bỏ sót/đảo lộn tình tiết chính.",
   },
   {
     field: "sceneImagePrompt",

@@ -51,6 +51,24 @@ export type MultiCharacterInput = {
   label?: string;
 };
 
+// Skill "story-extractor" — chạy TRƯỚC story-planner, viết lại ý tưởng thô của khách (có thể lủng
+// củng/thiếu chi tiết) thành 1 đoạn mô tả rõ ràng, giữ NGUYÊN mọi tình tiết — không tóm tắt, không bịa
+// thêm. Chỉ dùng làm input NỘI BỘ cho bước chia cảnh, KHÔNG ghi đè story_description gốc hiển thị cho
+// khách (khách vẫn thấy đúng nguyên văn mình đã gõ).
+const STORY_EXTRACTOR_DEFAULT_PROMPT = `Bạn nhận 1 ý tưởng truyện ngắn do khách hàng tự viết, có thể lủng củng, thiếu chủ ngữ, hoặc viết tắt.
+Nhiệm vụ: viết lại thành 1 đoạn văn RÕ RÀNG, MẠCH LẠC, giữ NGUYÊN VẸN mọi tình tiết/hành động/địa điểm/nhân vật đã có — không thêm tình tiết mới, không bỏ sót tình tiết nào, không tóm tắt ngắn lại.
+Giữ nguyên ngôn ngữ gốc (nếu khách viết tiếng Việt thì trả lời tiếng Việt).
+Chỉ trả về đoạn văn đã viết lại, không giải thích, không thêm tiêu đề.`;
+
+// Skill "story-validator" — chạy SAU khi story-planner chia cảnh xong, kiểm tra xem N cảnh có phản
+// ánh đúng/đủ truyện gốc không trước khi tạo ảnh (tốn credit). Không chặn cứng job nếu vẫn lỗi sau 1
+// lần thử lại — chỉ là lưới an toàn thêm, không phải cổng chặn tuyệt đối (tránh false-positive chặn oan).
+const STORY_VALIDATOR_DEFAULT_PROMPT = `Bạn kiểm tra chất lượng 1 bản chia cảnh cho video. Bạn sẽ nhận truyện gốc + danh sách các cảnh đã chia.
+Trả lời ĐÚNG 1 dòng JSON, không thêm chữ nào khác:
+{"ok": true} nếu các cảnh phản ánh đúng trình tự và đầy đủ những tình tiết CHÍNH của truyện gốc, hoặc
+{"ok": false, "issue": "<mô tả ngắn gọn tiếng Việt vấn đề tìm thấy>"} nếu phát hiện: bỏ sót hẳn 1 tình tiết chính, thứ tự bị đảo lộn vô lý, hoặc cảnh nào đó mâu thuẫn với truyện gốc.
+Không bắt lỗi vì thiếu chi tiết nhỏ/phong cách hành văn — chỉ báo lỗi khi thực sự ảnh hưởng tới việc kể đúng câu chuyện.`;
+
 const SCENE_SPLIT_SYSTEM_PROMPT = `Bạn là đạo diễn dựng phân cảnh. Người dùng đưa 1 ý tưởng truyện/kịch bản ngắn.
 Nhiệm vụ: chia thành ĐÚNG N phân cảnh liên tục, mỗi cảnh là 1 khoảnh khắc hình ảnh cụ thể (nhân vật đang làm gì, ở đâu, bối cảnh gì), giữ nguyên nhân vật chính xuyên suốt các cảnh.
 Với MỖI cảnh, xác định thêm góc camera đang nhìn thấy nhân vật rõ nhất, chỉ được chọn ĐÚNG 1 trong 6 giá trị sau (viết y hệt, chữ thường): "front" (chính diện), "three_quarter_left" (nghiêng 3/4 trái), "three_quarter_right" (nghiêng 3/4 phải), "side" (nhìn ngang hẳn 1 bên), "back" (quay lưng lại camera), "face" (cận mặt).
@@ -315,11 +333,56 @@ async function resolveCharacterPrompt(miniAppId: string): Promise<string> {
 // (continuity-checker gọi từ nút thủ công, có thể chưa luôn có).
 async function resolveSkillOverride(
   miniAppId: string | undefined,
-  field: "scene_image_prompt" | "motion_planner_prompt" | "continuity_checker_prompt"
+  field:
+    | "scene_image_prompt"
+    | "motion_planner_prompt"
+    | "continuity_checker_prompt"
+    | "story_extractor_prompt"
+    | "story_validator_prompt"
 ): Promise<string | undefined> {
   if (!miniAppId) return undefined;
   const miniApp = await getMiniAppModelConfig(miniAppId);
   return miniApp.model_config[field]?.trim() || undefined;
+}
+
+// Skill "story-extractor" — viết lại ý tưởng thô thành bản rõ ràng hơn CHỈ để dùng nội bộ khi chia
+// cảnh (không ghi đè story_description gốc lưu trong job, khách vẫn thấy đúng nguyên văn đã gõ). Lỗi
+// gì cũng rơi về dùng nguyên văn gốc — bước này chỉ là cải thiện chất lượng, không phải bắt buộc.
+async function extractStoryEssentials(storyDescription: string, miniAppId: string, modelChatKey?: string): Promise<string> {
+  try {
+    const override = await resolveSkillOverride(miniAppId, "story_extractor_prompt");
+    const systemPrompt = override ? `${STORY_EXTRACTOR_DEFAULT_PROMPT}\n\nGhi chú thêm từ admin: ${override}` : STORY_EXTRACTOR_DEFAULT_PROMPT;
+    const { output } = await callOpenRouter(modelChatKey || "google/gemini-3-flash-preview", 500, systemPrompt, storyDescription);
+    return output.trim() || storyDescription;
+  } catch (err) {
+    console.error("[story-video] Lỗi story-extractor, dùng nguyên văn gốc:", err);
+    return storyDescription;
+  }
+}
+
+// Skill "story-validator" — kiểm tra bản chia cảnh có phản ánh đúng truyện gốc không. Lỗi gì cũng coi
+// như PASS (không chặn job vì 1 bước kiểm tra thêm bị lỗi kỹ thuật).
+async function validateSceneSplit(
+  storyDescription: string,
+  scenes: { description: string }[],
+  miniAppId: string,
+  modelChatKey?: string
+): Promise<SceneQcResult> {
+  try {
+    const override = await resolveSkillOverride(miniAppId, "story_validator_prompt");
+    const systemPrompt = override ? `${STORY_VALIDATOR_DEFAULT_PROMPT}\n\nGhi chú thêm từ admin: ${override}` : STORY_VALIDATOR_DEFAULT_PROMPT;
+    const scenesText = scenes.map((s, i) => `Cảnh ${i + 1}: ${s.description}`).join("\n");
+    const { output } = await callOpenRouter(
+      modelChatKey || "google/gemini-3-flash-preview",
+      200,
+      systemPrompt,
+      `Truyện gốc:\n${storyDescription}\n\nCác cảnh đã chia:\n${scenesText}`
+    );
+    return parseSceneQcResponse(output);
+  } catch (err) {
+    console.error("[story-video] Lỗi story-validator, coi như đạt:", err);
+    return { ok: true };
+  }
 }
 
 // Chọn đúng entry theo key nếu còn bật (enabled) — key thiếu/sai/bị tắt thì rơi về entry bật đầu
@@ -1124,13 +1187,26 @@ async function runSceneStage(
     ]
       .filter((s): s is string => !!s?.trim())
       .join("\n\n");
-    const scenes = await splitStoryIntoScenes(
-      finalStoryDescription,
+    // Skill "story-extractor" — chỉ dùng làm input nội bộ cho chia cảnh, không ghi đè story_description
+    // đã lưu ở trên (khách vẫn thấy đúng nguyên văn mình gõ).
+    const extractedStory = await extractStoryEssentials(finalStoryDescription, job.mini_app_id, modelChatKey);
+    let scenes = await splitStoryIntoScenes(
+      extractedStory,
       job.num_scenes,
       combinedInstructions || undefined,
       modelChatKey,
       job.continuous_motion
     );
+    // Skill "story-validator" — kiểm tra bản chia cảnh có phản ánh đúng truyện gốc không, thử chia lại
+    // ĐÚNG 1 lần nếu lỗi, không chặn cứng job nếu vẫn lỗi sau lần 2 (tránh false-positive chặn oan).
+    const validation = await validateSceneSplit(finalStoryDescription, scenes, job.mini_app_id, modelChatKey);
+    if (!validation.ok) {
+      console.error(`[story-video] story-validator báo lỗi job #${job.id}, thử chia lại 1 lần: ${validation.issue}`);
+      const retryInstructions = [combinedInstructions, `Lần chia trước bị lỗi: ${validation.issue}. Sửa lại cho đúng.`]
+        .filter((s): s is string => !!s?.trim())
+        .join("\n\n");
+      scenes = await splitStoryIntoScenes(extractedStory, job.num_scenes, retryInstructions, modelChatKey, job.continuous_motion);
+    }
 
     const { data: sceneRows, error: sceneError } = await supabase
       .from("story_video_scenes")
@@ -1614,14 +1690,25 @@ async function runMultiCharacterSceneStage(
       .filter((s): s is string => !!s?.trim())
       .join("\n\n");
     const characterLabels = jobCharacters.map((c) => c.label || `Nhân vật ${c.position + 1}`);
-    const scenes = await splitStoryIntoScenesMulti(
-      finalStoryDescription,
+    // Skill "story-extractor" — chỉ dùng nội bộ cho chia cảnh, không ghi đè story_description đã lưu.
+    const extractedStory = await extractStoryEssentials(finalStoryDescription, job.mini_app_id, modelChatKey);
+    let scenes = await splitStoryIntoScenesMulti(
+      extractedStory,
       job.num_scenes,
       characterLabels,
       combinedInstructions || undefined,
       modelChatKey,
       job.continuous_motion
     );
+    // Skill "story-validator" — thử chia lại ĐÚNG 1 lần nếu lỗi, không chặn cứng job nếu vẫn lỗi.
+    const validation = await validateSceneSplit(finalStoryDescription, scenes, job.mini_app_id, modelChatKey);
+    if (!validation.ok) {
+      console.error(`[story-video] story-validator báo lỗi job #${job.id}, thử chia lại 1 lần: ${validation.issue}`);
+      const retryInstructions = [combinedInstructions, `Lần chia trước bị lỗi: ${validation.issue}. Sửa lại cho đúng.`]
+        .filter((s): s is string => !!s?.trim())
+        .join("\n\n");
+      scenes = await splitStoryIntoScenesMulti(extractedStory, job.num_scenes, characterLabels, retryInstructions, modelChatKey, job.continuous_motion);
+    }
 
     const { data: sceneRows, error: sceneError } = await supabase
       .from("story_video_scenes")
