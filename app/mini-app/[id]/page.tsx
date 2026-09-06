@@ -3796,21 +3796,28 @@ export default function MiniAppDetailPage() {
                       {storyContinuing ? "Đang gửi..." : "Thử lại tạo video"}
                     </button>
                   </div>
-                  {storyScenes.some((s) => s.videoUrl) && (
-                    <div className="mt-3 flex items-center justify-between border-t border-zinc-200 pt-3 dark:border-zinc-700">
-                      <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                        Có cảnh mãi không tạo video được (vd bị model từ chối nội dung) — ghép video cuối chỉ từ các
-                        cảnh đã có video, bỏ hẳn cảnh lỗi
-                      </span>
-                      <button
-                        onClick={handleFinalizePartial}
-                        disabled={storyFinalizingPartial}
-                        className="rounded-full border border-zinc-400 px-5 py-2 text-sm font-medium text-zinc-700 disabled:opacity-40 dark:border-zinc-500 dark:text-zinc-300"
-                      >
-                        {storyFinalizingPartial ? "Đang ghép..." : "Ghép video, bỏ cảnh lỗi"}
-                      </button>
-                    </div>
-                  )}
+                </div>
+              )}
+
+              {/* Tách riêng khỏi khối "every imageUrl" ở trên — chế độ frame-chaining vẽ ảnh TUẦN TỰ
+                  (ảnh cảnh N+1 cần video cảnh N xong mới có), nên nếu 1 cảnh giữa chừng kẹt video vĩnh
+                  viễn (vd bị model từ chối nội dung), các cảnh SAU nó không bao giờ có ảnh — điều kiện
+                  "every(s => s.imageUrl)" ở trên không bao giờ đúng, khiến nút ghép-bỏ-cảnh-lỗi không thể
+                  hiện ra dù job đang kẹt thật. Nút này chỉ cần đủ điều kiện tối thiểu: job đã "failed" và
+                  có ít nhất 1 cảnh đã có video để ghép. */}
+              {storyStatus === "failed" && storyScenes && storyScenes.some((s) => s.videoUrl) && (
+                <div className="mt-4 flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800">
+                  <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                    Có cảnh mãi không tạo video được (vd bị model từ chối nội dung) — ghép video cuối chỉ từ các
+                    cảnh đã có video, bỏ hẳn cảnh lỗi
+                  </span>
+                  <button
+                    onClick={handleFinalizePartial}
+                    disabled={storyFinalizingPartial}
+                    className="rounded-full border border-zinc-400 px-5 py-2 text-sm font-medium text-zinc-700 disabled:opacity-40 dark:border-zinc-500 dark:text-zinc-300"
+                  >
+                    {storyFinalizingPartial ? "Đang ghép..." : "Ghép video, bỏ cảnh lỗi"}
+                  </button>
                 </div>
               )}
 
