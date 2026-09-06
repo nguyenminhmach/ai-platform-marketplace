@@ -7,13 +7,13 @@ export async function POST(req: Request) {
   const userId = await getAuthenticatedUserId();
   if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
 
-  const { startImageUrl, endImageUrl } = await req.json();
+  const { startImageUrl, endImageUrl, miniAppId } = await req.json();
   if (typeof startImageUrl !== "string" || !startImageUrl || typeof endImageUrl !== "string" || !endImageUrl) {
     return Response.json({ error: "Thiếu startImageUrl/endImageUrl" }, { status: 400 });
   }
 
   try {
-    const result = await checkSceneContinuity(startImageUrl, endImageUrl);
+    const result = await checkSceneContinuity(startImageUrl, endImageUrl, typeof miniAppId === "string" ? miniAppId : undefined);
     return Response.json(result);
   } catch (err) {
     console.error(err);

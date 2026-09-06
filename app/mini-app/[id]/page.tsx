@@ -227,6 +227,11 @@ export default function MiniAppDetailPage() {
   // 1 ảnh cuối, nối chuỗi ảnh cuối cảnh trước = ảnh đầu cảnh sau — "Tạo lại" từng cảnh dùng route riêng
   // /api/story-video/regenerate-continuous-scene (theo "position", không phải sceneId thẳng).
   const [storyContinuousMotion, setStoryContinuousMotion] = useState(false);
+  // Frame-chaining ("dẫn trạng thái qua khung hình thật") — cơ chế nối cảnh KHÁC hẳn continuous motion:
+  // dùng khung hình THẬT trích từ video vừa render (không phải ảnh AI tự đoán trước), nên chạy được với
+  // MỌI model video thường (không cần loại FLFV riêng). Loại trừ lẫn nhau với continuous motion — v1
+  // chỉ hỗ trợ luồng 1 nhân vật, chạy TUẦN TỰ từng cảnh nên chậm hơn nhiều so với luồng song song mặc định.
+  const [storyFrameChainMode, setStoryFrameChainMode] = useState(false);
   // "Model chat" — LLM thực thi bước chia cảnh (tách biệt với "Agent" = persona/hướng dẫn) — đúng 2
   // lựa chọn admin đang dùng cho app tự tạo dạng text (xem MODEL_OPTIONS trong app/admin/page.tsx).
   const STORY_MODEL_CHAT_OPTIONS = [
@@ -1103,7 +1108,7 @@ export default function MiniAppDetailPage() {
       const res = await fetch("/api/story-video/check-scene-anatomy", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageUrl }),
+        body: JSON.stringify({ imageUrl, miniAppId: params.id }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -1126,7 +1131,7 @@ export default function MiniAppDetailPage() {
       const res = await fetch("/api/story-video/check-scene-continuity", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ startImageUrl, endImageUrl }),
+        body: JSON.stringify({ startImageUrl, endImageUrl, miniAppId: params.id }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -1520,6 +1525,7 @@ export default function MiniAppDetailPage() {
           characters,
           locationReferenceUrl,
           continuousMotion: storyContinuousMotion,
+          frameChainMode: storyFrameChainMode,
         }),
       });
       const data = await res.json();
@@ -3420,13 +3426,34 @@ export default function MiniAppDetailPage() {
                             type="checkbox"
                             checked={storyContinuousMotion}
                             disabled={storyVideoModelKey === "veo31-lite-flf"}
-                            onChange={(e) => setStoryContinuousMotion(e.target.checked)}
+                            onChange={(e) => {
+                              setStoryContinuousMotion(e.target.checked);
+                              if (e.target.checked) setStoryFrameChainMode(false);
+                            }}
                             className="mt-0.5"
                           />
                           <span>
                             🎬 Chuyển động liên tục giữa các cảnh — mỗi cảnh nối liền mạch sang cảnh sau (thêm ~1 ảnh cho cả video, không
                             phải nhân đôi).
                             {storyVideoModelKey === "veo31-lite-flf" && " Model này bắt buộc bật, không tắt được."}
+                          </span>
+                        </label>
+                      )}
+                      {storyExtraCharacters.length === 0 && !storyUseOwnSceneImages && (
+                        <label className="mt-3 flex items-start gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+                          <input
+                            type="checkbox"
+                            checked={storyFrameChainMode}
+                            onChange={(e) => {
+                              setStoryFrameChainMode(e.target.checked);
+                              if (e.target.checked) setStoryContinuousMotion(false);
+                            }}
+                            className="mt-0.5"
+                          />
+                          <span>
+                            🧵 Dẫn trạng thái qua khung hình thật — mỗi cảnh nối tiếp bằng đúng khung hình cuối THẬT của video cảnh
+                            trước (không phải ảnh AI đoán trước), liền mạch chính xác hơn nhưng phải tạo TUẦN TỰ nên chậm hơn nhiều
+                            (không chạy song song các cảnh).
                           </span>
                         </label>
                       )}

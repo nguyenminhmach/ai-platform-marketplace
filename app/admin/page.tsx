@@ -100,11 +100,48 @@ type MiniAppPrice = {
   defaultPromptVisible: boolean;
   promptHelperInstructions: string;
   characterPrompt: string;
+  storyExtractorPrompt: string;
+  storyValidatorPrompt: string;
+  sceneImagePrompt: string;
+  motionPlannerPrompt: string;
+  continuityCheckerPrompt: string;
   storyImageModels: StoryModelEntry[] | null;
   storyVideoModels: StoryModelEntry[] | null;
   genreThumbnails: Record<string, string> | null;
   genreStyleGuides: Record<string, string> | null;
 };
+
+// 7-skill architecture — mỗi field ứng với 1 bước AI trong pipeline "Video từ ý tưởng truyện" (2 skill
+// còn lại: story-planner = promptHelperInstructions, character-manager = characterPrompt, đã có UI riêng
+// từ trước). Xem lib/story-video.ts (resolveSkillOverride).
+type SkillField = "storyExtractorPrompt" | "storyValidatorPrompt" | "sceneImagePrompt" | "motionPlannerPrompt" | "continuityCheckerPrompt";
+const SKILL_FIELDS: { field: SkillField; label: string; placeholder: string }[] = [
+  {
+    field: "storyExtractorPrompt",
+    label: "Skill: story-extractor (đọc/chuẩn hoá ý tưởng truyện) — chưa dùng, để dành",
+    placeholder: "Chưa có bước riêng dùng field này — hiện story-planner tự đọc thẳng ý tưởng truyện gốc.",
+  },
+  {
+    field: "storyValidatorPrompt",
+    label: "Skill: story-validator (kiểm tra chia cảnh hợp lý) — chưa dùng, để dành",
+    placeholder: "Chưa có bước tự động dùng field này — để dành cho vòng PASS/FAIL tự động sau này.",
+  },
+  {
+    field: "sceneImagePrompt",
+    label: "Skill: scene-image (ghi chú thêm khi tạo ảnh phân cảnh)",
+    placeholder: "Để trống sẽ không thêm ghi chú nào. Ví dụ: luôn dùng ánh sáng buổi chiều vàng ấm.",
+  },
+  {
+    field: "motionPlannerPrompt",
+    label: "Skill: motion-planner (ghi chú thêm khi viết mô tả chuyển động)",
+    placeholder: "Để trống sẽ không thêm ghi chú nào. Ví dụ: luôn ưu tiên chuyển động camera chậm, điện ảnh.",
+  },
+  {
+    field: "continuityCheckerPrompt",
+    label: "Skill: continuity-checker (ghi chú thêm khi AI kiểm tra ảnh)",
+    placeholder: "Để trống sẽ không thêm ghi chú nào. Ví dụ: kiểm tra thêm màu tóc có nhất quán không.",
+  },
+];
 
 // Đồng bộ đúng key/nhãn với STORY_GENRE_OPTIONS ở app/mini-app/[id]/page.tsx — admin tải ảnh thẻ cho
 // từng thể loại ở đây, khách chọn card ở trang Mini App.
@@ -203,6 +240,11 @@ export default function AdminPage() {
   const [characterPromptDrafts, setCharacterPromptDrafts] = useState<Record<string, string>>({});
   const [savingCharacterPromptId, setSavingCharacterPromptId] = useState<string | null>(null);
   const [savedCharacterPromptId, setSavedCharacterPromptId] = useState<string | null>(null);
+  // 7-skill architecture — 5 field còn lại (2 skill kia dùng draft/handler riêng ở trên), dùng chung 1
+  // state/1 hàm lưu (key theo `${field}` bên trong object con của mỗi app) thay vì lặp lại 5 bộ state.
+  const [skillPromptDrafts, setSkillPromptDrafts] = useState<Record<string, Partial<Record<SkillField, string>>>>({});
+  const [savingSkillKey, setSavingSkillKey] = useState<string | null>(null);
+  const [savedSkillKey, setSavedSkillKey] = useState<string | null>(null);
 
   // Catalog model ảnh/video của "Video từ ý tưởng truyện" — draft riêng theo app.id + loại (ảnh/video),
   // chỉ ghi đè state gốc (app.storyImageModels/storyVideoModels) khi bấm "Lưu catalog".
@@ -654,6 +696,29 @@ export default function AdminPage() {
     }
     setSavedCharacterPromptId(app.id);
     setTimeout(() => setSavedCharacterPromptId(null), 2000);
+    loadMiniApps();
+  }
+
+  // 7-skill architecture — 5 field còn lại, dùng chung 1 hàm lưu (field truyền vào quyết định key gửi
+  // lên PATCH /api/admin/mini-apps, đã whitelist đủ 5 tên ở route đó).
+  async function handleSaveSkillPrompt(app: MiniAppPrice, field: SkillField) {
+    const value = skillPromptDrafts[app.id]?.[field] ?? app[field];
+    const key = `${app.id}:${field}`;
+    setSavingSkillKey(key);
+    setAppPriceError(null);
+    const res = await fetch("/api/admin/mini-apps", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: app.id, [field]: value }),
+    });
+    setSavingSkillKey(null);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setAppPriceError(data.error ?? "Không lưu được nội dung skill");
+      return;
+    }
+    setSavedSkillKey(key);
+    setTimeout(() => setSavedSkillKey(null), 2000);
     loadMiniApps();
   }
 
@@ -1409,6 +1474,35 @@ export default function AdminPage() {
                             {savingCharacterPromptId === app.id ? "Đang lưu..." : savedCharacterPromptId === app.id ? "Đã lưu ✓" : "Lưu prompt Character"}
                           </button>
                         </div>
+                        {SKILL_FIELDS.map(({ field, label, placeholder }) => {
+                          const key = `${app.id}:${field}`;
+                          return (
+                            <div key={field} className="mb-3">
+                              <p className="mb-1 text-xs text-zinc-500 dark:text-zinc-400">{label}</p>
+                              <textarea
+                                value={skillPromptDrafts[app.id]?.[field] ?? app[field]}
+                                onChange={(e) =>
+                                  setSkillPromptDrafts((prev) => ({
+                                    ...prev,
+                                    [app.id]: { ...prev[app.id], [field]: e.target.value },
+                                  }))
+                                }
+                                rows={2}
+                                placeholder={placeholder}
+                                className="mb-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                              />
+                              <div className="flex justify-end">
+                                <button
+                                  onClick={() => handleSaveSkillPrompt(app, field)}
+                                  disabled={savingSkillKey === key}
+                                  className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-300"
+                                >
+                                  {savingSkillKey === key ? "Đang lưu..." : savedSkillKey === key ? "Đã lưu ✓" : "Lưu"}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
                         <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">Catalog model ảnh/video (nhóm theo provider)</p>
                         {(
                           [

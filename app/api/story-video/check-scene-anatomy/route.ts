@@ -7,11 +7,11 @@ export async function POST(req: Request) {
   const userId = await getAuthenticatedUserId();
   if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
 
-  const { imageUrl } = await req.json();
+  const { imageUrl, miniAppId } = await req.json();
   if (typeof imageUrl !== "string" || !imageUrl) return Response.json({ error: "Thiếu imageUrl" }, { status: 400 });
 
   try {
-    const result = await checkSceneAnatomy(imageUrl);
+    const result = await checkSceneAnatomy(imageUrl, typeof miniAppId === "string" ? miniAppId : undefined);
     return Response.json(result);
   } catch (err) {
     console.error(err);

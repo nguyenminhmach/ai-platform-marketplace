@@ -37,6 +37,7 @@ export async function POST(req: Request) {
     characters,
     locationReferenceUrl,
     continuousMotion,
+    frameChainMode,
   } = await req.json();
 
   const userId = await getAuthenticatedUserId();
@@ -115,7 +116,12 @@ export async function POST(req: Request) {
       typeof genreKey === "string" ? genreKey : undefined,
       parsedCharacters,
       typeof locationReferenceUrl === "string" && locationReferenceUrl ? locationReferenceUrl : undefined,
-      continuousMotion === true || (typeof videoModelKey === "string" && REQUIRES_CONTINUOUS_MOTION_VIDEO_KEYS.has(videoModelKey))
+      // Frame-chaining (v1: chỉ 1 nhân vật) và chuyển động liên tục (FLFV) loại trừ nhau — 2 cơ chế
+      // nối cảnh khác nhau, không thể bật cùng lúc. frameChainMode ưu tiên nếu khách lỡ bật cả 2.
+      !isMultiCharacter && frameChainMode === true
+        ? false
+        : continuousMotion === true || (typeof videoModelKey === "string" && REQUIRES_CONTINUOUS_MOTION_VIDEO_KEYS.has(videoModelKey)),
+      !isMultiCharacter && frameChainMode === true
     );
     return Response.json({ success: true, jobId: result.jobId, newBalance: result.newBalance });
   } catch (err) {

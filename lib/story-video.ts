@@ -159,8 +159,10 @@ Chỉ báo lỗi khi THẬT SỰ rõ ràng nhìn thấy được — không đo�
 // "Kiểm tra thiếu chi thể" — nút thủ công, khách tự bấm khi nghi ngờ ảnh phân cảnh bị lỗi (không trừ
 // credit, cùng tiền lệ classifyCharacterImage: Gemini Flash rẻ, ~18đ/lượt). Xem chú thích
 // checkSceneContinuity() bên dưới cho loại kiểm tra thứ 2 (lệch ảnh đầu/cuối).
-export async function checkSceneAnatomy(imageUrl: string): Promise<SceneQcResult> {
-  const { output } = await callOpenRouter("google/gemini-3-flash-preview", 200, SCENE_ANATOMY_CHECK_PROMPT, "Kiểm tra ảnh này.", imageUrl);
+export async function checkSceneAnatomy(imageUrl: string, miniAppId?: string): Promise<SceneQcResult> {
+  const override = await resolveSkillOverride(miniAppId, "continuity_checker_prompt");
+  const systemPrompt = override ? `${SCENE_ANATOMY_CHECK_PROMPT}\n\nGhi chú thêm từ admin: ${override}` : SCENE_ANATOMY_CHECK_PROMPT;
+  const { output } = await callOpenRouter("google/gemini-3-flash-preview", 200, systemPrompt, "Kiểm tra ảnh này.", imageUrl);
   return parseSceneQcResponse(output);
 }
 
@@ -171,8 +173,10 @@ Chỉ báo lỗi khi khác biệt THẬT RÕ RÀNG — thay đổi nhỏ về á
 
 // "Kiểm tra lệch ảnh đầu/cuối" — chỉ áp dụng cho job bật chuyển động liên tục (mỗi cảnh có cả
 // image_url và end_image_url). Gửi CẢ 2 ảnh trong 1 lượt gọi (callOpenRouter đã hỗ trợ mảng ảnh).
-export async function checkSceneContinuity(startImageUrl: string, endImageUrl: string): Promise<SceneQcResult> {
-  const { output } = await callOpenRouter("google/gemini-3-flash-preview", 200, SCENE_CONTINUITY_CHECK_PROMPT, "Kiểm tra 2 ảnh này.", [
+export async function checkSceneContinuity(startImageUrl: string, endImageUrl: string, miniAppId?: string): Promise<SceneQcResult> {
+  const override = await resolveSkillOverride(miniAppId, "continuity_checker_prompt");
+  const systemPrompt = override ? `${SCENE_CONTINUITY_CHECK_PROMPT}\n\nGhi chú thêm từ admin: ${override}` : SCENE_CONTINUITY_CHECK_PROMPT;
+  const { output } = await callOpenRouter("google/gemini-3-flash-preview", 200, systemPrompt, "Kiểm tra 2 ảnh này.", [
     startImageUrl,
     endImageUrl,
   ]);
@@ -239,6 +243,7 @@ export type SceneRow = {
   dialogue_audio_url: string | null;
   lipsync_fal_request_id: string | null;
   lipsync_url: string | null;
+  last_frame_url: string | null;
 };
 
 type JobRow = {
@@ -268,6 +273,7 @@ type JobRow = {
   genre_key: string | null;
   location_reference_url: string | null;
   continuous_motion: boolean;
+  frame_chain_mode: boolean;
 };
 
 async function getMiniAppModelConfig(miniAppId: string) {
@@ -284,6 +290,14 @@ async function getMiniAppModelConfig(miniAppId: string) {
       genre_style_guides?: Record<string, string>;
       lipsync_model?: string;
       lipsync_provider_cost_vnd?: number;
+      // 7-skill architecture — mỗi field dưới đây là "nội dung skill" 1 bước AI riêng, admin sửa qua
+      // /admin, rỗng thì hàm tương ứng tự dùng bản mặc định hardcode. 2 skill còn lại (story-planner,
+      // character-manager) dùng lại 2 field phía trên (prompt_helper_instructions, character_prompt).
+      story_extractor_prompt?: string;
+      story_validator_prompt?: string;
+      scene_image_prompt?: string;
+      motion_planner_prompt?: string;
+      continuity_checker_prompt?: string;
     };
   };
 }
@@ -294,6 +308,18 @@ async function resolveCharacterPrompt(miniAppId: string): Promise<string> {
   const miniApp = await getMiniAppModelConfig(miniAppId);
   const override = miniApp.model_config.character_prompt;
   return override?.trim() ? override.trim() : CHARACTER_SHEET_PROMPT;
+}
+
+// 3 skill còn lại (scene-image, motion-planner, continuity-checker) — admin ghi thêm ghi chú qua
+// /admin, rỗng thì bỏ qua hoàn toàn (không đổi hành vi mặc định). Không throw nếu thiếu miniAppId
+// (continuity-checker gọi từ nút thủ công, có thể chưa luôn có).
+async function resolveSkillOverride(
+  miniAppId: string | undefined,
+  field: "scene_image_prompt" | "motion_planner_prompt" | "continuity_checker_prompt"
+): Promise<string | undefined> {
+  if (!miniAppId) return undefined;
+  const miniApp = await getMiniAppModelConfig(miniAppId);
+  return miniApp.model_config[field]?.trim() || undefined;
 }
 
 // Chọn đúng entry theo key nếu còn bật (enabled) — key thiếu/sai/bị tắt thì rơi về entry bật đầu
@@ -792,6 +818,7 @@ type SceneStageInput = Pick<
   | "genre_key"
   | "location_reference_url"
   | "continuous_motion"
+  | "frame_chain_mode"
 >;
 
 // Reference Selector — TRA BẢNG BẰNG CODE (key -> URL), không dùng AI: chọn đúng 1 ảnh góc đã cắt sẵn
@@ -853,14 +880,24 @@ function buildContinuityPrefix(location: string | null | undefined, previousEndP
 async function submitSceneImageForRow(
   job: Pick<
     JobRow,
-    "id" | "character_angle_urls" | "character_sheet_url" | "image_model" | "aspect_ratio" | "image_resolution_key" | "location_reference_url"
+    | "id"
+    | "mini_app_id"
+    | "character_angle_urls"
+    | "character_sheet_url"
+    | "image_model"
+    | "aspect_ratio"
+    | "image_resolution_key"
+    | "location_reference_url"
   >,
   row: ImageSceneRefRow,
   imageEntry: ImageModelEntry | undefined,
   regen: boolean,
   stage: "image" | "image_end" = "image",
   previousEndPose?: string | null,
-  propagateToSceneId?: number
+  propagateToSceneId?: number,
+  // Frame-chaining — khung hình THẬT trích từ video cảnh liền trước (khác continuous_motion dùng ảnh
+  // AI tự đoán trước khi có video). Chỉ nhánh 1 nhân vật hỗ trợ ở v1 — xem applyFrameChainVideoResult().
+  chainedFrameUrl?: string
 ): Promise<string> {
   // MARKER_SINGLE_CHARACTER_IMAGE_SUBMIT
   const characterImages = selectReferenceImagesForScene(
@@ -873,7 +910,9 @@ async function submitSceneImageForRow(
   // thân/mặt ở trên. Chỉ gửi khi model thật sự hỗ trợ đa ảnh, không thì im lặng bỏ qua (không throw
   // lỗi) — đúng tiền lệ đã làm với face_view.
   const hasLocation = !!job.location_reference_url && (imageEntry?.multi_image ?? false);
-  const referenceImages = hasLocation ? [...characterImages, job.location_reference_url as string] : characterImages;
+  const referenceImages = [...characterImages];
+  if (hasLocation) referenceImages.push(job.location_reference_url as string);
+  if (chainedFrameUrl) referenceImages.push(chainedFrameUrl);
   // Tầng 2 (Appearance) — chỉ cảnh có outfit_override mới chèn thêm chỉ dẫn đổi đồ vào cuối prompt,
   // đè lên đồ trong ảnh tham chiếu (Tầng 1 mặt/tóc/dáng người vẫn giữ nguyên qua ảnh tham chiếu như
   // bình thường). Không đổi gì với cảnh không có outfit_override.
@@ -895,7 +934,12 @@ async function submitSceneImageForRow(
       : ` The FIRST reference image shows the body pose/angle to follow, the SECOND is a close-up reference for the character's face — use it to keep facial identity accurate and consistent while following the body pose from the first image.`;
   }
   if (hasLocation) {
-    scenePrompt += ` The LAST reference image shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
+    const idx = characterImages.length + 1;
+    scenePrompt += ` Reference image #${idx} shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
+  }
+  if (chainedFrameUrl) {
+    const idx = referenceImages.length;
+    scenePrompt += ` Reference image #${idx} is a REAL photo showing the exact moment this scene continues from — match the character's exact pose, the camera framing, the lighting, and the environment shown in it as the natural starting point, then transition into the new action described above.`;
   }
   // Ép ảnh chụp thật — model dễ ngả sang phong cách minh hoạ/tranh vẽ khi scene_description dùng
   // ngôn từ giàu chất thơ (hoàng hôn, khu vườn hoa...) mà không có chỉ dẫn phong cách hình ảnh rõ ràng.
@@ -903,6 +947,9 @@ async function submitSceneImageForRow(
   // Chặn chữ dính từ ảnh tham chiếu — character sheet có nhãn in sẵn ("1) FRONT VIEW", "5) BACK
   // VIEW"...) nên model đôi khi bị dính vụn chữ đó vào ảnh cảnh mới dù không liên quan.
   scenePrompt += ` The output image must contain NO text, letters, numbers, labels, captions, watermarks, or UI overlays anywhere in the frame — completely ignore and do not reproduce any panel numbers or text labels visible in the reference images.`;
+  // Skill "scene-image" — admin ghi thêm ghi chú qua /admin (vd luôn ép 1 phong cách ánh sáng riêng).
+  const scenePromptOverride = await resolveSkillOverride(job.mini_app_id, "scene_image_prompt");
+  if (scenePromptOverride) scenePrompt += ` Ghi chú thêm từ admin: ${scenePromptOverride}`;
   const body = buildImageRequestBody(
     job.image_model as string,
     scenePrompt,
@@ -958,7 +1005,7 @@ type MultiCharacterSceneRefRow = {
 // previousEndPose (Scene State — chỉ nhánh không continuousMotion mới truyền vào): xem
 // buildContinuityPrefix() ở submitSceneImageForRow (cùng cơ chế, dùng chung).
 async function submitMultiCharacterSceneImageForRow(
-  job: Pick<JobRow, "id" | "image_model" | "aspect_ratio" | "image_resolution_key" | "location_reference_url">,
+  job: Pick<JobRow, "id" | "mini_app_id" | "image_model" | "aspect_ratio" | "image_resolution_key" | "location_reference_url">,
   row: MultiCharacterSceneRefRow,
   jobCharacters: JobCharacterRefRow[],
   imageEntry: ImageModelEntry | undefined,
@@ -986,6 +1033,9 @@ async function submitMultiCharacterSceneImageForRow(
   // Chặn chữ dính từ ảnh tham chiếu — character sheet có nhãn in sẵn ("1) FRONT VIEW", "5) BACK
   // VIEW"...) nên model đôi khi bị dính vụn chữ đó vào ảnh cảnh mới dù không liên quan.
   scenePrompt += ` The output image must contain NO text, letters, numbers, labels, captions, watermarks, or UI overlays anywhere in the frame — completely ignore and do not reproduce any panel numbers or text labels visible in the reference images.`;
+  // Skill "scene-image" — admin ghi thêm ghi chú qua /admin (vd luôn ép 1 phong cách ánh sáng riêng).
+  const scenePromptOverride = await resolveSkillOverride(job.mini_app_id, "scene_image_prompt");
+  if (scenePromptOverride) scenePrompt += ` Ghi chú thêm từ admin: ${scenePromptOverride}`;
   const body = buildImageRequestBody(
     job.image_model as string,
     scenePrompt,
@@ -1101,7 +1151,16 @@ async function runSceneStage(
       .select("id, position, scene_description, camera_view, outfit_override, face_view, location");
     if (sceneError || !sceneRows) throw new Error(sceneError?.message ?? "Không tạo được phân cảnh");
 
-    if (job.continuous_motion) {
+    if (job.frame_chain_mode) {
+      // Frame-chaining (dẫn trạng thái qua khung hình THẬT) — chỉ tạo ảnh cho cảnh đầu tiên ngay bây
+      // giờ. Các cảnh sau tạo TUẦN TỰ, mỗi ảnh dựa vào khung hình cuối THẬT trích từ video cảnh liền
+      // trước (xem applyFrameChainVideoResult) — không thể tạo trước vì video cảnh trước chưa tồn tại.
+      const firstRow = sceneRows.find((r) => r.position === 0);
+      if (firstRow) {
+        const requestId = await submitSceneImageForRow(job, firstRow, imageEntry, false, "image");
+        await supabase.from("story_video_scenes").update({ image_fal_request_id: requestId }).eq("id", firstRow.id);
+      }
+    } else if (job.continuous_motion) {
       // Chuỗi N+1 ảnh: ảnh ĐẦU của cảnh 1 (1 lượt) + ảnh CUỐI của MỌI cảnh (N lượt) — gửi SONG SONG
       // (không lượt nào phụ thuộc lượt khác, vì cả 2 loại ảnh đều chỉ dựa vào ảnh tham chiếu Character,
       // không dựa vào ảnh cảnh khác). Việc "nối chuỗi" (ảnh cuối cảnh N -> ảnh đầu cảnh N+1) xảy ra
@@ -1168,7 +1227,10 @@ export async function submitStoryVideoJob(
   genreKey?: string,
   characters?: MultiCharacterInput[],
   locationReferenceUrl?: string,
-  continuousMotion?: boolean
+  continuousMotion?: boolean,
+  // Frame-chaining (chỉ luồng 1 nhân vật ở v1, xem applyFrameChainVideoResult) — bỏ qua hoàn toàn nếu
+  // job rơi vào nhánh nhiều nhân vật bên dưới.
+  frameChainMode?: boolean
 ): Promise<{ jobId: number; newBalance: number }> {
   if (numScenes < MIN_SCENES || numScenes > MAX_SCENES) {
     throw new Error(`Cần từ ${MIN_SCENES} đến ${MAX_SCENES} phân cảnh`);
@@ -1243,6 +1305,7 @@ export async function submitStoryVideoJob(
       genre_key: resolvedGenreKey,
       location_reference_url: locationReferenceUrl ?? null,
       continuous_motion: continuousMotion === true,
+      frame_chain_mode: frameChainMode === true,
     })
     .select("id")
     .single();
@@ -1265,6 +1328,7 @@ export async function submitStoryVideoJob(
     genre_key: resolvedGenreKey,
     location_reference_url: locationReferenceUrl ?? null,
     continuous_motion: continuousMotion === true,
+    frame_chain_mode: frameChainMode === true,
   };
 
   let characterTxId: number | null = null;
@@ -1671,11 +1735,14 @@ async function generateSceneDescriptionFromImage(
   hint: string | undefined,
   storyDescription: string,
   modelChatKey: string | undefined,
-  genreStyleGuide?: string
+  genreStyleGuide?: string,
+  skillOverride?: string
 ): Promise<string> {
-  const systemPrompt = genreStyleGuide?.trim()
+  let systemPrompt = genreStyleGuide?.trim()
     ? `${SCENE_PROMPT_FROM_IMAGE_SYSTEM}\n\nGhi chú thêm về phong cách/nhịp điệu chuyển động cho đúng thể loại: ${genreStyleGuide.trim()}`
     : SCENE_PROMPT_FROM_IMAGE_SYSTEM;
+  // Skill "motion-planner" — admin ghi thêm ghi chú qua /admin (vd luôn nhấn mạnh chuyển động camera).
+  if (skillOverride?.trim()) systemPrompt += `\n\nGhi chú thêm từ admin: ${skillOverride.trim()}`;
   const userPrompt = `Ý tưởng truyện tổng thể: ${storyDescription}${hint ? `\nGợi ý riêng cho cảnh này: ${hint}` : ""}\nViết mô tả chuyển động ngắn cho ảnh này.`;
   const { output } = await callOpenRouter(modelChatKey || "google/gemini-3-flash-preview", 120, systemPrompt, userPrompt, imageUrl);
   return output.trim();
@@ -1756,9 +1823,17 @@ export async function submitStoryVideoJobWithOwnImages(
   }
 
   try {
+    const motionPlannerOverride = await resolveSkillOverride(miniAppId, "motion_planner_prompt");
     const scenes = await Promise.all(
       sceneImages.map(async (s, index) => {
-        const description = await generateSceneDescriptionFromImage(s.imageUrl, s.hint, finalStoryDescription, modelChatKey);
+        const description = await generateSceneDescriptionFromImage(
+          s.imageUrl,
+          s.hint,
+          finalStoryDescription,
+          modelChatKey,
+          undefined,
+          motionPlannerOverride
+        );
         return { job_id: job.id, position: index, scene_description: description, image_url: s.imageUrl };
       })
     );
@@ -2267,6 +2342,18 @@ export async function applyImageStageResult(
   }
 
   await supabase.from("story_video_scenes").update(stage === "image_end" ? { end_image_url: imageUrl } : { image_url: imageUrl }).eq("id", sceneId);
+
+  // Frame-chaining — hoàn toàn tách khỏi luồng song song bên dưới (không dùng RPC "đủ ảnh chưa", vì
+  // ảnh của các cảnh sau CHƯA TỒN TẠI ở thời điểm này, tạo tuần tự từng cảnh một). Không hỗ trợ tạo
+  // lại (isRegenerate) ở v1 — chưa có UI cho việc đó.
+  {
+    const { data: chainJob } = await supabase.from("story_video_jobs").select("frame_chain_mode").eq("id", jobId).single();
+    if (chainJob?.frame_chain_mode) {
+      if (!isRegenerate) await applyFrameChainImageResult(jobId, sceneId);
+      return;
+    }
+  }
+
   if (isRegenerate) {
     // Tạo lại ảnh CUỐI 1 cảnh trong chế độ chuyển động liên tục (regenerateContinuousMotionSceneImage) —
     // ảnh này còn được dùng làm ảnh ĐẦU của cảnh kế tiếp (đã copy lúc tạo lần đầu), nên phải copy đè
@@ -2427,7 +2514,8 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
                 scene.scene_description ?? undefined,
                 job.story_description,
                 undefined,
-                genreStyleGuide
+                genreStyleGuide,
+                miniApp.model_config.motion_planner_prompt
               )
             : scene.scene_description;
           await supabase.from("story_video_scenes").update({ motion_prompt: motionPrompt }).eq("id", scene.id);
@@ -2607,7 +2695,15 @@ export async function applyVideoStageResult(
 
   await supabase.from("story_video_scenes").update({ video_url: videoUrl }).eq("id", sceneId);
 
-  const { data: job } = await supabase.from("story_video_jobs").select("mini_app_id").eq("id", jobId).single();
+  const { data: job } = await supabase.from("story_video_jobs").select("mini_app_id, frame_chain_mode").eq("id", jobId).single();
+
+  // Frame-chaining — hoàn toàn tách khỏi luồng song song bên dưới (không chờ "đủ cảnh", tự nối tiếp
+  // tuần tự sang cảnh kế bằng khung hình THẬT vừa render ra). Không hỗ trợ lồng tiếng/tạo lại ở v1.
+  if (job?.frame_chain_mode) {
+    if (!isRegenerate) await applyFrameChainVideoResult(jobId, sceneId, videoUrl);
+    return;
+  }
+
   const lipsyncModel = job ? (await getMiniAppModelConfig(job.mini_app_id)).model_config.lipsync_model : undefined;
 
   const scenes = await getScenes(jobId);
@@ -2632,6 +2728,74 @@ export async function applyVideoStageResult(
   if (scenes.length === 0 || scenes.some((s) => (sceneNeedsLipsync(s, lipsyncModel) ? !s.lipsync_url : !s.video_url))) return; // chờ cảnh còn lại
 
   await stitchAndFinish(jobId, scenes);
+}
+
+// Frame-chaining — cảnh vừa có ảnh xong -> submit video ngay, không có gì để chờ (khác continuous
+// motion cần chờ đủ ảnh đầu+cuối trước khi submit video). Dùng cho cả cảnh đầu tiên (runSceneStage)
+// lẫn các cảnh sau (applyFrameChainVideoResult gọi lại đúng đường này qua applyImageStageResult).
+async function applyFrameChainImageResult(jobId: number, sceneId: number) {
+  const supabase = getSupabaseAdmin();
+  const { data: job } = await supabase
+    .from("story_video_jobs")
+    .select("id, video_model, aspect_ratio, video_duration_key")
+    .eq("id", jobId)
+    .single();
+  const { data: scene } = await supabase
+    .from("story_video_scenes")
+    .select("id, image_url, scene_description, motion_prompt")
+    .eq("id", sceneId)
+    .single();
+  if (!job || !scene) return;
+  try {
+    const requestId = await submitSceneVideoForRow(job, scene, false);
+    await supabase.from("story_video_scenes").update({ video_fal_request_id: requestId }).eq("id", sceneId);
+  } catch (err) {
+    await failJob(jobId, err instanceof Error ? err.message : String(err));
+  }
+}
+
+// Video cảnh N vừa render xong -> tách khung hình cuối THẬT (extractLastFrame) -> hoặc submit ảnh cảnh
+// N+1 dùng khung hình đó làm mỏ neo (chainedFrameUrl), hoặc nếu là cảnh cuối cùng thì ghép video luôn.
+async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoUrl: string) {
+  const supabase = getSupabaseAdmin();
+  const { data: scene } = await supabase.from("story_video_scenes").select("id, job_id, position").eq("id", sceneId).single();
+  if (!scene) return;
+
+  let lastFrameUrl: string;
+  try {
+    lastFrameUrl = await extractLastFrame(videoUrl, jobId, sceneId);
+  } catch (err) {
+    await failJob(jobId, err instanceof Error ? err.message : String(err));
+    return;
+  }
+  await supabase.from("story_video_scenes").update({ last_frame_url: lastFrameUrl }).eq("id", sceneId);
+
+  const { data: nextScene } = await supabase
+    .from("story_video_scenes")
+    .select("id, scene_description, camera_view, outfit_override, face_view, location")
+    .eq("job_id", jobId)
+    .eq("position", scene.position + 1)
+    .maybeSingle();
+
+  if (nextScene) {
+    const { data: job } = await supabase
+      .from("story_video_jobs")
+      .select("id, mini_app_id, character_angle_urls, character_sheet_url, image_model, aspect_ratio, image_resolution_key, location_reference_url")
+      .eq("id", jobId)
+      .single();
+    if (!job) return;
+    try {
+      const miniApp = await getMiniAppModelConfig(job.mini_app_id);
+      const imageEntry = miniApp.model_config.image_models.find((m) => m.model === job.image_model);
+      const requestId = await submitSceneImageForRow(job, nextScene, imageEntry, false, "image", undefined, undefined, lastFrameUrl);
+      await supabase.from("story_video_scenes").update({ image_fal_request_id: requestId }).eq("id", nextScene.id);
+    } catch (err) {
+      await failJob(jobId, err instanceof Error ? err.message : String(err));
+    }
+  } else {
+    const scenes = await getScenes(jobId);
+    await stitchAndFinish(jobId, scenes);
+  }
 }
 
 // Gọi khi 1 cảnh đã lồng tiếng xong (bước sau video câm) — mirror applyVideoStageResult, dùng chung
@@ -2710,6 +2874,38 @@ async function probeClip(clipPath: string): Promise<{ durationSeconds: number; h
     const durationSeconds = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
     const hasAudio = /Stream #\d+:\d+.*: Audio:/.test(stderr);
     return { durationSeconds, hasAudio };
+  }
+}
+
+// Frame-chaining — tải video vừa render xong, dùng ffmpeg cắt đúng khung hình cuối THẬT (lùi 0.2s so
+// với điểm kết thúc tuyệt đối vì vài model kết thúc bằng 1-2 khung đứng hình/mờ), upload lên Supabase
+// Storage, trả về URL công khai để dùng làm ảnh tham chiếu cho cảnh kế tiếp. Khác hẳn continuous_motion
+// (dùng ảnh AI tự đoán "end_description" TRƯỚC khi có video) — ở đây khung hình lấy từ kết quả THẬT sự
+// đã render ra, đảm bảo nối tiếp chính xác 100% vì không có "đích" nào để lệch.
+async function extractLastFrame(videoUrl: string, jobId: number, sceneId: number): Promise<string> {
+  if (!ffmpegPath) throw new Error("Máy chủ chưa hỗ trợ tách khung hình (thiếu ffmpeg)");
+  try {
+    chmodSync(ffmpegPath, 0o755);
+  } catch {}
+  const workDir = await mkdtemp(path.join(tmpdir(), "story-video-frame-"));
+  try {
+    const videoPath = path.join(workDir, "clip.mp4");
+    const framePath = path.join(workDir, "frame.jpg");
+    const res = await fetch(videoUrl);
+    if (!res.ok) throw new Error("Không tải được video để tách khung hình");
+    await writeFile(videoPath, Buffer.from(await res.arrayBuffer()));
+    await execFileAsync(ffmpegPath, ["-sseof", "-0.2", "-i", videoPath, "-update", "1", "-q:v", "2", "-y", framePath]);
+    const frameBuffer = await readFile(framePath);
+    const supabase = getSupabaseAdmin();
+    const filePath = `${jobId}/last-frame-${sceneId}-${randomUUID()}.jpg`;
+    const { error: uploadError } = await supabase.storage
+      .from("story-video-character-angles")
+      .upload(filePath, frameBuffer, { contentType: "image/jpeg", upsert: true });
+    if (uploadError) throw new Error(`Lỗi lưu khung hình: ${uploadError.message}`);
+    const { data: publicUrlData } = supabase.storage.from("story-video-character-angles").getPublicUrl(filePath);
+    return publicUrlData.publicUrl;
+  } finally {
+    await rm(workDir, { recursive: true, force: true }).catch(() => {});
   }
 }
 

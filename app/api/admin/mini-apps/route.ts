@@ -57,6 +57,11 @@ export async function GET(req: Request) {
           default_prompt_visible?: boolean;
           prompt_helper_instructions?: string;
           character_prompt?: string;
+          story_extractor_prompt?: string;
+          story_validator_prompt?: string;
+          scene_image_prompt?: string;
+          motion_planner_prompt?: string;
+          continuity_checker_prompt?: string;
           image_models?: { key: string; provider: string; label: string; model: string; provider_cost_vnd: number; multi_image: boolean; enabled: boolean }[];
           video_models?: { key: string; provider: string; label: string; model: string; provider_cost_vnd: number; enabled: boolean }[];
           genre_thumbnails?: Record<string, string>;
@@ -103,6 +108,13 @@ export async function GET(req: Request) {
       // Prompt tạo ảnh Character (sheet nhiều góc) — chỉ app "Video từ ý tưởng truyện" dùng, rỗng thì
       // lib/story-video.ts tự dùng bản mặc định 6 góc.
       characterPrompt: config?.character_prompt ?? "",
+      // 7-skill architecture — 5 field còn lại (2 skill kia dùng promptHelperInstructions/characterPrompt
+      // ở trên), rỗng thì hàm tương ứng trong lib/story-video.ts tự dùng bản mặc định hardcode.
+      storyExtractorPrompt: config?.story_extractor_prompt ?? "",
+      storyValidatorPrompt: config?.story_validator_prompt ?? "",
+      sceneImagePrompt: config?.scene_image_prompt ?? "",
+      motionPlannerPrompt: config?.motion_planner_prompt ?? "",
+      continuityCheckerPrompt: config?.continuity_checker_prompt ?? "",
       // Catalog model ảnh/video nhiều nhà cung cấp — chỉ app "Video từ ý tưởng truyện" có, null cho
       // app khác để không hiện nhầm section catalog.
       storyImageModels: config?.image_models ?? null,
@@ -136,6 +148,11 @@ export async function PATCH(req: Request) {
     defaultPromptVisible,
     promptHelperInstructions,
     characterPrompt,
+    storyExtractorPrompt,
+    storyValidatorPrompt,
+    sceneImagePrompt,
+    motionPlannerPrompt,
+    continuityCheckerPrompt,
     storyImageModels,
     storyVideoModels,
     genreThumbnails,
@@ -158,6 +175,11 @@ export async function PATCH(req: Request) {
     defaultPromptVisible === undefined &&
     promptHelperInstructions === undefined &&
     characterPrompt === undefined &&
+    storyExtractorPrompt === undefined &&
+    storyValidatorPrompt === undefined &&
+    sceneImagePrompt === undefined &&
+    motionPlannerPrompt === undefined &&
+    continuityCheckerPrompt === undefined &&
     storyImageModels === undefined &&
     storyVideoModels === undefined &&
     genreThumbnails === undefined &&
@@ -197,6 +219,11 @@ export async function PATCH(req: Request) {
     defaultPromptVisible !== undefined ||
     promptHelperInstructions !== undefined ||
     characterPrompt !== undefined ||
+    storyExtractorPrompt !== undefined ||
+    storyValidatorPrompt !== undefined ||
+    sceneImagePrompt !== undefined ||
+    motionPlannerPrompt !== undefined ||
+    continuityCheckerPrompt !== undefined ||
     storyImageModels !== undefined ||
     storyVideoModels !== undefined ||
     genreThumbnails !== undefined ||
@@ -255,6 +282,20 @@ export async function PATCH(req: Request) {
         return Response.json({ error: "characterPrompt phải là chuỗi" }, { status: 400 });
       }
       nextConfig.character_prompt = characterPrompt;
+    }
+    // 7-skill architecture — 5 field còn lại, cùng 1 kiểu validate (chuỗi tuỳ chọn).
+    for (const [field, dbKey] of [
+      ["storyExtractorPrompt", "story_extractor_prompt"],
+      ["storyValidatorPrompt", "story_validator_prompt"],
+      ["sceneImagePrompt", "scene_image_prompt"],
+      ["motionPlannerPrompt", "motion_planner_prompt"],
+      ["continuityCheckerPrompt", "continuity_checker_prompt"],
+    ] as const) {
+      const value = { storyExtractorPrompt, storyValidatorPrompt, sceneImagePrompt, motionPlannerPrompt, continuityCheckerPrompt }[field];
+      if (value !== undefined) {
+        if (typeof value !== "string") return Response.json({ error: `${field} phải là chuỗi` }, { status: 400 });
+        nextConfig[dbKey] = value;
+      }
     }
     if (storyImageModels !== undefined) {
       if (
