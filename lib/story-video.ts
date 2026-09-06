@@ -201,6 +201,25 @@ export async function checkSceneContinuity(startImageUrl: string, endImageUrl: s
   return parseSceneQcResponse(output);
 }
 
+const SCENE_IDENTITY_CHECK_PROMPT = `Bạn kiểm tra xem 2 ảnh có phải CÙNG 1 người hay không. Ảnh THỨ NHẤT là ảnh gốc chuẩn của nhân vật, ảnh THỨ HAI là ảnh AI vừa vẽ ra cho 1 cảnh khác (khác tư thế/góc máy/ánh sáng).
+Trả lời ĐÚNG 1 dòng JSON, không thêm chữ nào khác:
+{"ok": true} nếu rõ ràng là CÙNG 1 người (dù khác góc chụp, tư thế, ánh sáng, biểu cảm), hoặc
+{"ok": false, "issue": "<mô tả ngắn gọn tiếng Việt điểm khác biệt>"} nếu cấu trúc khuôn mặt (hình dáng mặt, mũi, môi, mắt) RÕ RÀNG là người khác.
+Chỉ báo sai khi THẬT SỰ rõ ràng là người khác — không báo sai chỉ vì góc chụp/ánh sáng/biểu cảm khác nhau.`;
+
+// Frame-chaining — lưới an toàn lớp 2 (bên cạnh việc luôn kèm ảnh Character trong prompt ở lớp 1): so
+// ảnh vừa vẽ với ĐÚNG ảnh Character gốc (không phải khung hình chain cảnh trước) để phát hiện trôi danh
+// tính qua nhiều cảnh liên tiếp — xem applyFrameChainImageResult().
+async function checkSceneIdentityMatch(characterReferenceUrl: string, newImageUrl: string, miniAppId?: string): Promise<SceneQcResult> {
+  const override = await resolveSkillOverride(miniAppId, "continuity_checker_prompt");
+  const systemPrompt = override ? `${SCENE_IDENTITY_CHECK_PROMPT}\n\nGhi chú thêm từ admin: ${override}` : SCENE_IDENTITY_CHECK_PROMPT;
+  const { output } = await callOpenRouter("google/gemini-3-flash-preview", 200, systemPrompt, "So sánh 2 ảnh này.", [
+    characterReferenceUrl,
+    newImageUrl,
+  ]);
+  return parseSceneQcResponse(output);
+}
+
 // count > 1 dùng cho job nhiều nhân vật — chỉ tính phí đúng số người THẬT SỰ cần AI tạo Character mới
 // (bỏ qua người tái dùng thư viện/đã là sheet sẵn), mặc định 1 giữ nguyên hành vi cho mọi chỗ gọi cũ.
 export async function computeCharacterCreditCost(count = 1): Promise<{ providerCostVnd: number; creditCost: number }> {
@@ -963,20 +982,29 @@ async function submitSceneImageForRow(
   chainedFrameUrl?: string
 ): Promise<string> {
   // MARKER_SINGLE_CHARACTER_IMAGE_SUBMIT
-  // Frame-chaining (chainedFrameUrl có giá trị, từ cảnh 2 trở đi): dùng DUY NHẤT khung hình thật đó
-  // làm ảnh tham chiếu — KHÔNG trộn thêm ảnh Character sheet/địa điểm. Đã xác nhận qua test thật: trộn
-  // nhiều ảnh "người" khác nguồn (sheet AI vẽ + khung hình video thật) khiến model lẫn lộn danh tính,
-  // ra sai người ("cô gái khác"). Khung hình thật đã tự chứa đủ đúng người + đúng bối cảnh của bước
-  // trước, không cần thêm nguồn tham chiếu nào khác nữa.
-  const characterImages = chainedFrameUrl
-    ? []
-    : selectReferenceImagesForScene(row.camera_view, job.character_angle_urls, job.character_sheet_url as string, row.face_view);
+  // Frame-chaining (chainedFrameUrl có giá trị, từ cảnh 2 trở đi): LUÔN gửi CẢ 2 nguồn — ảnh Character
+  // gốc (giữ mặt) VÀ khung hình thật cảnh trước (giữ tư thế/trang phục/bối cảnh) — không chỉ dùng 1
+  // trong 2. Lần đầu thử chỉ dùng khung hình thật (bỏ hẳn ảnh Character) đã sửa được lỗi lẫn 2 nguồn
+  // ảnh "người" (ra sai người hoàn toàn), NHƯNG lại lộ lỗi khác nghiêm trọng hơn: nếu khung hình cảnh
+  // trước đang quay lưng/khuất mặt (hoàn toàn hợp lệ, hệ thống có camera_view "back"), cảnh sau sẽ
+  // KHÔNG CÒN GÌ để biết mặt thật ra sao — AI buộc phải tự bịa mặt. Sửa đúng gốc: luôn có ảnh Character
+  // làm "nguồn mặt" cố định xuyên suốt, khung hình chain chỉ đảm nhận "nguồn tư thế/bối cảnh" — xem câu
+  // chỉ dẫn phân vai rõ ràng bên dưới (mirror đúng cách đã làm cho cặp ảnh thân/mặt ở luồng thường).
+  const characterImages = selectReferenceImagesForScene(
+    row.camera_view,
+    job.character_angle_urls,
+    job.character_sheet_url as string,
+    row.face_view
+  );
   // Ảnh Bối cảnh/Địa điểm (tuỳ chọn, dùng chung cho cả job) — nối THÊM vào cuối, độc lập với ảnh
   // thân/mặt ở trên. Chỉ gửi khi model thật sự hỗ trợ đa ảnh, không thì im lặng bỏ qua (không throw
-  // lỗi) — đúng tiền lệ đã làm với face_view. Bỏ qua hoàn toàn khi có chainedFrameUrl (xem trên).
+  // lỗi) — đúng tiền lệ đã làm với face_view. Bỏ qua khi có chainedFrameUrl để giữ tổng số ảnh tham
+  // chiếu gọn (character + chained là đủ, không cần thêm địa điểm vì khung hình chain đã tự chứa đúng
+  // bối cảnh thật của bước trước rồi).
   const hasLocation = !chainedFrameUrl && !!job.location_reference_url && (imageEntry?.multi_image ?? false);
-  const referenceImages = chainedFrameUrl ? [chainedFrameUrl] : [...characterImages];
+  const referenceImages = [...characterImages];
   if (hasLocation) referenceImages.push(job.location_reference_url as string);
+  if (chainedFrameUrl) referenceImages.push(chainedFrameUrl);
   // Tầng 2 (Appearance) — chỉ cảnh có outfit_override mới chèn thêm chỉ dẫn đổi đồ vào cuối prompt,
   // đè lên đồ trong ảnh tham chiếu (Tầng 1 mặt/tóc/dáng người vẫn giữ nguyên qua ảnh tham chiếu như
   // bình thường). Không đổi gì với cảnh không có outfit_override.
@@ -992,7 +1020,18 @@ async function submitSceneImageForRow(
   // buildImageRequestBody), nói về "ảnh thứ 2" mà model không hề nhận được là vô nghĩa. Mô tả theo
   // FIRST/SECOND (không nói cứng "hai ảnh") để còn ghép thêm câu địa điểm phía sau mà không mâu thuẫn
   // số lượng ảnh thật sự gửi đi.
-  if (characterImages.length === 2 && imageEntry?.multi_image) {
+  // Khi có chainedFrameUrl: BỎ QUA hẳn khối "FIRST=body pose" cũ bên dưới — nó mâu thuẫn trực tiếp với
+  // chainedFrameUrl (khối cũ bảo lấy tư thế từ ảnh Character, nhưng ở chế độ chain tư thế phải lấy từ
+  // khung hình chain mới đúng). Thay bằng 1 khối chỉ dẫn PHÂN VAI rõ ràng: ảnh Character (1-2 ảnh đầu)
+  // = nguồn MẶT cố định xuyên suốt cả job; khung hình chain (ảnh cuối) = nguồn TƯ THẾ/TRANG PHỤC/BỐI
+  // CẢNH của đúng khoảnh khắc đang tiếp diễn. Bắt buộc phải LUÔN kèm ảnh Character dù đang chain — nếu
+  // chỉ dùng khung hình chain một mình, lúc cảnh trước kết thúc bằng tư thế quay lưng/khuất mặt (hợp lệ,
+  // camera_view "back") thì cảnh sau sẽ không còn gì để biết mặt thật, buộc phải bịa — đã xác nhận qua
+  // test thật đây là nguyên nhân "khuôn mặt trôi dần thành người khác" qua nhiều cảnh liên tiếp.
+  if (chainedFrameUrl) {
+    const faceRefLabel = characterImages.length === 2 ? "FIRST and SECOND reference images" : "FIRST reference image";
+    scenePrompt += ` The LAST reference image shows the exact current pose, outfit, and physical environment to continue this scene from — use it ONLY for the pose, clothing, and setting, never for the face. For the character's face and identity, always match the ${faceRefLabel} exactly — keep the identical face even if the last reference image's face looks slightly different due to motion blur, camera angle, or lighting.`;
+  } else if (characterImages.length === 2 && imageEntry?.multi_image) {
     scenePrompt += row.face_view && row.face_view !== row.camera_view
       ? ` The FIRST reference image shows the body pose/angle to follow, the SECOND shows the face/gaze direction to follow — combine them: keep the body pose from the first image, but the face orientation and eye direction from the second image.`
       : ` The FIRST reference image shows the body pose/angle to follow, the SECOND is a close-up reference for the character's face — use it to keep facial identity accurate and consistent while following the body pose from the first image.`;
@@ -1000,13 +1039,6 @@ async function submitSceneImageForRow(
   if (hasLocation) {
     const idx = characterImages.length + 1;
     scenePrompt += ` Reference image #${idx} shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
-  }
-  if (chainedFrameUrl) {
-    // Tránh câu kiểu "continues from... transition into" — đã xác nhận qua test thật với
-    // buildContinuityPrefix() rằng cách diễn đạt "nối tiếp 2 khoảnh khắc" khiến model vẽ ra 1 tấm
-    // storyboard 2 khung dính liền thay vì 1 ảnh tĩnh. Chỉ mô tả ảnh tham chiếu THEO HIỆN TẠI (là ai,
-    // đang ở đâu), còn "scene_description" mới là hành động MỚI cần vẽ.
-    scenePrompt += ` The reference image shows this exact same person and this exact same location right now. Keep the person's face, hairstyle, and body exactly as shown in the reference image, and keep the same location/environment — only change what is described below.`;
   }
   // Ép ảnh chụp thật — model dễ ngả sang phong cách minh hoạ/tranh vẽ khi scene_description dùng
   // ngôn từ giàu chất thơ (hoàng hôn, khu vườn hoa...) mà không có chỉ dẫn phong cách hình ảnh rõ ràng.
@@ -2435,12 +2467,14 @@ export async function applyImageStageResult(
   await supabase.from("story_video_scenes").update(stage === "image_end" ? { end_image_url: imageUrl } : { image_url: imageUrl }).eq("id", sceneId);
 
   // Frame-chaining — hoàn toàn tách khỏi luồng song song bên dưới (không dùng RPC "đủ ảnh chưa", vì
-  // ảnh của các cảnh sau CHƯA TỒN TẠI ở thời điểm này, tạo tuần tự từng cảnh một). Không hỗ trợ tạo
-  // lại (isRegenerate) ở v1 — chưa có UI cho việc đó.
+  // ảnh của các cảnh sau CHƯA TỒN TẠI ở thời điểm này, tạo tuần tự từng cảnh một). isRegenerate=true ở
+  // đây KHÔNG phải khách bấm nút (chưa có UI đó cho v1) — là do chính applyFrameChainImageResult tự gọi
+  // lại để vẽ lại ảnh khi lưới kiểm tra danh tính phát hiện sai người, nên vẫn phải xử lý tiếp bình
+  // thường (không được return sớm), không như nhánh continuous_motion cũ (isRegenerate luôn từ UI khách).
   {
     const { data: chainJob } = await supabase.from("story_video_jobs").select("frame_chain_mode").eq("id", jobId).single();
     if (chainJob?.frame_chain_mode) {
-      if (!isRegenerate) await applyFrameChainImageResult(jobId, sceneId);
+      await applyFrameChainImageResult(jobId, sceneId);
       return;
     }
   }
@@ -2824,19 +2858,80 @@ export async function applyVideoStageResult(
 // Frame-chaining — cảnh vừa có ảnh xong -> submit video ngay, không có gì để chờ (khác continuous
 // motion cần chờ đủ ảnh đầu+cuối trước khi submit video). Dùng cho cả cảnh đầu tiên (runSceneStage)
 // lẫn các cảnh sau (applyFrameChainVideoResult gọi lại đúng đường này qua applyImageStageResult).
+// Lưới an toàn lớp 2 cho frame-chaining — tối đa số lần vẽ lại (dùng lại đúng khung hình chain cũ) khi
+// phát hiện sai danh tính, trước khi chấp nhận quay về ảnh Character gốc (mất liền mạch tư thế/bối
+// cảnh ở đúng 1 cảnh đó, nhưng chắc chắn đúng mặt) — xem applyFrameChainImageResult().
+const MAX_IDENTITY_RETRY = 2;
+
 async function applyFrameChainImageResult(jobId: number, sceneId: number) {
   const supabase = getSupabaseAdmin();
   const { data: job } = await supabase
     .from("story_video_jobs")
-    .select("id, video_model, aspect_ratio, video_duration_key")
+    .select(
+      "id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url"
+    )
     .eq("id", jobId)
     .single();
   const { data: scene } = await supabase
     .from("story_video_scenes")
-    .select("id, image_url, scene_description, motion_prompt")
+    .select("id, position, image_url, scene_description, motion_prompt, camera_view, face_view, outfit_override, location, identity_retry_count")
     .eq("id", sceneId)
     .single();
   if (!job || !scene) return;
+
+  // Chỉ kiểm tra từ cảnh thứ 2 trở đi (cảnh có thật sự dùng khung hình chain) — cảnh đầu tiên dùng
+  // đúng ảnh Character gốc như luồng thường, không có gì để trôi danh tính. Bỏ qua nếu đã vượt số lần
+  // thử tối đa (đã dùng phương án dự phòng ở lượt trước) — chấp nhận kết quả hiện có, không lặp vô hạn.
+  const retryCount = scene.identity_retry_count ?? 0;
+  if (scene.position > 0 && job.character_sheet_url && scene.image_url && retryCount <= MAX_IDENTITY_RETRY) {
+    let identityOk = true;
+    let issue: string | undefined;
+    try {
+      const faceReference = (job.character_angle_urls as CharacterAngleUrls | null)?.front || job.character_sheet_url;
+      const check = await checkSceneIdentityMatch(faceReference, scene.image_url, job.mini_app_id);
+      identityOk = check.ok;
+      issue = check.issue;
+    } catch (err) {
+      console.error(`[story-video] Lỗi kiểm tra danh tính cảnh #${sceneId}, coi như đạt:`, err);
+    }
+
+    if (!identityOk) {
+      try {
+        const miniApp = await getMiniAppModelConfig(job.mini_app_id);
+        const imageEntry = miniApp.model_config.image_models.find((m) => m.model === job.image_model);
+        if (retryCount < MAX_IDENTITY_RETRY) {
+          console.error(`[story-video] Frame-chain cảnh #${sceneId} nghi sai danh tính (lần ${retryCount + 1}): ${issue}`);
+          const { data: prevScene } = await supabase
+            .from("story_video_scenes")
+            .select("last_frame_url")
+            .eq("job_id", jobId)
+            .eq("position", scene.position - 1)
+            .maybeSingle();
+          const requestId = await submitSceneImageForRow(
+            job, scene, imageEntry, true, "image", undefined, undefined, prevScene?.last_frame_url ?? undefined
+          );
+          await supabase
+            .from("story_video_scenes")
+            .update({ identity_retry_count: retryCount + 1, image_url: null, image_fal_request_id: requestId })
+            .eq("id", sceneId);
+        } else {
+          // Hết số lần thử — quay về ảnh Character gốc (bỏ khung hình chain) cho ĐÚNG cảnh này, đảm bảo
+          // đúng mặt dù mất liền mạch tư thế/bối cảnh ở đúng 1 cảnh đó. Đánh dấu vượt ngưỡng để lần webhook
+          // tới (kết quả của lượt vẽ này) không kiểm tra lại nữa, tránh lặp vô hạn nếu vẫn lỡ sai.
+          console.error(`[story-video] Cảnh #${sceneId} hết lượt thử, quay về ảnh Character gốc.`);
+          const requestId = await submitSceneImageForRow(job, scene, imageEntry, true, "image");
+          await supabase
+            .from("story_video_scenes")
+            .update({ identity_retry_count: MAX_IDENTITY_RETRY + 1, image_url: null, image_fal_request_id: requestId })
+            .eq("id", sceneId);
+        }
+      } catch (err) {
+        await failJob(jobId, err instanceof Error ? err.message : String(err));
+      }
+      return; // đợi webhook ảnh mới, chưa submit video vội
+    }
+  }
+
   try {
     const requestId = await submitSceneVideoForRow(job, scene, false);
     await supabase.from("story_video_scenes").update({ video_fal_request_id: requestId }).eq("id", sceneId);
@@ -3043,81 +3138,118 @@ async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
         "-i", clipPaths[0], "-vf", scaleFilter, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-y", outputPath,
       ]);
     } else {
-      // Chuyển mờ ngắn (crossfade) giữa các cảnh thay vì cắt cứng ("-f concat" cũ) — cắt cứng khiến bất
-      // kỳ lệch nhỏ nào ở khung hình cuối/đầu giữa 2 clip (model video không luôn bám sát 100% ảnh đích
-      // khi tạo 8 giây chuyển động) đều lộ rõ thành giật ngay tại điểm nối. xfade cần biết trước thời
-      // lượng THẬT của từng clip để tính đúng "offset" bắt đầu chuyển mờ — không dùng đúng số giây đã
-      // yêu cầu lúc submit vì model có thể trả về clip hơi lệch thời lượng.
+      // Chuyển mờ ngắn (crossfade) giữa các cảnh thay vì cắt cứng — xem chú thích STITCH_FADE_SECONDS.
+      // LƯU Ý (đã sửa lỗi thật): bản đầu tiên gộp DẦN cả khối tích luỹ (accumulator) qua từng bước —
+      // mỗi bước re-encode LẠI TOÀN BỘ phần đã ghép trước đó, nên tổng chi phí encode tăng theo cấp số
+      // nhân với số cảnh (O(N^2)) — job đủ nhiều cảnh (6-8+) khiến tổng thời gian vượt quá giới hạn 60s
+      // của Vercel Hobby, gây timeout dù RAM đã ổn (xem OOM fix trước đó). Sửa lại: mỗi clip chỉ
+      // re-encode ĐÚNG 1 LẦN (phần "core" — toàn bộ clip trừ đúng nửa giây giao với clip liền kề), các
+      // đoạn chuyển mờ chỉ ghép 2 MẨU NHỎ (đúng STITCH_FADE_SECONDS mỗi bên) — tổng chi phí giờ tuyến
+      // tính theo tổng thời lượng video (O(N)), không phụ thuộc số cảnh theo cấp số nhân. Nối các mảnh
+      // lại bằng concat demuxer + "-c copy" (không re-encode, gần như tức thời) vì mọi mảnh đều được
+      // encode ra cùng 1 bộ tham số codec. Verify thật: 8 cảnh 5s chỉ mất ~10s (so với ~48s cách cũ).
       const clipInfo = await Promise.all(clipPaths.map((p) => probeClip(p)));
       const durations = clipInfo.map((c) => c.durationSeconds);
       const anyHasAudio = clipInfo.some((c) => c.hasAudio);
+      const fade = STITCH_FADE_SECONDS;
+      const n = clipPaths.length;
 
-      // Ghép NỐI TIẾP từng cặp 2 clip một (không mở cùng lúc N clip trong 1 lệnh ffmpeg như bản đầu) —
-      // mở nhiều clip cùng lúc trong 1 filter_complex khiến ffmpeg phải giữ TẤT CẢ luồng giải mã trong
-      // bộ nhớ cùng lúc, đã từng làm hàm bị Vercel kill do hết RAM ("instance was killed because it ran
-      // out of available memory") khi job có nhiều cảnh. Gộp dần: [tích luỹ] + [clip tiếp theo] ->
-      // [tích luỹ mới] — RAM ở mỗi bước chỉ cần giữ đúng 2 luồng, không phụ thuộc tổng số cảnh trong job.
-      let accPath = clipPaths[0];
-      let accDuration = durations[0];
+      const audioFilterFor = (idx: number, dur: number, outLabel: string) =>
+        clipInfo[idx].hasAudio
+          ? `[0:a]aformat=sample_rates=44100:channel_layouts=stereo[${outLabel}]`
+          : `anullsrc=channel_layout=stereo:sample_rate=44100:d=${dur.toFixed(3)}[${outLabel}]`;
+      const encodeArgs = ["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", ...(anyHasAudio ? ["-c:a", "aac"] : ["-an"])];
 
-      // Chuẩn hoá kích thước/màu/audio ngay từ clip đầu tiên để mọi bước gộp sau chỉ cần xfade/
-      // acrossfade thẳng, không phải lo lệch định dạng giữa 2 vế mỗi lần gộp.
-      const firstNormalized = path.join(workDir, "acc-0.mp4");
-      {
+      // 1) "core" — thân mỗi clip, trừ đúng nửa giao chuyển mờ với clip liền kề (đầu/cuối). Mỗi clip
+      // chỉ encode ĐÚNG 1 LẦN, không phụ thuộc số cảnh còn lại phía sau.
+      const corePaths: string[] = [];
+      for (let i = 0; i < n; i++) {
+        const headTrim = i > 0 ? fade : 0;
+        const tailTrim = i < n - 1 ? fade : 0;
+        const coreDur = Math.max(0.01, durations[i] - headTrim - tailTrim);
+        const outPath = path.join(workDir, `core-${i}.mp4`);
         const filterParts = [`[0:v]${scaleFilter}[vout]`];
         const mapArgs = ["-map", "[vout]"];
         if (anyHasAudio) {
-          filterParts.push(
-            clipInfo[0].hasAudio
-              ? `[0:a]aformat=sample_rates=44100:channel_layouts=stereo[aout]`
-              : `anullsrc=channel_layout=stereo:sample_rate=44100:d=${accDuration.toFixed(3)}[aout]`
-          );
+          filterParts.push(audioFilterFor(i, coreDur, "aout"));
           mapArgs.push("-map", "[aout]");
         }
         await execFileAsync(ffmpegPath, [
-          "-i", accPath,
+          "-ss", headTrim.toFixed(3), "-i", clipPaths[i], "-t", coreDur.toFixed(3),
           "-filter_complex", filterParts.join(";"),
           ...mapArgs,
-          "-c:v", "libx264", "-pix_fmt", "yuv420p",
-          ...(anyHasAudio ? ["-c:a", "aac"] : ["-an"]),
-          "-y", firstNormalized,
+          ...encodeArgs,
+          "-y", outPath,
         ]);
+        corePaths[i] = outPath;
       }
-      accPath = firstNormalized;
 
-      for (let i = 1; i < clipPaths.length; i++) {
-        const isLast = i === clipPaths.length - 1;
-        const stepOutput = isLast ? outputPath : path.join(workDir, `acc-${i}.mp4`);
-        const offset = Math.max(0, accDuration - STITCH_FADE_SECONDS);
+      // 2) transition — 2 mẩu nhỏ (đuôi clip i + đầu clip i+1) crossfade với nhau, chi phí luôn nhỏ và
+      // cố định (đúng "fade" giây), không phụ thuộc độ dài clip hay tổng số cảnh trong job.
+      const transitionPaths: string[] = [];
+      for (let i = 0; i < n - 1; i++) {
+        const j = i + 1;
+        const tailPath = path.join(workDir, `tail-${i}.mp4`);
+        const headPath = path.join(workDir, `head-${j}.mp4`);
+        const transPath = path.join(workDir, `trans-${i}.mp4`);
+
+        const tailFilter = [`[0:v]${scaleFilter}[vout]`];
+        const tailMap = ["-map", "[vout]"];
+        if (anyHasAudio) {
+          tailFilter.push(audioFilterFor(i, fade, "aout"));
+          tailMap.push("-map", "[aout]");
+        }
+        await execFileAsync(ffmpegPath, [
+          "-ss", Math.max(0, durations[i] - fade).toFixed(3), "-i", clipPaths[i], "-t", fade.toFixed(3),
+          "-filter_complex", tailFilter.join(";"),
+          ...tailMap,
+          ...encodeArgs,
+          "-y", tailPath,
+        ]);
+
+        const headFilter = [`[0:v]${scaleFilter}[vout]`];
+        const headMap = ["-map", "[vout]"];
+        if (anyHasAudio) {
+          headFilter.push(audioFilterFor(j, fade, "aout"));
+          headMap.push("-map", "[aout]");
+        }
+        await execFileAsync(ffmpegPath, [
+          "-ss", "0", "-i", clipPaths[j], "-t", fade.toFixed(3),
+          "-filter_complex", headFilter.join(";"),
+          ...headMap,
+          ...encodeArgs,
+          "-y", headPath,
+        ]);
+
         // "-pix_fmt yuv420p" bắt buộc — filter "xfade" tự chuyển sang không gian màu 4:4:4 khi chuyển
         // mờ, nếu không ép lại libx264 sẽ encode ra profile "High 4:4:4 Predictive" (yuv444p) mà hầu
         // hết trình phát thường (kể cả Windows Media Player mặc định) không phát được.
-        const filterParts = [
-          `[0:v]${scaleFilter}[v0]`,
-          `[1:v]${scaleFilter}[v1]`,
-          `[v0][v1]xfade=transition=fade:duration=${STITCH_FADE_SECONDS}:offset=${offset.toFixed(3)}[vout]`,
-        ];
-        const mapArgs = ["-map", "[vout]"];
+        const transFilterParts = [`[0:v][1:v]xfade=transition=fade:duration=${fade}:offset=0[vout]`];
+        const transMap = ["-map", "[vout]"];
         if (anyHasAudio) {
-          filterParts.push(
-            clipInfo[i].hasAudio
-              ? `[1:a]aformat=sample_rates=44100:channel_layouts=stereo[a1]`
-              : `anullsrc=channel_layout=stereo:sample_rate=44100:d=${durations[i].toFixed(3)}[a1]`,
-            `[0:a][a1]acrossfade=d=${STITCH_FADE_SECONDS}[aout]`
-          );
-          mapArgs.push("-map", "[aout]");
+          transFilterParts.push(`[0:a][1:a]acrossfade=d=${fade}[aout]`);
+          transMap.push("-map", "[aout]");
         }
         await execFileAsync(ffmpegPath, [
-          "-i", accPath, "-i", clipPaths[i],
-          "-filter_complex", filterParts.join(";"),
-          ...mapArgs,
-          "-c:v", "libx264", "-pix_fmt", "yuv420p",
-          ...(anyHasAudio ? ["-c:a", "aac"] : ["-an"]),
-          "-y", stepOutput,
+          "-i", tailPath, "-i", headPath,
+          "-filter_complex", transFilterParts.join(";"),
+          ...transMap,
+          ...encodeArgs,
+          "-y", transPath,
         ]);
-        accPath = stepOutput;
-        accDuration = offset + durations[i];
+        transitionPaths[i] = transPath;
       }
+
+      // 3) Nối tất cả mảnh lại bằng concat demuxer + "-c copy" — KHÔNG re-encode, gần như tức thời, an
+      // toàn vì mọi mảnh ở trên đều đã encode cùng 1 bộ tham số codec.
+      const listPath = path.join(workDir, "concat-list.txt");
+      const listLines: string[] = [];
+      for (let i = 0; i < n; i++) {
+        listLines.push(`file '${corePaths[i].replace(/'/g, "'\\''")}'`);
+        if (i < n - 1) listLines.push(`file '${transitionPaths[i].replace(/'/g, "'\\''")}'`);
+      }
+      await writeFile(listPath, listLines.join("\n"));
+      await execFileAsync(ffmpegPath, ["-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", "-y", outputPath]);
     }
 
     const outputBuffer = await readFile(outputPath);
