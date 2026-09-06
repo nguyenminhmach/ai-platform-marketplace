@@ -963,19 +963,20 @@ async function submitSceneImageForRow(
   chainedFrameUrl?: string
 ): Promise<string> {
   // MARKER_SINGLE_CHARACTER_IMAGE_SUBMIT
-  const characterImages = selectReferenceImagesForScene(
-    row.camera_view,
-    job.character_angle_urls,
-    job.character_sheet_url as string,
-    row.face_view
-  );
+  // Frame-chaining (chainedFrameUrl có giá trị, từ cảnh 2 trở đi): dùng DUY NHẤT khung hình thật đó
+  // làm ảnh tham chiếu — KHÔNG trộn thêm ảnh Character sheet/địa điểm. Đã xác nhận qua test thật: trộn
+  // nhiều ảnh "người" khác nguồn (sheet AI vẽ + khung hình video thật) khiến model lẫn lộn danh tính,
+  // ra sai người ("cô gái khác"). Khung hình thật đã tự chứa đủ đúng người + đúng bối cảnh của bước
+  // trước, không cần thêm nguồn tham chiếu nào khác nữa.
+  const characterImages = chainedFrameUrl
+    ? []
+    : selectReferenceImagesForScene(row.camera_view, job.character_angle_urls, job.character_sheet_url as string, row.face_view);
   // Ảnh Bối cảnh/Địa điểm (tuỳ chọn, dùng chung cho cả job) — nối THÊM vào cuối, độc lập với ảnh
   // thân/mặt ở trên. Chỉ gửi khi model thật sự hỗ trợ đa ảnh, không thì im lặng bỏ qua (không throw
-  // lỗi) — đúng tiền lệ đã làm với face_view.
-  const hasLocation = !!job.location_reference_url && (imageEntry?.multi_image ?? false);
-  const referenceImages = [...characterImages];
+  // lỗi) — đúng tiền lệ đã làm với face_view. Bỏ qua hoàn toàn khi có chainedFrameUrl (xem trên).
+  const hasLocation = !chainedFrameUrl && !!job.location_reference_url && (imageEntry?.multi_image ?? false);
+  const referenceImages = chainedFrameUrl ? [chainedFrameUrl] : [...characterImages];
   if (hasLocation) referenceImages.push(job.location_reference_url as string);
-  if (chainedFrameUrl) referenceImages.push(chainedFrameUrl);
   // Tầng 2 (Appearance) — chỉ cảnh có outfit_override mới chèn thêm chỉ dẫn đổi đồ vào cuối prompt,
   // đè lên đồ trong ảnh tham chiếu (Tầng 1 mặt/tóc/dáng người vẫn giữ nguyên qua ảnh tham chiếu như
   // bình thường). Không đổi gì với cảnh không có outfit_override.
@@ -1001,8 +1002,11 @@ async function submitSceneImageForRow(
     scenePrompt += ` Reference image #${idx} shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
   }
   if (chainedFrameUrl) {
-    const idx = referenceImages.length;
-    scenePrompt += ` Reference image #${idx} is a REAL photo showing the exact moment this scene continues from — match the character's exact pose, the camera framing, the lighting, and the environment shown in it as the natural starting point, then transition into the new action described above.`;
+    // Tránh câu kiểu "continues from... transition into" — đã xác nhận qua test thật với
+    // buildContinuityPrefix() rằng cách diễn đạt "nối tiếp 2 khoảnh khắc" khiến model vẽ ra 1 tấm
+    // storyboard 2 khung dính liền thay vì 1 ảnh tĩnh. Chỉ mô tả ảnh tham chiếu THEO HIỆN TẠI (là ai,
+    // đang ở đâu), còn "scene_description" mới là hành động MỚI cần vẽ.
+    scenePrompt += ` The reference image shows this exact same person and this exact same location right now. Keep the person's face, hairstyle, and body exactly as shown in the reference image, and keep the same location/environment — only change what is described below.`;
   }
   // Ép ảnh chụp thật — model dễ ngả sang phong cách minh hoạ/tranh vẽ khi scene_description dùng
   // ngôn từ giàu chất thơ (hoàng hôn, khu vườn hoa...) mà không có chỉ dẫn phong cách hình ảnh rõ ràng.
