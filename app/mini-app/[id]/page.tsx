@@ -338,6 +338,7 @@ export default function MiniAppDetailPage() {
   const [storyRunning, setStoryRunning] = useState(false);
   const [storyContinuing, setStoryContinuing] = useState(false);
   const [storyFinalizingPartial, setStoryFinalizingPartial] = useState(false);
+  const [storyCancelling, setStoryCancelling] = useState(false);
   // 2 nút "Tạo ảnh phân cảnh" / "Viết mô tả chuyển động để tạo video" độc lập nhau, nhưng vẫn dùng
   // chung storyRunning để khoá nhau tránh chạy đè job (storyJobId/storyScenes dùng chung 1 chỗ) — cờ
   // này chỉ để nhãn nút hiện đúng "Đang xử lý..." trên nút khách vừa bấm, không hiện nhầm sang nút kia.
@@ -675,8 +676,12 @@ export default function MiniAppDetailPage() {
           } else if (statusData.status === "character_ready" || statusData.status === "images_ready") {
             setStoryRunning(false);
             setStoryStatusText(statusData.statusText ?? null);
-          } else if (statusData.status === "failed") {
-            setStoryError(statusData.errorMessage ?? "Tạo video thất bại, credit đã được hoàn");
+          } else if (statusData.status === "failed" || statusData.status === "cancelled") {
+            setStoryError(
+              statusData.status === "cancelled"
+                ? statusData.errorMessage ?? "Đã dừng theo yêu cầu của bạn"
+                : statusData.errorMessage ?? "Tạo video thất bại, credit đã được hoàn"
+            );
             setStoryRunning(false);
             setStoryStatusText(null);
           } else {
@@ -989,9 +994,11 @@ export default function MiniAppDetailPage() {
           if (storyPollRef.current) clearInterval(storyPollRef.current);
           setStoryRunning(false);
           setStoryStatusText(data.statusText ?? null);
-        } else if (data.status === "failed") {
+        } else if (data.status === "failed" || data.status === "cancelled") {
           if (storyPollRef.current) clearInterval(storyPollRef.current);
-          setStoryError(data.errorMessage ?? "Tạo video thất bại, credit đã được hoàn");
+          setStoryError(
+            data.status === "cancelled" ? data.errorMessage ?? "Đã dừng theo yêu cầu của bạn" : data.errorMessage ?? "Tạo video thất bại, credit đã được hoàn"
+          );
           setStoryRunning(false);
           setStoryStatusText(null);
         } else if (data.statusText) {
@@ -1378,6 +1385,35 @@ export default function MiniAppDetailPage() {
 
   // Khách chấp nhận bỏ cảnh mãi không tạo video được (vd bị model chặn nội dung) — ghép video cuối
   // chỉ từ các cảnh đã có video, không chờ đủ tất cả cảnh nữa.
+  // Khách chủ động bấm "Dừng tạo" khi job đang chạy dở — dừng hẳn, xem cancelStoryVideoJob() trong
+  // lib/story-video.ts (KHÔNG hoàn credit các cảnh đã tốn trước đó, đúng lựa chọn của khách).
+  async function handleCancelStoryVideo() {
+    if (!user || !storyJobId) return;
+    if (storyPollRef.current) clearInterval(storyPollRef.current);
+    setStoryCancelling(true);
+    try {
+      const res = await fetch("/api/story-video/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: storyJobId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStoryError(data.error ?? "Có lỗi xảy ra khi dừng job");
+        setStoryCancelling(false);
+        return;
+      }
+      setStoryStatus("cancelled");
+      setStoryError("Đã dừng theo yêu cầu của bạn");
+      setStoryRunning(false);
+      setStoryStatusText(null);
+    } catch {
+      setStoryError("Không kết nối được tới server");
+    } finally {
+      setStoryCancelling(false);
+    }
+  }
+
   async function handleFinalizePartial() {
     if (!user || !storyJobId) return;
     setStoryFinalizingPartial(true);
@@ -3760,7 +3796,20 @@ export default function MiniAppDetailPage() {
                         </>
               </div>
 
-              {storyStatusText && <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{storyStatusText}</p>}
+              {storyStatusText && (
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400">{storyStatusText}</p>
+                  {storyRunning && storyJobId && (
+                    <button
+                      onClick={handleCancelStoryVideo}
+                      disabled={storyCancelling}
+                      className="shrink-0 rounded-full border border-red-400 px-4 py-1.5 text-sm font-medium text-red-600 disabled:opacity-40 dark:border-red-500 dark:text-red-400"
+                    >
+                      {storyCancelling ? "Đang dừng..." : "⏹ Dừng tạo"}
+                    </button>
+                  )}
+                </div>
+              )}
               {storyError && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{storyError}</p>}
 
               {storyQuickZoomUrl && (
@@ -3904,7 +3953,7 @@ export default function MiniAppDetailPage() {
                   </div>
                 )}
 
-              {storyStatus === "failed" && storyScenes && storyScenes.every((s) => s.imageUrl) && (
+              {(storyStatus === "failed" || storyStatus === "cancelled") && storyScenes && storyScenes.every((s) => s.imageUrl) && (
                 <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800">
                   <p className="mb-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">
                     Ảnh phân cảnh đã tạo thành công trước khi lỗi ở bước sau, không bị mất (xem lại ở khung "Ảnh phân cảnh" phía trên)
@@ -3930,7 +3979,7 @@ export default function MiniAppDetailPage() {
                   "every(s => s.imageUrl)" ở trên không bao giờ đúng, khiến nút ghép-bỏ-cảnh-lỗi không thể
                   hiện ra dù job đang kẹt thật. Nút này chỉ cần đủ điều kiện tối thiểu: job đã "failed" và
                   có ít nhất 1 cảnh đã có video để ghép. */}
-              {storyStatus === "failed" && storyScenes && storyScenes.some((s) => s.videoUrl) && (
+              {(storyStatus === "failed" || storyStatus === "cancelled") && storyScenes && storyScenes.some((s) => s.videoUrl) && (
                 <div className="mt-4 flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800">
                   <span className="text-sm text-zinc-600 dark:text-zinc-400">
                     Có cảnh mãi không tạo video được (vd bị model từ chối nội dung) — ghép video cuối chỉ từ các

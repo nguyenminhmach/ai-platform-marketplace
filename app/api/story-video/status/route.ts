@@ -63,9 +63,10 @@ export async function GET(req: Request) {
     }
   }
 
-  // Bao gồm cả "failed" — nếu ảnh phân cảnh đã tạo xong trước khi lỗi (vd lỗi ở bước tạo video sau
-  // đó), khách vẫn cần xem lại được ảnh đã tốn credit tạo ra, không phải tự dưng "biến mất".
-  if (["generating_images", "images_ready", "generating_videos", "stitching", "failed"].includes(data.status)) {
+  // Bao gồm cả "failed" và "cancelled" — nếu ảnh phân cảnh đã tạo xong trước khi lỗi/dừng (vd lỗi ở
+  // bước tạo video sau đó, hoặc khách chủ động bấm "Dừng tạo"), khách vẫn cần xem lại được ảnh đã tốn
+  // credit tạo ra, không phải tự dưng "biến mất".
+  if (["generating_images", "images_ready", "generating_videos", "stitching", "failed", "cancelled"].includes(data.status)) {
     const { data: sceneRows } = await supabase
       .from("story_video_scenes")
       .select("id, position, image_url, end_image_url, video_url, lipsync_url, dialogue_line, motion_prompt, scene_description")

@@ -205,6 +205,20 @@ export async function checkSceneContinuity(startImageUrl: string, endImageUrl: s
   return parseSceneQcResponse(output);
 }
 
+const SCENE_BLANK_CHECK_PROMPT = `Bạn kiểm tra xem ảnh này có phải là ảnh THẬT có nội dung hay không. Trả lời ĐÚNG 1 dòng JSON, không thêm chữ nào khác:
+{"ok": true} nếu ảnh có nội dung thật (nhìn thấy người/cảnh vật rõ ràng), hoặc
+{"ok": false, "issue": "<mô tả ngắn gọn tiếng Việt>"} nếu ảnh là 1 màu đồng nhất (đen/xám/trắng toàn bộ), bị hỏng, hoặc trống rỗng không có nội dung gì.`;
+
+// Fal.ai đôi khi trả về "thành công" (có URL ảnh thật, không phải lỗi) nhưng nội dung ảnh là 1 màu đen
+// đồng nhất — thường do bộ lọc nội dung nội bộ của model chặn ngầm mà không báo lỗi rõ ràng qua API.
+// Code cũ chỉ coi là lỗi khi Fal.ai trả status ERROR — ảnh đen "thành công giả" này lọt qua hoàn toàn,
+// job cứ thế đi tiếp dùng ảnh hỏng làm nền cho video (xác nhận qua ảnh chụp màn hình thật của khách,
+// job story-100: "Cảnh 1" hiện ảnh đen thui, nhưng job vẫn tự tạo video hoàn chỉnh với các cảnh sau).
+async function checkImageNotBlank(imageUrl: string): Promise<SceneQcResult> {
+  const { output } = await callOpenRouter("google/gemini-3-flash-preview", 100, SCENE_BLANK_CHECK_PROMPT, "Kiểm tra ảnh này.", imageUrl);
+  return parseSceneQcResponse(output);
+}
+
 const SCENE_IDENTITY_CHECK_PROMPT = `Bạn kiểm tra xem 2 ảnh có phải CÙNG 1 người hay không. Ảnh THỨ NHẤT là ảnh gốc chuẩn của nhân vật, ảnh THỨ HAI là ảnh AI vừa vẽ ra cho 1 cảnh khác (khác tư thế/góc máy/ánh sáng).
 Trả lời ĐÚNG 1 dòng JSON, không thêm chữ nào khác:
 {"ok": true} nếu rõ ràng là CÙNG 1 người (dù khác góc chụp, tư thế, ánh sáng, biểu cảm), hoặc
@@ -1008,10 +1022,15 @@ async function submitSceneImageForRow(
   // lỗi) — đúng tiền lệ đã làm với face_view. Bỏ qua khi có chainedFrameUrl để giữ tổng số ảnh tham
   // chiếu gọn (character + chained là đủ, không cần thêm địa điểm vì khung hình chain đã tự chứa đúng
   // bối cảnh thật của bước trước rồi).
-  // Ảnh Vật phẩm riêng (tuỳ chọn, vd đôi giày/túi xách thật của nhân vật) — cùng logic với ảnh Địa
-  // điểm ở dưới, nối vào TRƯỚC địa điểm. Bỏ qua khi có chainedFrameUrl vì lý do tương tự (khung hình
-  // chain đã tự chứa đúng vật phẩm của bước trước rồi, không cần gửi lại).
-  const hasItem = !chainedFrameUrl && !!job.item_reference_url && (imageEntry?.multi_image ?? false);
+  // Ảnh Vật phẩm riêng (tuỳ chọn, vd đôi giày/túi xách thật của nhân vật) — nối vào TRƯỚC địa điểm.
+  // KHÁC với địa điểm: LUÔN gửi kể cả khi có chainedFrameUrl (đã sửa — bản đầu lỡ copy nhầm logic bỏ
+  // qua của địa điểm). Lý do: khung hình chain chỉ THẬT SỰ chứa đúng vật phẩm nếu vật phẩm đó đã được
+  // model vẽ đúng ở cảnh trước — nếu cảnh 1 lỡ vẽ sai/thiếu vật phẩm, mọi cảnh chain sau sẽ mất hẳn vật
+  // phẩm vĩnh viễn vì không còn nguồn nào để tham chiếu lại (khác địa điểm — cả 1 căn phòng lớn nên
+  // khung hình chain gần như chắc chắn giữ được; khác cả mặt — luôn có ảnh Character riêng không phụ
+  // thuộc chain). Giữ ảnh vật phẩm làm nguồn tham chiếu cố định xuyên suốt, giống hệt vai trò ảnh
+  // Character cho khuôn mặt.
+  const hasItem = !!job.item_reference_url && (imageEntry?.multi_image ?? false);
   const hasLocation = !chainedFrameUrl && !!job.location_reference_url && (imageEntry?.multi_image ?? false);
   const referenceImages = [...characterImages];
   if (hasItem) referenceImages.push(job.item_reference_url as string);
@@ -1027,9 +1046,19 @@ async function submitSceneImageForRow(
   // cảnh/khung hình khác thay vì tiếp nối mượt — xem chỉ dẫn camera/framing bên dưới, đã đủ để dẫn dắt
   // bối cảnh đúng nghĩa "tiếp nối thật" mà không cần câu địa điểm bằng chữ giẫm chân lên nhau.
   const continuityPrefix = chainedFrameUrl ? "" : buildContinuityPrefix(row.location, previousEndPose);
+  // Xác nhận qua test thật (job story-100): KHÔNG có outfit_override + KHÔNG có chainedFrameUrl (cảnh
+  // đầu tiên, chỉ dựa ảnh Character) — model tự bịa hẳn 1 bộ trang phục khác (áo choàng ngủ) dù truyện
+  // không hề nhắc tới, khác hẳn trang phục thật trong ảnh tham chiếu (tube đen + short trắng) — chỉ vì
+  // "không khí" cảnh (phòng ngủ, buổi sáng) gợi ý AI liên tưởng sang ảnh stock photo "thức dậy mặc áo
+  // choàng". Trước đây hoàn toàn ngầm định model tự giữ đúng trang phục qua ảnh tham chiếu — không đủ
+  // chắc chắn. Ép rõ bằng câu chữ khi KHÔNG đổi đồ và KHÔNG đang chain (chain đã có câu riêng bảo lấy
+  // trang phục từ khung hình chain, xem nhánh chainedFrameUrl bên dưới — không chèn thêm ở đây kẻo mâu
+  // thuẫn 2 nguồn "trang phục" cùng lúc).
   let scenePrompt = row.outfit_override
     ? `${continuityPrefix}${row.scene_description} Change the character's outfit to: ${row.outfit_override}. Keep the exact same face, hairstyle, and body proportions as shown in the reference image — only the clothing changes.`
-    : `${continuityPrefix}${row.scene_description}`;
+    : chainedFrameUrl
+      ? `${continuityPrefix}${row.scene_description}`
+      : `${continuityPrefix}${row.scene_description} Keep the exact same clothing/outfit (garment type, color, style) shown in the character reference image(s) — do not substitute different clothing (e.g. a robe, a different top or bottom, different colors), even if the scene's mood or setting might otherwise suggest different attire.`;
   // 2 ảnh tham chiếu (thử nghiệm): ảnh 1 = hướng thân, ảnh 2 = mặt. Câu chỉ dẫn khác nhau tuỳ trường
   // hợp: Priority 3 (face_view lệch hướng camera_view) cần model đổi HƯỚNG mặt theo ảnh 2; Rule 28
   // (mặc định, mọi cảnh còn thấy mặt) chỉ cần model GIỮ ĐÚNG danh tính khuôn mặt theo ảnh 2, không đổi
@@ -1072,6 +1101,11 @@ async function submitSceneImageForRow(
   // Ép ảnh chụp thật — model dễ ngả sang phong cách minh hoạ/tranh vẽ khi scene_description dùng
   // ngôn từ giàu chất thơ (hoàng hôn, khu vườn hoa...) mà không có chỉ dẫn phong cách hình ảnh rõ ràng.
   scenePrompt += ` Photorealistic photo, shot on a real camera — not an illustration, painting, drawing, anime, or digital art.`;
+  // Xác nhận qua test thật (job story-100, story-97): khi cảnh có gương, model tự vẽ ra ảnh phản chiếu
+  // với gương mặt KHÁC hẳn nhân vật thật (son đậm hơn, gò má khác) — lưới kiểm tra danh tính bắt được
+  // lỗi này nhưng vẽ lại cũng dễ sai lại vì đây là điểm yếu chung của model (không "soi gương" thật, chỉ
+  // đoán). Thêm câu chỉ dẫn riêng — không tốn gì khi cảnh không có gương, chỉ hữu ích khi có.
+  scenePrompt += ` If this scene includes a mirror or any other reflective surface, the reflection must show the exact same face and identity as the real character in the shot — never draw a different-looking face in the reflection.`;
   // Chặn chữ dính từ ảnh tham chiếu — character sheet có nhãn in sẵn ("1) FRONT VIEW", "5) BACK
   // VIEW"...) nên model đôi khi bị dính vụn chữ đó vào ảnh cảnh mới dù không liên quan.
   scenePrompt += ` The output image must contain NO text, letters, numbers, labels, captions, watermarks, or UI overlays anywhere in the frame — completely ignore and do not reproduce any panel numbers or text labels visible in the reference images.`;
@@ -1171,7 +1205,11 @@ async function submitMultiCharacterSceneImageForRow(
   if (hasLocation) {
     scenePrompt += ` The LAST reference image shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
   }
+  // Mirror đúng 2 câu chỉ dẫn đã thêm cho luồng 1 nhân vật (xem submitSceneImageForRow) — cùng nguyên
+  // nhân lỗi (model tự bịa trang phục khác/gương vẽ sai mặt) cũng có thể xảy ra ở luồng nhiều nhân vật.
+  scenePrompt += ` Keep the exact same clothing/outfit (garment type, color, style) for each person as shown in their own reference image — do not substitute different clothing, even if the scene's mood or setting might otherwise suggest different attire.`;
   scenePrompt += ` Photorealistic photo, shot on a real camera — not an illustration, painting, drawing, anime, or digital art.`;
+  scenePrompt += ` If this scene includes a mirror or any other reflective surface, every reflection must show the exact same face and identity as the corresponding real character in the shot — never draw a different-looking face in a reflection.`;
   // Chặn chữ dính từ ảnh tham chiếu — character sheet có nhãn in sẵn ("1) FRONT VIEW", "5) BACK
   // VIEW"...) nên model đôi khi bị dính vụn chữ đó vào ảnh cảnh mới dù không liên quan.
   scenePrompt += ` The output image must contain NO text, letters, numbers, labels, captions, watermarks, or UI overlays anywhere in the frame — completely ignore and do not reproduce any panel numbers or text labels visible in the reference images.`;
@@ -2329,6 +2367,33 @@ async function safeRefund(txId: number) {
   }
 }
 
+// Khách chủ động bấm "Dừng tạo" (dừng hẳn) — mọi webhook Fal.ai trả về SAU thời điểm đó phải bị bỏ
+// qua hoàn toàn, không được tiếp tục sang bước/cảnh kế tiếp. Dùng ở đầu 3 hàm applyXStageResult
+// (image/video/lipsync) — đây là nơi DUY NHẤT quyết định "có tiếp tục pipeline hay không" mỗi khi 1
+// kết quả Fal.ai trả về, nên chỉ cần chặn đúng 3 chỗ này là chặn được toàn bộ, kể cả nhánh frame-chain
+// (applyFrameChainImageResult/applyFrameChainVideoResult chỉ được gọi TỪ BÊN TRONG 2 hàm applyImage/
+// applyVideoStageResult, không có đường vào nào khác).
+async function isJobCancelled(jobId: number): Promise<boolean> {
+  const supabase = getSupabaseAdmin();
+  const { data } = await supabase.from("story_video_jobs").select("status").eq("id", jobId).single();
+  return data?.status === "cancelled";
+}
+
+// Khách chủ động dừng job đang chạy dở — KHÔNG hoàn credit (khác hẳn failJob() dành cho lỗi thật): các
+// cảnh đã tốn credit tạo ra trước khi dừng (ảnh/video) vẫn giữ nguyên, không hoàn lại, đúng theo lựa
+// chọn của khách khi xác nhận tính năng này.
+export async function cancelStoryVideoJob(userId: string, jobId: number): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const { data: job } = await supabase.from("story_video_jobs").select("user_id, status").eq("id", jobId).single();
+  if (!job) throw new Error("Không tìm thấy job");
+  if (job.user_id !== userId) throw new Error("Không có quyền với job này");
+  // Chỉ dừng được job đang thật sự chạy dở — job đã xong/lỗi/đã dừng rồi thì bỏ qua im lặng, tránh ghi
+  // đè lên 1 trạng thái đã có ý nghĩa khác (vd job đã "done" mà lỡ bấm dừng do bấm nhầm/chậm mạng).
+  const activeStatuses = ["pending", "generating_character", "splitting_story", "generating_images", "generating_videos", "stitching"];
+  if (!activeStatuses.includes(job.status)) return;
+  await supabase.from("story_video_jobs").update({ status: "cancelled", error_message: "Đã dừng theo yêu cầu của bạn" }).eq("id", jobId);
+}
+
 async function failJob(jobId: number, message: string) {
   const supabase = getSupabaseAdmin();
   const { data: job } = await supabase
@@ -2499,6 +2564,7 @@ export async function applyImageStageResult(
   stage: "image" | "image_end" = "image",
   propagateToSceneId?: number
 ) {
+  if (await isJobCancelled(jobId)) return; // khách đã bấm "Dừng tạo" — bỏ qua hoàn toàn kết quả này
   const supabase = getSupabaseAdmin();
   const isError = falPayload.status === "ERROR" || !!falPayload.error;
 
@@ -2523,6 +2589,23 @@ export async function applyImageStageResult(
     }
     await failJob(jobId, "Không tìm thấy URL ảnh trong phản hồi Fal.ai");
     return;
+  }
+
+  // Chặn "thành công giả" — Fal.ai trả URL ảnh thật nhưng nội dung là 1 màu đen đồng nhất (bộ lọc nội
+  // dung nội bộ chặn ngầm, không báo lỗi qua API) — xem chú thích checkImageNotBlank(). Coi như lỗi
+  // thật (không được để job tự đi tiếp dùng ảnh hỏng làm nền cho video/cảnh sau).
+  try {
+    const blankCheck = await checkImageNotBlank(imageUrl);
+    if (!blankCheck.ok) {
+      console.error(`[story-video] Ảnh cảnh #${sceneId} (stage=${stage}) bị đen/hỏng: ${blankCheck.issue}`);
+      if (isRegenerate) return;
+      await failJob(jobId, `Ảnh phân cảnh bị lỗi (ảnh đen/trống): ${blankCheck.issue ?? ""}`);
+      return;
+    }
+  } catch (err) {
+    // Lỗi khi GỌI kiểm tra (vd OpenRouter tạm lỗi) không được chặn cả job — bỏ qua, coi như ảnh ổn,
+    // để không biến 1 tính năng an toàn phụ thành điểm chặn job diện rộng.
+    console.error(`[story-video] Lỗi kiểm tra ảnh đen cho cảnh #${sceneId}, coi như đạt:`, err);
   }
 
   await supabase.from("story_video_scenes").update(stage === "image_end" ? { end_image_url: imageUrl } : { image_url: imageUrl }).eq("id", sceneId);
@@ -2853,6 +2936,7 @@ export async function applyVideoStageResult(
   falPayload: Record<string, unknown>,
   isRegenerate = false
 ) {
+  if (await isJobCancelled(jobId)) return; // khách đã bấm "Dừng tạo" — bỏ qua hoàn toàn kết quả này
   const supabase = getSupabaseAdmin();
   const isError = falPayload.status === "ERROR" || !!falPayload.error;
 
@@ -3103,6 +3187,7 @@ export async function applyLipsyncStageResult(
   falPayload: Record<string, unknown>,
   isRegenerate = false
 ) {
+  if (await isJobCancelled(jobId)) return; // khách đã bấm "Dừng tạo" — bỏ qua hoàn toàn kết quả này
   const supabase = getSupabaseAdmin();
   const isError = falPayload.status === "ERROR" || !!falPayload.error;
   const lipsyncUrl = isError ? undefined : extractVideoUrl(falPayload);
