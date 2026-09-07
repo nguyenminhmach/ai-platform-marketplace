@@ -49,6 +49,10 @@ export type MultiCharacterInput = {
   reuseCharacterId?: number;
   skipCharacterCreation?: boolean;
   label?: string;
+  // Ảnh THẬT của 1 vật phẩm riêng của nhân vật này (vd đôi giày, túi xách, đồng hồ...) — tuỳ chọn, để
+  // AI vẽ đúng y hệt món đó khi truyện tả nhân vật mặc/mang/cầm nó, thay vì tự bịa kiểu dáng khác. Mỗi
+  // nhân vật có vật phẩm riêng (khác location_reference_url dùng chung cho cả job).
+  itemReferenceUrl?: string;
 };
 
 // Skill "story-extractor" — chạy TRƯỚC story-planner, viết lại ý tưởng thô của khách (có thể lủng
@@ -309,6 +313,7 @@ type JobRow = {
   character_angle_urls: CharacterAngleUrls | null;
   genre_key: string | null;
   location_reference_url: string | null;
+  item_reference_url: string | null;
   continuous_motion: boolean;
   frame_chain_mode: boolean;
 };
@@ -899,6 +904,7 @@ type SceneStageInput = Pick<
   | "character_angle_urls"
   | "genre_key"
   | "location_reference_url"
+  | "item_reference_url"
   | "continuous_motion"
   | "frame_chain_mode"
 >;
@@ -970,6 +976,7 @@ async function submitSceneImageForRow(
     | "aspect_ratio"
     | "image_resolution_key"
     | "location_reference_url"
+    | "item_reference_url"
   >,
   row: ImageSceneRefRow,
   imageEntry: ImageModelEntry | undefined,
@@ -1001,8 +1008,13 @@ async function submitSceneImageForRow(
   // lỗi) — đúng tiền lệ đã làm với face_view. Bỏ qua khi có chainedFrameUrl để giữ tổng số ảnh tham
   // chiếu gọn (character + chained là đủ, không cần thêm địa điểm vì khung hình chain đã tự chứa đúng
   // bối cảnh thật của bước trước rồi).
+  // Ảnh Vật phẩm riêng (tuỳ chọn, vd đôi giày/túi xách thật của nhân vật) — cùng logic với ảnh Địa
+  // điểm ở dưới, nối vào TRƯỚC địa điểm. Bỏ qua khi có chainedFrameUrl vì lý do tương tự (khung hình
+  // chain đã tự chứa đúng vật phẩm của bước trước rồi, không cần gửi lại).
+  const hasItem = !chainedFrameUrl && !!job.item_reference_url && (imageEntry?.multi_image ?? false);
   const hasLocation = !chainedFrameUrl && !!job.location_reference_url && (imageEntry?.multi_image ?? false);
   const referenceImages = [...characterImages];
+  if (hasItem) referenceImages.push(job.item_reference_url as string);
   if (hasLocation) referenceImages.push(job.location_reference_url as string);
   if (chainedFrameUrl) referenceImages.push(chainedFrameUrl);
   // Tầng 2 (Appearance) — chỉ cảnh có outfit_override mới chèn thêm chỉ dẫn đổi đồ vào cuối prompt,
@@ -1049,8 +1061,12 @@ async function submitSceneImageForRow(
       ? ` The FIRST reference image shows the body pose/angle to follow, the SECOND shows the face/gaze direction to follow — combine them: keep the body pose from the first image, but the face orientation and eye direction from the second image.`
       : ` The FIRST reference image shows the body pose/angle to follow, the SECOND is a close-up reference for the character's face — use it to keep facial identity accurate and consistent while following the body pose from the first image.`;
   }
-  if (hasLocation) {
+  if (hasItem) {
     const idx = characterImages.length + 1;
+    scenePrompt += ` Reference image #${idx} shows a REAL physical item (e.g. shoes, a bag, an accessory, or another object) belonging to the character — whenever the scene description mentions the character wearing, holding, or using such an item, depict this exact real item accurately (shape, color, design, material), do not invent a different item.`;
+  }
+  if (hasLocation) {
+    const idx = characterImages.length + (hasItem ? 1 : 0) + 1;
     scenePrompt += ` Reference image #${idx} shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
   }
   // Ép ảnh chụp thật — model dễ ngả sang phong cách minh hoạ/tranh vẽ khi scene_description dùng
@@ -1084,6 +1100,7 @@ type JobCharacterRefRow = {
   label: string | null;
   character_sheet_url: string | null;
   character_angle_urls: CharacterAngleUrls | null;
+  item_reference_url: string | null;
 };
 
 // Reference Selector cho job NHIỀU NHÂN VẬT (Bước 2) — đơn giản hơn hẳn selectReferenceImagesForScene
@@ -1093,16 +1110,16 @@ type JobCharacterRefRow = {
 function selectReferenceImagesForMultiScene(
   characterPositions: number[],
   jobCharacters: JobCharacterRefRow[]
-): { url: string; label: string }[] {
+): { url: string; label: string; itemUrl: string | null }[] {
   return characterPositions
     .map((pos) => {
       const jc = jobCharacters.find((c) => c.position === pos);
       if (!jc) return null;
       const url = jc.character_angle_urls?.front || jc.character_sheet_url || "";
       if (!url) return null;
-      return { url, label: jc.label || `Nhân vật ${pos + 1}` };
+      return { url, label: jc.label || `Nhân vật ${pos + 1}`, itemUrl: jc.item_reference_url || null };
     })
-    .filter((r): r is { url: string; label: string } => !!r);
+    .filter((r): r is { url: string; label: string; itemUrl: string | null } => !!r);
 }
 
 type MultiCharacterSceneRefRow = {
@@ -1127,10 +1144,19 @@ async function submitMultiCharacterSceneImageForRow(
   propagateToSceneId?: number
 ): Promise<string> {
   const refs = selectReferenceImagesForMultiScene(row.character_positions ?? [], jobCharacters);
-  // Ảnh Bối cảnh/Địa điểm (tuỳ chọn, dùng chung cho cả job) — nối THÊM vào cuối, sau các ảnh nhân
-  // vật. Chỉ gửi khi model thật sự hỗ trợ đa ảnh, không thì im lặng bỏ qua.
-  const hasLocation = !!job.location_reference_url && (imageEntry?.multi_image ?? false);
-  const referenceImages = hasLocation ? [...refs.map((r) => r.url), job.location_reference_url as string] : refs.map((r) => r.url);
+  // Ảnh Vật phẩm riêng của từng nhân vật (tuỳ chọn) — nối vào SAU toàn bộ ảnh mặt/thân, TRƯỚC ảnh
+  // Địa điểm. Chỉ những nhân vật CÓ mặt trong cảnh này (đã lọc qua "refs") và CÓ upload vật phẩm mới
+  // được nối thêm — không phải cứ có upload là luôn gửi cho mọi cảnh.
+  const supportsMultiImage = imageEntry?.multi_image ?? false;
+  const itemRefs = supportsMultiImage ? refs.filter((r) => !!r.itemUrl) : [];
+  // Ảnh Bối cảnh/Địa điểm (tuỳ chọn, dùng chung cho cả job) — nối THÊM vào cuối cùng, sau ảnh vật
+  // phẩm. Chỉ gửi khi model thật sự hỗ trợ đa ảnh, không thì im lặng bỏ qua.
+  const hasLocation = !!job.location_reference_url && supportsMultiImage;
+  const referenceImages = [
+    ...refs.map((r) => r.url),
+    ...itemRefs.map((r) => r.itemUrl as string),
+    ...(hasLocation ? [job.location_reference_url as string] : []),
+  ];
   let scenePrompt = buildContinuityPrefix(row.location, previousEndPose) + (row.scene_description ?? "");
   if (refs.length >= 2) {
     const mapping = refs.map((r, i) => `Image ${i + 1} = ${r.label}`).join(", ");
@@ -1138,6 +1164,10 @@ async function submitMultiCharacterSceneImageForRow(
   } else if (refs.length === 1) {
     scenePrompt += ` Use the reference image to keep ${refs[0].label}'s facial identity accurate and consistent.`;
   }
+  itemRefs.forEach((r, i) => {
+    const idx = refs.length + i + 1;
+    scenePrompt += ` Reference image #${idx} shows a REAL physical item belonging to ${r.label} — whenever the scene description mentions ${r.label} wearing, holding, or using such an item, depict this exact real item accurately (shape, color, design, material), do not invent a different item.`;
+  });
   if (hasLocation) {
     scenePrompt += ` The LAST reference image shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
   }
@@ -1355,7 +1385,11 @@ export async function submitStoryVideoJob(
   continuousMotion?: boolean,
   // Frame-chaining (chỉ luồng 1 nhân vật ở v1, xem applyFrameChainVideoResult) — bỏ qua hoàn toàn nếu
   // job rơi vào nhánh nhiều nhân vật bên dưới.
-  frameChainMode?: boolean
+  frameChainMode?: boolean,
+  // Ảnh Vật phẩm riêng (tuỳ chọn) của nhân vật #1 — chỉ dùng ở nhánh 1 nhân vật bên dưới. Nhánh nhiều
+  // nhân vật KHÔNG đọc tham số này — mỗi nhân vật (kể cả #1) tự có itemReferenceUrl riêng trong mảng
+  // "characters" (xem MultiCharacterInput), truyền thẳng vào submitMultiCharacterStoryVideoJob.
+  itemReferenceUrl?: string
 ): Promise<{ jobId: number; newBalance: number }> {
   if (numScenes < MIN_SCENES || numScenes > MAX_SCENES) {
     throw new Error(`Cần từ ${MIN_SCENES} đến ${MAX_SCENES} phân cảnh`);
@@ -1429,6 +1463,7 @@ export async function submitStoryVideoJob(
       video_provider_cost_vnd_per_scene: videoProviderCostVnd,
       genre_key: resolvedGenreKey,
       location_reference_url: locationReferenceUrl ?? null,
+      item_reference_url: itemReferenceUrl ?? null,
       continuous_motion: continuousMotion === true,
       frame_chain_mode: frameChainMode === true,
     })
@@ -1452,6 +1487,7 @@ export async function submitStoryVideoJob(
     character_angle_urls: null,
     genre_key: resolvedGenreKey,
     location_reference_url: locationReferenceUrl ?? null,
+    item_reference_url: itemReferenceUrl ?? null,
     continuous_motion: continuousMotion === true,
     frame_chain_mode: frameChainMode === true,
   };
@@ -1541,6 +1577,7 @@ type ResolvedMultiCharacter = {
   initialSheetUrl: string | null;
   initialAngleUrls: CharacterAngleUrls | null;
   characterSource: "reused" | "uploaded_sheet" | "skipped" | "generated";
+  itemReferenceUrl: string | null;
 };
 
 // Nhánh "nhiều nhân vật cùng khung hình" (Bước 1) — chỉ dừng ở "character_ready" khi xong, KHÔNG tự
@@ -1595,6 +1632,7 @@ async function submitMultiCharacterStoryVideoJob(
           initialSheetUrl: saved.image_url,
           initialAngleUrls: (saved.angle_urls as CharacterAngleUrls | null) ?? null,
           characterSource: "reused",
+          itemReferenceUrl: c.itemReferenceUrl ?? null,
         };
       }
       const imageUrls = c.imageUrls ?? [];
@@ -1611,9 +1649,18 @@ async function submitMultiCharacterStoryVideoJob(
           initialSheetUrl: imageUrls[0],
           initialAngleUrls: null,
           characterSource: skipEntirely ? "skipped" : "uploaded_sheet",
+          itemReferenceUrl: c.itemReferenceUrl ?? null,
         };
       }
-      return { label, imageUrls, needsGeneration: true, initialSheetUrl: null, initialAngleUrls: null, characterSource: "generated" };
+      return {
+        label,
+        imageUrls,
+        needsGeneration: true,
+        initialSheetUrl: null,
+        initialAngleUrls: null,
+        characterSource: "generated",
+        itemReferenceUrl: c.itemReferenceUrl ?? null,
+      };
     })
   );
 
@@ -1657,6 +1704,7 @@ async function submitMultiCharacterStoryVideoJob(
         character_sheet_url: r.initialSheetUrl,
         character_angle_urls: r.initialAngleUrls,
         character_source: r.characterSource,
+        item_reference_url: r.itemReferenceUrl,
       }))
     )
     .select("id, position")
@@ -1851,7 +1899,7 @@ export async function continueStoryVideoToSceneStage(
   // character_sheet_url job-level (job này không dùng cột đó — xem story_video_job_characters).
   const { data: jobCharacters } = await supabase
     .from("story_video_job_characters")
-    .select("position, label, character_sheet_url, character_angle_urls")
+    .select("position, label, character_sheet_url, character_angle_urls, item_reference_url")
     .eq("job_id", jobId)
     .order("position", { ascending: true });
   if (jobCharacters && jobCharacters.length >= 2) {
@@ -2036,7 +2084,7 @@ export async function regenerateSceneImage(userId: string, sceneId: number, idem
     if (sceneData.character_positions && sceneData.character_positions.length > 0) {
       const { data: jobCharacters } = await supabase
         .from("story_video_job_characters")
-        .select("position, label, character_sheet_url, character_angle_urls")
+        .select("position, label, character_sheet_url, character_angle_urls, item_reference_url")
         .eq("job_id", job.id)
         .order("position", { ascending: true });
       requestId = await submitMultiCharacterSceneImageForRow(
@@ -2109,7 +2157,7 @@ export async function regenerateContinuousMotionSceneImage(
     if (targetScene.character_positions && targetScene.character_positions.length > 0) {
       const { data: jobCharacters } = await supabase
         .from("story_video_job_characters")
-        .select("position, label, character_sheet_url, character_angle_urls")
+        .select("position, label, character_sheet_url, character_angle_urls, item_reference_url")
         .eq("job_id", job.id)
         .order("position", { ascending: true });
       requestId = await submitMultiCharacterSceneImageForRow(
@@ -2896,7 +2944,15 @@ async function checkFrameChainIdentity(
   },
   job: Pick<
     JobRow,
-    "id" | "mini_app_id" | "image_model" | "aspect_ratio" | "image_resolution_key" | "character_sheet_url" | "character_angle_urls" | "location_reference_url"
+    | "id"
+    | "mini_app_id"
+    | "image_model"
+    | "aspect_ratio"
+    | "image_resolution_key"
+    | "character_sheet_url"
+    | "character_angle_urls"
+    | "location_reference_url"
+    | "item_reference_url"
   >
 ): Promise<boolean> {
   const supabase = getSupabaseAdmin();
@@ -2960,7 +3016,7 @@ async function applyFrameChainImageResult(jobId: number, sceneId: number) {
   const { data: job } = await supabase
     .from("story_video_jobs")
     .select(
-      "id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url"
+      "id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url, item_reference_url"
     )
     .eq("id", jobId)
     .single();
@@ -3008,7 +3064,7 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
     const { data: job } = await supabase
       .from("story_video_jobs")
       .select(
-        "id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url"
+        "id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url, item_reference_url"
       )
       .eq("id", jobId)
       .single();

@@ -36,6 +36,7 @@ export async function POST(req: Request) {
     genreKey,
     characters,
     locationReferenceUrl,
+    itemReferenceUrl,
     continuousMotion,
     frameChainMode,
   } = await req.json();
@@ -80,6 +81,7 @@ export async function POST(req: Request) {
       reuseCharacterId: typeof c.reuseCharacterId === "number" ? c.reuseCharacterId : undefined,
       skipCharacterCreation: c.skipCharacterCreation === true,
       label: typeof c.label === "string" ? c.label : undefined,
+      itemReferenceUrl: typeof c.itemReferenceUrl === "string" && c.itemReferenceUrl ? c.itemReferenceUrl : undefined,
     }));
   }
 
@@ -121,7 +123,8 @@ export async function POST(req: Request) {
       !isMultiCharacter && frameChainMode === true
         ? false
         : continuousMotion === true || (typeof videoModelKey === "string" && REQUIRES_CONTINUOUS_MOTION_VIDEO_KEYS.has(videoModelKey)),
-      !isMultiCharacter && frameChainMode === true
+      !isMultiCharacter && frameChainMode === true,
+      typeof itemReferenceUrl === "string" && itemReferenceUrl ? itemReferenceUrl : undefined
     );
     return Response.json({ success: true, jobId: result.jobId, newBalance: result.newBalance });
   } catch (err) {
