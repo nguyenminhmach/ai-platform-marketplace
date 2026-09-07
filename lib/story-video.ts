@@ -284,6 +284,7 @@ export type SceneRow = {
   outfit_override: string | null;
   face_view: string | null;
   motion_prompt: string | null;
+  motion_duration_key: string | null;
   location: string | null;
   end_pose: string | null;
   character_positions: number[] | null;
@@ -1986,7 +1987,26 @@ export async function continueStoryVideoToSceneStage(
 }
 
 const SCENE_PROMPT_FROM_IMAGE_SYSTEM =
-  "You are a screenwriter writing a short motion prompt (1-2 sentences, English) for the given image, to be used as an image-to-video generation prompt. Base it on: what's visible in the image, the overall story context provided, and the customer's hint if given. Return ONLY the motion description, no explanation, no extra text.";
+  `You are a screenwriter writing a short motion prompt (1-2 sentences, English) for the given image, to be used as an image-to-video generation prompt. Base it on: what's visible in the image, the overall story context provided, and the customer's hint if given.
+Also estimate how many seconds of video this motion naturally needs to look smooth and natural — NOT rushed (too much motion crammed into too little time looks jerky/sped-up) and NOT padded (too little motion stretched over too much time makes the model invent extra filler motion, looking aimless/drifting). A small, subtle motion (a glance, a slight smile, a small hand gesture) typically needs only a few seconds; a larger motion (standing up, walking, turning around, sitting down) needs more.
+Return ONLY 1 line of valid JSON, no markdown fence, no explanation, no comment lines: {"motion_prompt": "<the motion description>", "duration_seconds": <integer, your best estimate>}.`;
+
+type SceneMotionPlan = { motionPrompt: string; durationSeconds?: number };
+
+function parseSceneMotionPlan(output: string): SceneMotionPlan {
+  const cleaned = output.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (typeof parsed?.motion_prompt === "string" && parsed.motion_prompt.trim()) {
+      const seconds = Number(parsed.duration_seconds);
+      return { motionPrompt: parsed.motion_prompt.trim(), durationSeconds: Number.isFinite(seconds) && seconds > 0 ? seconds : undefined };
+    }
+  } catch {
+    // model không trả đúng JSON -> rơi về coi nguyên câu trả lời là motion_prompt, không có gợi ý thời
+    // lượng (an toàn hơn báo lỗi cả cảnh chỉ vì thiếu đúng 1 field phụ này).
+  }
+  return { motionPrompt: cleaned };
+}
 
 async function generateSceneDescriptionFromImage(
   imageUrl: string,
@@ -1995,15 +2015,26 @@ async function generateSceneDescriptionFromImage(
   modelChatKey: string | undefined,
   genreStyleGuide?: string,
   skillOverride?: string
-): Promise<string> {
+): Promise<SceneMotionPlan> {
   let systemPrompt = genreStyleGuide?.trim()
     ? `${SCENE_PROMPT_FROM_IMAGE_SYSTEM}\n\nGhi chú thêm về phong cách/nhịp điệu chuyển động cho đúng thể loại: ${genreStyleGuide.trim()}`
     : SCENE_PROMPT_FROM_IMAGE_SYSTEM;
   // Skill "motion-planner" — admin ghi thêm ghi chú qua /admin (vd luôn nhấn mạnh chuyển động camera).
   if (skillOverride?.trim()) systemPrompt += `\n\nGhi chú thêm từ admin: ${skillOverride.trim()}`;
   const userPrompt = `Ý tưởng truyện tổng thể: ${storyDescription}${hint ? `\nGợi ý riêng cho cảnh này: ${hint}` : ""}\nViết mô tả chuyển động ngắn cho ảnh này.`;
-  const { output } = await callOpenRouter(modelChatKey || "google/gemini-3-flash-preview", 120, systemPrompt, userPrompt, imageUrl);
-  return output.trim();
+  const { output } = await callOpenRouter(modelChatKey || "google/gemini-3-flash-preview", 150, systemPrompt, userPrompt, imageUrl);
+  return parseSceneMotionPlan(output);
+}
+
+// Motion Timing Controller: model video chỉ nhận 1 trong các mức thời lượng rời rạc catalog cho phép
+// (vd "5"/"8" giây) -- tìm mức GẦN NHẤT với số giây skill motion-planner vừa ước lượng cho đúng cảnh
+// đó. Trả undefined nếu model không có bảng giá theo thời lượng (chỉ 1 mức cố định, không có gì để
+// chọn) hoặc chưa ước lượng được số giây -- cả 2 trường hợp đều rơi về video_duration_key của job.
+function resolveNearestDurationKey(durationPriceMap: Record<string, number> | undefined, seconds: number | undefined): string | undefined {
+  if (!durationPriceMap || seconds === undefined) return undefined;
+  const keys = Object.keys(durationPriceMap);
+  if (keys.length === 0) return undefined;
+  return keys.reduce((closest, key) => (Math.abs(Number(key) - seconds) < Math.abs(Number(closest) - seconds) ? key : closest));
 }
 
 // Khách đã có sẵn ảnh cho từng phân cảnh (tải lên thay vì để AI tạo) -> bỏ qua hoàn toàn bước Character
@@ -2084,7 +2115,7 @@ export async function submitStoryVideoJobWithOwnImages(
     const motionPlannerOverride = await resolveSkillOverride(miniAppId, "motion_planner_prompt");
     const scenes = await Promise.all(
       sceneImages.map(async (s, index) => {
-        const description = await generateSceneDescriptionFromImage(
+        const plan = await generateSceneDescriptionFromImage(
           s.imageUrl,
           s.hint,
           finalStoryDescription,
@@ -2092,7 +2123,16 @@ export async function submitStoryVideoJobWithOwnImages(
           undefined,
           motionPlannerOverride
         );
-        return { job_id: job.id, position: index, scene_description: description, image_url: s.imageUrl };
+        // Motion Timing Controller: dùng luôn kết quả ước lượng giây của lượt gọi AI vừa rồi (không tốn
+        // thêm lượt gọi nào) để chọn mức thời lượng RIÊNG cho cảnh này thay vì dùng chung 1 mức cho cả job.
+        const motionDurationKey = resolveNearestDurationKey(videoEntry.duration_price_vnd, plan.durationSeconds);
+        return {
+          job_id: job.id,
+          position: index,
+          scene_description: plan.motionPrompt,
+          image_url: s.imageUrl,
+          motion_duration_key: motionDurationKey ?? null,
+        };
       })
     );
     const { error: sceneError } = await supabase.from("story_video_scenes").insert(scenes);
@@ -2704,6 +2744,7 @@ type VideoSceneRefRow = {
   image_url: string | null;
   scene_description: string | null;
   motion_prompt: string | null;
+  motion_duration_key?: string | null;
   end_image_url?: string | null;
 };
 
@@ -2731,7 +2772,9 @@ async function submitSceneVideoForRow(
     prompt,
     row.image_url as string,
     job.aspect_ratio ?? "9:16",
-    job.video_duration_key ?? undefined,
+    // Motion Timing Controller: dùng mức thời lượng riêng đã ước lượng cho ĐÚNG cảnh này nếu có, rơi về
+    // mức chung của job (hành vi cũ) khi cảnh chưa có/không áp dụng được (vd chế độ chuyển động liên tục).
+    row.motion_duration_key ?? job.video_duration_key ?? undefined,
     row.end_image_url ?? undefined
   );
   return submitFalJob(
@@ -2774,13 +2817,19 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
   try {
     const { data: job } = await supabase
       .from("story_video_jobs")
-      .select("user_id, mini_app_id, video_model, aspect_ratio, video_duration_key, story_description, genre_key")
+      .select("user_id, mini_app_id, video_model, aspect_ratio, video_duration_key, story_description, genre_key, continuous_motion")
       .eq("id", jobId)
       .single();
     if (!job?.video_model) throw new Error("Không tìm thấy model video của job");
 
     const miniApp = await getMiniAppModelConfig(job.mini_app_id);
     const genreStyleGuide = resolveGenreStyleGuide(job.genre_key, miniApp.model_config.genre_style_guides);
+    // Motion Timing Controller — chỉ áp dụng cho luồng AI tự vẽ ảnh MẶC ĐỊNH (không phải chế độ chuyển
+    // động liên tục Kling O1 FLFV, nơi thời lượng đã cố định 5s gắn liền với cặp ảnh đầu/cuối theo đúng
+    // thiết kế riêng của chế độ đó — xem migration-story-video-continuous-motion.sql).
+    const videoEntry = job.continuous_motion
+      ? undefined
+      : miniApp.model_config.video_models.find((m) => m.model === job.video_model);
 
     // Trừ credit lồng tiếng RIÊNG, 1 lần cho cả job — chỉ tính được chính xác ở đây vì lúc này Agent
     // đã chia cảnh xong nên đã biết đúng số cảnh có dialogue_line (không đoán trước lúc submit).
@@ -2812,18 +2861,28 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
         // mô tả chuyển động vào scene_description ngay từ bước tạo (không có camera_view), dùng lại
         // luôn, không gọi AI thêm lần nữa.
         let motionPrompt = scene.motion_prompt;
+        let motionDurationKey = scene.motion_duration_key;
         if (!motionPrompt) {
-          motionPrompt = scene.camera_view
-            ? await generateSceneDescriptionFromImage(
-                scene.image_url as string,
-                scene.scene_description ?? undefined,
-                job.story_description,
-                undefined,
-                genreStyleGuide,
-                miniApp.model_config.motion_planner_prompt
-              )
-            : scene.scene_description;
-          await supabase.from("story_video_scenes").update({ motion_prompt: motionPrompt }).eq("id", scene.id);
+          if (scene.camera_view) {
+            const plan = await generateSceneDescriptionFromImage(
+              scene.image_url as string,
+              scene.scene_description ?? undefined,
+              job.story_description,
+              undefined,
+              genreStyleGuide,
+              miniApp.model_config.motion_planner_prompt
+            );
+            motionPrompt = plan.motionPrompt;
+            // Motion Timing Controller: tái dùng đúng lượt gọi AI vừa viết motion_prompt để chọn luôn
+            // mức thời lượng phù hợp cho cảnh này, không tốn thêm lượt gọi/chi phí nào.
+            motionDurationKey = resolveNearestDurationKey(videoEntry?.duration_price_vnd, plan.durationSeconds) ?? null;
+          } else {
+            motionPrompt = scene.scene_description;
+          }
+          await supabase
+            .from("story_video_scenes")
+            .update({ motion_prompt: motionPrompt, motion_duration_key: motionDurationKey })
+            .eq("id", scene.id);
         }
         const requestId = await submitSceneVideoForRow(
           { id: jobId, video_model: job.video_model, aspect_ratio: job.aspect_ratio, video_duration_key: job.video_duration_key },
@@ -2832,6 +2891,7 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
             image_url: scene.image_url,
             scene_description: scene.scene_description,
             motion_prompt: motionPrompt,
+            motion_duration_key: motionDurationKey,
             end_image_url: scene.end_image_url,
           },
           false
@@ -2863,7 +2923,7 @@ export async function regenerateSceneVideo(
   const supabase = getSupabaseAdmin();
   const { data: sceneData } = await supabase
     .from("story_video_scenes")
-    .select("id, job_id, image_url, end_image_url, scene_description, motion_prompt, dialogue_line")
+    .select("id, job_id, image_url, end_image_url, scene_description, motion_prompt, motion_duration_key, dialogue_line")
     .eq("id", sceneId)
     .single();
   if (!sceneData) throw new Error("Không tìm thấy phân cảnh");
