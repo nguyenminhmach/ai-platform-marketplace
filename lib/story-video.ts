@@ -685,6 +685,17 @@ export type SceneSplitResult = {
 const CONTINUOUS_MOTION_INSTRUCTION =
   'Chế độ chuyển động liên tục ĐANG BẬT: với MỌI cảnh, thêm khoá "end_description" (chuỗi tiếng Anh) mô tả khoảnh khắc KẾT THÚC của cảnh đó (sau khi hành động trong "description" đã diễn ra một chút) — đây sẽ là điểm nối sang cảnh tiếp theo, nên "end_description" của cảnh này và "description" của cảnh sau nó nên là 2 khoảnh khắc liền mạch tự nhiên (không nhảy cóc hành động/bối cảnh). "end_description" bắt buộc có ở MỌI cảnh, kể cả cảnh cuối cùng. Bối cảnh/địa điểm VÀ ánh sáng/thời điểm trong ngày (khu vườn, bãi biển, ban công, nắng sáng, hoàng hôn...) PHẢI GIỮ NGUYÊN xuyên suốt "description" và "end_description" của MỌI cảnh trong toàn bộ video — đây là 1 cảnh quay liên tục (như 1 shot phim dài), không phải nhiều cảnh phim rời rạc ở nhiều nơi/thời điểm khác nhau. CHỈ đổi bối cảnh hoặc ánh sáng giữa các cảnh nếu ý tưởng truyện gốc yêu cầu RÕ RÀNG (vd truyện tự viết "họ di chuyển từ vườn ra biển", hoặc "trời chuyển tối dần") — hành động nhân vật chuẩn bị rời đi/đứng dậy KHÔNG tự động là lý do để đổi ánh sáng sang tông hoàng hôn/kịch tính hơn nếu truyện không nói. Khung hình/bố cục camera (vị trí bàn, cửa sổ, cửa ra vào... trong khung hình, mức độ zoom/cỡ cảnh) cũng PHẢI giữ nguyên xuyên suốt như 1 shot phim dài quay từ 1 vị trí camera cố định — không được tự đổi góc/khoảng cách máy quay giữa các cảnh trừ khi truyện mô tả rõ nhân vật di chuyển sang chỗ khác. Đặc biệt: MỌI đồ vật/nội thất cụ thể xuất hiện trong khung hình (giường, sofa, bàn, ghế, tủ, thảm...) phải được nêu rõ và giữ NGUYÊN VĂN cùng 1 danh từ xuyên suốt "description" và "end_description" của cùng 1 cảnh VÀ giữa các cảnh liên tiếp — ví dụ đã nói "a sofa" ở đầu cảnh thì "end_description" của chính cảnh đó và "description" của cảnh kế tiếp cũng phải nói "the same sofa", TUYỆT ĐỐI không đổi thành "a bed" hay đồ vật khác dù cùng là "phòng ngủ/phòng khách" chung chung — mỗi cảnh là 1 lần gọi ảnh riêng biệt nên nếu mô tả không nêu cụ thể, model tạo ảnh dễ tự ý đổi đồ nội thất giữa các lần gọi.';
 
+// Chế độ Frame-chain (nối khung hình thật): ảnh BẮT ĐẦU của MỌI cảnh trừ cảnh đầu tiên là khung hình
+// CUỐI THẬT trích trực tiếp từ video cảnh liền trước (không phải AI vẽ mới, xem applyFrameChainVideoResult)
+// — nghĩa là khi model tạo VIDEO cho cảnh đó, nó CHỈ có đúng 1 ảnh bắt đầu này + "description" làm căn
+// cứ, KHÔNG có ảnh Character tham chiếu nào khác đi kèm (khác hẳn bước tạo ẢNH, có gửi kèm Character).
+// Nếu cảnh đó bắt đầu với nhân vật đang quay lưng/khuất mặt (camera_view "back") rồi NGAY TRONG CÙNG
+// cảnh lại xoay người lộ mặt ra, model tạo video phải tự bịa khuôn mặt lúc lộ ra (không có căn cứ) —
+// đây chính là nguyên nhân "đổi sang khuôn mặt khác" khách đã báo. Cảnh ĐẦU TIÊN (position 0) không bị
+// giới hạn này vì ảnh bắt đầu của nó do AI vẽ mới trực tiếp từ Character reference (an toàn hơn).
+const FRAME_CHAIN_TURN_INSTRUCTION =
+  'Chế độ Frame-chain (nối khung hình thật) ĐANG BẬT: ảnh bắt đầu của MỌI cảnh trừ cảnh đầu tiên (cảnh có "camera_view" khác) là khung hình THẬT trích từ video cảnh ngay trước nó — khi tạo video cho cảnh đó, model KHÔNG có bất kỳ ảnh tham chiếu khuôn mặt nào khác ngoài đúng ảnh bắt đầu này. QUY TẮC BẮT BUỘC: TUYỆT ĐỐI không viết 1 "description" có hành động nhân vật xoay từ quay lưng/khuất mặt hoàn toàn (trạng thái camera_view "back" của cảnh TRƯỚC đó) sang lộ mặt/nhìn về phía camera NGAY TRONG CÙNG 1 cảnh — vì lúc đó model tạo video phải tự bịa khuôn mặt không có căn cứ, dễ ra sai khuôn mặt/đổi nhân vật giữa cảnh. Nếu ý tưởng gốc có hành động nhân vật quay người lộ mặt sau khi đang quay lưng, PHẢI tách hành động đó thành ranh giới giữa 2 cảnh: cảnh trước kết thúc ("end_pose") khi nhân vật vẫn còn quay lưng/mới chỉ bắt đầu xoay (chưa lộ mặt hẳn), cảnh sau đó mới bắt đầu ("description") đã lộ mặt hẳn với "camera_view" là 1 trong các góc thấy mặt ("front"/"three_quarter_left"/"three_quarter_right"/"side"/"face") — không được để việc "từ khuất mặt sang lộ mặt" diễn ra như 1 hành động liền mạch bên trong "description" của đúng 1 cảnh.';
+
 // Phòng thủ phía code (không chỉ dựa Agent nghe lời): dù prompt đã yêu cầu rõ "giữ nguyên văn tiếng
 // Việt, KHÔNG dịch", model chat vẫn có rủi ro thật dịch câu thoại sang tiếng Anh (cả JSON xung quanh
 // toàn tiếng Anh nên model dễ "quán tính" dịch luôn "line"/"dialogue"). Kiểm tra câu thoại AI trả về
@@ -703,7 +714,8 @@ export async function splitStoryIntoScenes(
   numScenes: number,
   customInstructions?: string,
   modelChatKey?: string,
-  continuousMotion?: boolean
+  continuousMotion?: boolean,
+  frameChainMode?: boolean
 ): Promise<SceneSplitResult[]> {
   const chatModel = modelChatKey && ALLOWED_CHAT_MODELS.includes(modelChatKey) ? modelChatKey : ALLOWED_CHAT_MODELS[0];
   // "Agent xử lý" — admin thêm hướng dẫn phong cách/chủ đề qua model_config.prompt_helper_instructions
@@ -712,6 +724,7 @@ export async function splitStoryIntoScenes(
   const basePrompt = SCENE_SPLIT_SYSTEM_PROMPT.replace("N phân cảnh", `${numScenes} phân cảnh`);
   let systemPrompt = customInstructions?.trim() ? `${basePrompt}\n\nGhi chú thêm từ admin: ${customInstructions.trim()}` : basePrompt;
   if (continuousMotion) systemPrompt += `\n\n${CONTINUOUS_MOTION_INSTRUCTION}`;
+  if (frameChainMode) systemPrompt += `\n\n${FRAME_CHAIN_TURN_INSTRUCTION}`;
   async function attempt(reminder?: string): Promise<SceneSplitResult[]> {
     const userInput = reminder
       ? `${storyDescription}\n\n(Lưu ý: lần trước bạn trả sai định dạng. Chỉ trả về mảng JSON gồm đúng ${numScenes} object {description, camera_view}, không thêm gì khác.)`
@@ -1092,7 +1105,12 @@ async function submitSceneImageForRow(
   }
   if (hasItem) {
     const idx = characterImages.length + 1;
-    scenePrompt += ` Reference image #${idx} shows a REAL physical item (e.g. shoes, a bag, an accessory, or another object) belonging to the character — whenever the scene description mentions the character wearing, holding, or using such an item, depict this exact real item accurately (shape, color, design, material), do not invent a different item.`;
+    // Xác nhận qua phản hồi thật: câu chỉ dẫn cũ ("depict accurately") quá yếu — model vẫn vẽ ra vật
+    // phẩm có kiểu/màu khác (đúng loại đồ vật, sai chi tiết thật), giống hệt lỗi trang phục đã sửa
+    // trước đây. Viết mạnh hơn theo đúng công thức đã hiệu quả với outfit_override: gọi thẳng đây là
+    // ẢNH THẬT của khách, liệt kê rõ các khía cạnh KHÔNG được đổi (màu/kiểu/hoạ tiết/chất liệu), và cấm
+    // rõ việc vẽ 1 phiên bản "giống giống" hoặc chung chung thay cho ảnh thật.
+    scenePrompt += ` Reference image #${idx} is a REAL photo of the character's own physical item (e.g. shoes, a bag, an accessory, or another object) — this is not a generic example, it is the customer's actual item. Whenever the scene description mentions the character wearing, holding, or using such an item, you MUST copy this exact real item's appearance precisely: same color, same shape/silhouette, same pattern/design details, same material/texture — exactly as shown in reference image #${idx}. Do NOT substitute a different color, a different style, a generic or similar-looking version, or any item that merely resembles it — treat matching this item's exact real appearance with the same strictness as matching the character's face.`;
   }
   if (hasLocation) {
     const idx = characterImages.length + (hasItem ? 1 : 0) + 1;
@@ -1200,7 +1218,9 @@ async function submitMultiCharacterSceneImageForRow(
   }
   itemRefs.forEach((r, i) => {
     const idx = refs.length + i + 1;
-    scenePrompt += ` Reference image #${idx} shows a REAL physical item belonging to ${r.label} — whenever the scene description mentions ${r.label} wearing, holding, or using such an item, depict this exact real item accurately (shape, color, design, material), do not invent a different item.`;
+    // Mirror đúng câu chỉ dẫn mạnh hơn đã sửa cho luồng 1 nhân vật (submitSceneImageForRow) — cùng
+    // nguyên nhân lỗi (vật phẩm ra sai màu/kiểu so với ảnh thật khách tải lên).
+    scenePrompt += ` Reference image #${idx} is a REAL photo of ${r.label}'s own physical item — this is not a generic example, it is the customer's actual item. Whenever the scene description mentions ${r.label} wearing, holding, or using such an item, you MUST copy this exact real item's appearance precisely: same color, same shape/silhouette, same pattern/design details, same material/texture — exactly as shown in reference image #${idx}. Do NOT substitute a different color, a different style, a generic or similar-looking version, or any item that merely resembles it.`;
   });
   if (hasLocation) {
     scenePrompt += ` The LAST reference image shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
@@ -1312,7 +1332,8 @@ async function runSceneStage(
       job.num_scenes,
       combinedInstructions || undefined,
       modelChatKey,
-      job.continuous_motion
+      job.continuous_motion,
+      job.frame_chain_mode
     );
     // Skill "story-validator" — kiểm tra bản chia cảnh có phản ánh đúng truyện gốc không, thử chia lại
     // ĐÚNG 1 lần nếu lỗi, không chặn cứng job nếu vẫn lỗi sau lần 2 (tránh false-positive chặn oan).
@@ -1322,7 +1343,14 @@ async function runSceneStage(
       const retryInstructions = [combinedInstructions, `Lần chia trước bị lỗi: ${validation.issue}. Sửa lại cho đúng.`]
         .filter((s): s is string => !!s?.trim())
         .join("\n\n");
-      scenes = await splitStoryIntoScenes(extractedStory, job.num_scenes, retryInstructions, modelChatKey, job.continuous_motion);
+      scenes = await splitStoryIntoScenes(
+        extractedStory,
+        job.num_scenes,
+        retryInstructions,
+        modelChatKey,
+        job.continuous_motion,
+        job.frame_chain_mode
+      );
     }
 
     const { data: sceneRows, error: sceneError } = await supabase
