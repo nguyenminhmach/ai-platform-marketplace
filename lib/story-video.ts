@@ -1124,6 +1124,12 @@ async function submitSceneImageForRow(
   // lỗi này nhưng vẽ lại cũng dễ sai lại vì đây là điểm yếu chung của model (không "soi gương" thật, chỉ
   // đoán). Thêm câu chỉ dẫn riêng — không tốn gì khi cảnh không có gương, chỉ hữu ích khi có.
   scenePrompt += ` If this scene includes a mirror or any other reflective surface, the reflection must show the exact same face and identity as the real character in the shot — never draw a different-looking face in the reflection.`;
+  // Rà lại danh sách quy tắc bảo toàn danh tính (đối chiếu ý tưởng "Character Manager Agent" của anh):
+  // khuôn mặt/tóc/tuổi/tỉ lệ/trang phục đã có câu chỉ dẫn riêng ở trên hoặc trong CHARACTER_SHEET_PROMPT
+  // — CHỈ THIẾU đúng 1 ý: giữ phụ kiện (kính, vòng cổ, đồng hồ...) đã có sẵn trong ảnh tham chiếu xuyên
+  // suốt các cảnh. Trước đây chỉ có quy tắc "không tự BỊA THÊM phụ kiện mới" (ở SCENE_SPLIT_SYSTEM_PROMPT,
+  // tầng viết mô tả) — chưa có quy tắc "phải GIỮ phụ kiện đã có" ở tầng tạo ảnh. Bổ sung câu này.
+  scenePrompt += ` Keep any accessories (glasses, jewelry, watch, hat, or similar items) shown on the character in the reference image(s) — do not remove or omit them in this scene, and do not add new accessories that are not in the reference image(s), unless the scene description explicitly requires a change.`;
   // Chặn chữ dính từ ảnh tham chiếu — character sheet có nhãn in sẵn ("1) FRONT VIEW", "5) BACK
   // VIEW"...) nên model đôi khi bị dính vụn chữ đó vào ảnh cảnh mới dù không liên quan.
   scenePrompt += ` The output image must contain NO text, letters, numbers, labels, captions, watermarks, or UI overlays anywhere in the frame — completely ignore and do not reproduce any panel numbers or text labels visible in the reference images.`;
@@ -1230,6 +1236,8 @@ async function submitMultiCharacterSceneImageForRow(
   scenePrompt += ` Keep the exact same clothing/outfit (garment type, color, style) for each person as shown in their own reference image — do not substitute different clothing, even if the scene's mood or setting might otherwise suggest different attire.`;
   scenePrompt += ` Photorealistic photo, shot on a real camera — not an illustration, painting, drawing, anime, or digital art.`;
   scenePrompt += ` If this scene includes a mirror or any other reflective surface, every reflection must show the exact same face and identity as the corresponding real character in the shot — never draw a different-looking face in a reflection.`;
+  // Mirror đúng câu chỉ dẫn giữ phụ kiện đã thêm cho luồng 1 nhân vật (xem submitSceneImageForRow).
+  scenePrompt += ` Keep any accessories (glasses, jewelry, watch, hat, or similar items) shown on each person in their own reference image — do not remove or omit them in this scene, and do not add new accessories that are not in the reference image, unless the scene description explicitly requires a change.`;
   // Chặn chữ dính từ ảnh tham chiếu — character sheet có nhãn in sẵn ("1) FRONT VIEW", "5) BACK
   // VIEW"...) nên model đôi khi bị dính vụn chữ đó vào ảnh cảnh mới dù không liên quan.
   scenePrompt += ` The output image must contain NO text, letters, numbers, labels, captions, watermarks, or UI overlays anywhere in the frame — completely ignore and do not reproduce any panel numbers or text labels visible in the reference images.`;
