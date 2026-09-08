@@ -272,6 +272,12 @@ export type VideoModelEntry = {
   // Có thì frontend hiện dropdown "Thời lượng", giá đổi theo lựa chọn — cùng khuôn
   // provider_cost_vnd_by_duration đã dùng cho app "Tạo video quảng cáo ngắn" (lib/ai-router.ts).
   duration_price_vnd?: Record<string, number>;
+  // true = model video này CHẤP NHẬN gửi kèm ảnh Character (mặt/góc) làm "nguyên liệu nền" ngay lúc
+  // TẠO VIDEO, không chỉ dựa vào đúng 1 ảnh bắt đầu cảnh (xem fal-ai/kling-video/o1/reference-to-video
+  // và fal-ai/veo3.1/reference-to-video — đã kiểm chứng thật qua API, khác hẳn các model video khác
+  // trong catalog vốn chỉ nhận đúng 1 image_url). Đây chính là điểm khắc phục lỗi "khuôn mặt đổi khi
+  // nhân vật quay lại camera" — model có ảnh mặt Character làm căn cứ xuyên suốt, không phải tự bịa.
+  character_reference?: boolean;
 };
 
 export type SceneRow = {
@@ -551,15 +557,38 @@ function buildImageRequestBody(
   return body;
 }
 
+// Ảnh Character dùng làm "nguyên liệu nền" khi tạo VIDEO (khác hẳn ảnh Character dùng lúc tạo ẢNH TĨNH
+// — selectReferenceImagesForScene chọn theo camera_view riêng từng cảnh). Ở đây luôn dùng CỐ ĐỊNH đúng
+// 1 bộ ảnh (mặt + 1-2 góc khác) cho MỌI cảnh trong job, không đổi theo camera_view của từng cảnh — vì
+// mục đích là cho model video có sẵn ảnh mặt làm căn cứ xuyên suốt, bất kể ảnh bắt đầu cảnh đó đang quay
+// hướng nào (đây chính là thông tin còn thiếu gây lỗi "khuôn mặt đổi khi quay lại camera").
+type VideoCharacterReference = { frontal: string; extras: string[] };
+
+function selectCharacterReferenceImages(
+  angleUrls: CharacterAngleUrls | null,
+  sheetUrl: string | null
+): VideoCharacterReference | undefined {
+  if (!sheetUrl) return undefined;
+  if (!angleUrls) return { frontal: sheetUrl, extras: [] };
+  const frontal = angleUrls.face ?? angleUrls.front ?? sheetUrl;
+  const extras = [angleUrls.front, angleUrls.three_quarter_left, angleUrls.three_quarter_right].filter(
+    (url): url is string => !!url && url !== frontal
+  );
+  return { frontal, extras };
+}
+
 // Body request Fal.ai theo model video — VEO cần hậu tố "s" cho duration ("6s", không phải "6"),
 // Hailuo cố định resolution "768P" để khớp đúng giá đã nghiên cứu, còn lại theo mẫu Kling/LTX sẵn có.
+// characterReference chỉ có giá trị khi model đang chọn có "character_reference: true" trong catalog
+// (xem selectCharacterReferenceImages) — model không hỗ trợ thì tham số này luôn undefined, bỏ qua.
 function buildVideoRequestBody(
   model: string,
   prompt: string | null,
   imageUrl: string,
   aspectRatio: string,
   durationKey?: string,
-  endImageUrl?: string
+  endImageUrl?: string,
+  characterReference?: VideoCharacterReference
 ): Record<string, unknown> {
   if (
     model === "fal-ai/veo3/image-to-video" ||
@@ -591,6 +620,46 @@ function buildVideoRequestBody(
       last_frame_url: endImageUrl,
       aspect_ratio: aspectRatio,
       duration: "8s",
+      generate_audio: false,
+    };
+  }
+  if (model === "fal-ai/kling-video/o1/reference-to-video") {
+    // Kling O1 Reference — đã kiểm chứng THẬT qua API (request thật nhận IN_QUEUE, schema hợp lệ, xem
+    // ghi chú migration-story-video-reference-video-models.sql). Khác hẳn Kling O1 FLFV ở nhánh dưới:
+    // "image_urls" (mảng, chỉ chứa ảnh bắt đầu cảnh) TÁCH RIÊNG khỏi "elements" (ảnh Character — mặt +
+    // góc khác, dùng làm căn cứ danh tính xuyên suốt lúc sinh video). Prompt PHẢI nhắc rõ "@Image1"/
+    // "@Element1" theo đúng cú pháp tài liệu, nếu không model không biết vai trò của từng ảnh.
+    const wrappedPrompt = characterReference
+      ? `Take @Image1 as the start frame. Keep the character's face, identity, hairstyle, and appearance exactly consistent with @Element1 throughout the entire clip, even when they turn or move — do not invent a different face. ${prompt ?? ""}`
+      : prompt;
+    const body: Record<string, unknown> = {
+      prompt: wrappedPrompt,
+      image_urls: [imageUrl],
+      duration: durationKey ?? "5",
+      aspect_ratio: aspectRatio,
+    };
+    if (characterReference) {
+      body.elements = [{ frontal_image_url: characterReference.frontal, reference_image_urls: characterReference.extras }];
+    }
+    return body;
+  }
+  if (model === "fal-ai/veo3.1/reference-to-video") {
+    // VEO 3.1 Reference — đã kiểm chứng THẬT qua API, tạo thành công 1 video thật. Schema đơn giản hơn
+    // Kling O1 Reference: "image_urls" là 1 mảng PHẲNG, gộp chung ảnh bắt đầu cảnh + ảnh Character, model
+    // tự phân biệt vai trò — không cần cú pháp @Image/@Element như Kling. CHỈ hỗ trợ đúng "8s" (xem ghi
+    // chú migration), luôn bỏ qua durationKey.
+    const imageUrls = characterReference
+      ? [imageUrl, characterReference.frontal, ...characterReference.extras]
+      : [imageUrl];
+    const finalPrompt = characterReference
+      ? `${prompt ?? ""} Keep the character's face and identity exactly consistent with the reference images provided, even when they turn or move.`
+      : prompt;
+    return {
+      prompt: finalPrompt,
+      image_urls: imageUrls,
+      aspect_ratio: aspectRatio,
+      duration: "8s",
+      resolution: "720p",
       generate_audio: false,
     };
   }
@@ -2753,7 +2822,10 @@ type VideoSceneRefRow = {
 // đầu (proceedToVideoStage) và tạo lại riêng lẻ 1 cảnh (regenerateSceneVideo). regen=true thêm cờ
 // &regen=1 vào webhook URL để applyVideoStageResult biết đây là tạo lại 1 cảnh, không phải lượt đầu.
 async function submitSceneVideoForRow(
-  job: Pick<JobRow, "id" | "video_model" | "aspect_ratio" | "video_duration_key">,
+  job: Pick<
+    JobRow,
+    "id" | "video_model" | "aspect_ratio" | "video_duration_key" | "character_sheet_url" | "character_angle_urls"
+  >,
   row: VideoSceneRefRow,
   regen: boolean
 ): Promise<string> {
@@ -2767,6 +2839,14 @@ async function submitSceneVideoForRow(
     : basePrompt
       ? `${basePrompt} Keep the background, environment, lighting, and every object in the scene exactly the same as the reference image — do not change or add anything to the setting, only animate with subtle natural motion.`
       : basePrompt;
+  // Chỉ 2 model đã kiểm chứng thật (xem buildVideoRequestBody) mới chấp nhận ảnh Character làm căn cứ
+  // lúc TẠO VIDEO — so trực tiếp theo model string, không cần tra lại catalog ở tầng thấp này (đúng
+  // cách các nhánh model-riêng khác trong file đang làm, vd FLFV/veo lite).
+  const needsCharacterReference =
+    job.video_model === "fal-ai/kling-video/o1/reference-to-video" || job.video_model === "fal-ai/veo3.1/reference-to-video";
+  const characterReference = needsCharacterReference
+    ? selectCharacterReferenceImages(job.character_angle_urls, job.character_sheet_url)
+    : undefined;
   const body = buildVideoRequestBody(
     job.video_model as string,
     prompt,
@@ -2775,7 +2855,8 @@ async function submitSceneVideoForRow(
     // Motion Timing Controller: dùng mức thời lượng riêng đã ước lượng cho ĐÚNG cảnh này nếu có, rơi về
     // mức chung của job (hành vi cũ) khi cảnh chưa có/không áp dụng được (vd chế độ chuyển động liên tục).
     row.motion_duration_key ?? job.video_duration_key ?? undefined,
-    row.end_image_url ?? undefined
+    row.end_image_url ?? undefined,
+    characterReference
   );
   return submitFalJob(
     job.video_model as string,
@@ -2817,7 +2898,9 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
   try {
     const { data: job } = await supabase
       .from("story_video_jobs")
-      .select("user_id, mini_app_id, video_model, aspect_ratio, video_duration_key, story_description, genre_key, continuous_motion")
+      .select(
+        "user_id, mini_app_id, video_model, aspect_ratio, video_duration_key, story_description, genre_key, continuous_motion, character_sheet_url, character_angle_urls"
+      )
       .eq("id", jobId)
       .single();
     if (!job?.video_model) throw new Error("Không tìm thấy model video của job");
@@ -2885,7 +2968,14 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
             .eq("id", scene.id);
         }
         const requestId = await submitSceneVideoForRow(
-          { id: jobId, video_model: job.video_model, aspect_ratio: job.aspect_ratio, video_duration_key: job.video_duration_key },
+          {
+            id: jobId,
+            video_model: job.video_model,
+            aspect_ratio: job.aspect_ratio,
+            video_duration_key: job.video_duration_key,
+            character_sheet_url: job.character_sheet_url,
+            character_angle_urls: job.character_angle_urls,
+          },
           {
             id: scene.id,
             image_url: scene.image_url,
