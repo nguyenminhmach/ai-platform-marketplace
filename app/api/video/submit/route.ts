@@ -37,6 +37,9 @@ export async function POST(req: Request) {
       return Response.json({ error: "Không đủ credit", code: "INSUFFICIENT_CREDIT" }, { status: 402 });
     }
     console.error(err);
-    return Response.json({ error: "Có lỗi xảy ra, credit đã được hoàn (nếu đã trừ)" }, { status: 500 });
+    return Response.json(
+      { error: err instanceof Error ? err.message : "Có lỗi xảy ra, credit đã được hoàn (nếu đã trừ)" },
+      { status: 500 }
+    );
   }
 }

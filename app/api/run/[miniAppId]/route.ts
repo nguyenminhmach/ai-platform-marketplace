@@ -33,6 +33,9 @@ export async function POST(
       );
     }
     console.error(err);
-    return Response.json({ error: "Có lỗi xảy ra, credit đã được hoàn (nếu đã trừ)" }, { status: 500 });
+    return Response.json(
+      { error: err instanceof Error ? err.message : "Có lỗi xảy ra, credit đã được hoàn (nếu đã trừ)" },
+      { status: 500 }
+    );
   }
 }
