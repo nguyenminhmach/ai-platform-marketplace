@@ -639,7 +639,15 @@ function buildVideoRequestBody(
       aspect_ratio: aspectRatio,
     };
     if (characterReference) {
-      body.elements = [{ frontal_image_url: characterReference.frontal, reference_image_urls: characterReference.extras }];
+      // Xác nhận qua lỗi 422 thật trên production (job story-101): Kling từ chối "reference_image_urls"
+      // nếu gửi mảng RỖNG ("At least one image from different angles is required") — dù tài liệu ghi
+      // field này tuỳ chọn, thực tế model không chấp nhận key có mặt nhưng rỗng. Xảy ra khi Character
+      // của job không có character_angle_urls (vd job cũ trước khi có bước cắt góc, hoặc tái dùng
+      // Character từ thư viện thiếu dữ liệu góc) — selectCharacterReferenceImages() trả extras rỗng lúc
+      // đó. Chỉ thêm key này khi thật sự có ≥1 ảnh góc khác, bỏ hẳn key (không gửi mảng rỗng) khi không có.
+      const element: Record<string, unknown> = { frontal_image_url: characterReference.frontal };
+      if (characterReference.extras.length > 0) element.reference_image_urls = characterReference.extras;
+      body.elements = [element];
     }
     return body;
   }
