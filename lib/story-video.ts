@@ -3300,13 +3300,15 @@ async function applyFrameChainImageResult(jobId: number, sceneId: number) {
   const { data: job } = await supabase
     .from("story_video_jobs")
     .select(
-      "id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url, item_reference_url"
+      "id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url, item_reference_url, story_description, genre_key"
     )
     .eq("id", jobId)
     .single();
   const { data: scene } = await supabase
     .from("story_video_scenes")
-    .select("id, position, image_url, scene_description, motion_prompt, camera_view, face_view, outfit_override, location, identity_retry_count")
+    .select(
+      "id, position, image_url, scene_description, motion_prompt, motion_duration_key, camera_view, face_view, outfit_override, location, identity_retry_count"
+    )
     .eq("id", sceneId)
     .single();
   if (!job || !scene) return;
@@ -3314,6 +3316,30 @@ async function applyFrameChainImageResult(jobId: number, sceneId: number) {
   if (!(await checkFrameChainIdentity(jobId, scene, job))) return; // đợi webhook ảnh mới, chưa submit video vội
 
   try {
+    // Motion Timing Controller — trước đây chế độ Frame-chain gọi thẳng submitSceneVideoForRow, bỏ qua
+    // hoàn toàn bước AI xem ảnh viết mô tả chuyển động + ước lượng thời lượng riêng (chỉ chạy ở
+    // proceedToVideoStage, luồng mặc định) — mọi cảnh Frame-chain đều dùng chung đúng 1 mức thời lượng
+    // job.video_duration_key, không phân biệt cảnh nào chuyển động ít/nhiều. Bổ sung đúng bước đó ở đây.
+    if (!scene.motion_prompt && scene.image_url) {
+      const miniApp = await getMiniAppModelConfig(job.mini_app_id);
+      const genreStyleGuide = resolveGenreStyleGuide(job.genre_key, miniApp.model_config.genre_style_guides);
+      const videoEntry = miniApp.model_config.video_models.find((m) => m.model === job.video_model);
+      const plan = await generateSceneDescriptionFromImage(
+        scene.image_url,
+        scene.scene_description ?? undefined,
+        job.story_description,
+        undefined,
+        genreStyleGuide,
+        miniApp.model_config.motion_planner_prompt
+      );
+      const motionDurationKey = resolveNearestDurationKey(videoEntry?.duration_price_vnd, plan.durationSeconds) ?? null;
+      scene.motion_prompt = plan.motionPrompt;
+      scene.motion_duration_key = motionDurationKey;
+      await supabase
+        .from("story_video_scenes")
+        .update({ motion_prompt: plan.motionPrompt, motion_duration_key: motionDurationKey })
+        .eq("id", sceneId);
+    }
     const requestId = await submitSceneVideoForRow(job, scene, false);
     await supabase.from("story_video_scenes").update({ video_fal_request_id: requestId }).eq("id", sceneId);
   } catch (err) {
@@ -3339,7 +3365,9 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
 
   const { data: nextScene } = await supabase
     .from("story_video_scenes")
-    .select("id, position, scene_description, motion_prompt, camera_view, outfit_override, face_view, location, identity_retry_count")
+    .select(
+      "id, position, scene_description, motion_prompt, motion_duration_key, camera_view, outfit_override, face_view, location, identity_retry_count"
+    )
     .eq("job_id", jobId)
     .eq("position", scene.position + 1)
     .maybeSingle();
@@ -3348,7 +3376,7 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
     const { data: job } = await supabase
       .from("story_video_jobs")
       .select(
-        "id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url, item_reference_url"
+        "id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url, item_reference_url, story_description, genre_key"
       )
       .eq("id", jobId)
       .single();
@@ -3368,6 +3396,28 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
     if (!(await checkFrameChainIdentity(jobId, nextSceneWithImage, job))) return; // đã tự vẽ lại ảnh khác, đợi webhook ảnh mới
 
     try {
+      // Motion Timing Controller — xem chú thích trong applyFrameChainImageResult(), đây là bản mirror
+      // cho mọi cảnh TỪ CẢNH THỨ 2 trở đi (được submit từ hàm này, không phải applyFrameChainImageResult).
+      if (!nextSceneWithImage.motion_prompt) {
+        const miniApp = await getMiniAppModelConfig(job.mini_app_id);
+        const genreStyleGuide = resolveGenreStyleGuide(job.genre_key, miniApp.model_config.genre_style_guides);
+        const videoEntry = miniApp.model_config.video_models.find((m) => m.model === job.video_model);
+        const plan = await generateSceneDescriptionFromImage(
+          nextSceneWithImage.image_url,
+          nextSceneWithImage.scene_description ?? undefined,
+          job.story_description,
+          undefined,
+          genreStyleGuide,
+          miniApp.model_config.motion_planner_prompt
+        );
+        const motionDurationKey = resolveNearestDurationKey(videoEntry?.duration_price_vnd, plan.durationSeconds) ?? null;
+        nextSceneWithImage.motion_prompt = plan.motionPrompt;
+        nextSceneWithImage.motion_duration_key = motionDurationKey;
+        await supabase
+          .from("story_video_scenes")
+          .update({ motion_prompt: plan.motionPrompt, motion_duration_key: motionDurationKey })
+          .eq("id", nextScene.id);
+      }
       const requestId = await submitSceneVideoForRow(job, nextSceneWithImage, false);
       await supabase.from("story_video_scenes").update({ video_fal_request_id: requestId }).eq("id", nextScene.id);
     } catch (err) {
