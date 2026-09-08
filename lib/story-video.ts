@@ -3300,12 +3300,35 @@ async function checkFrameChainIdentity(
   return false;
 }
 
+// Motion Timing Controller (Frame-chain) — công bằng theo mức thực dùng: job đã trừ credit lúc submit
+// dựa trên đúng 1 mức thời lượng cố định (video_provider_cost_vnd_per_scene, tính theo video_duration_key
+// khách chọn). Nếu AI ước lượng ra 1 mức ĐẮT HƠN cho cảnh này, trừ thêm đúng phần chênh lệch trước khi
+// dùng mức đó — không đủ credit cho phần chênh thì rơi về null (submitSceneVideoForRow tự dùng lại
+// job.video_duration_key khách đã chọn/trả tiền, chấp nhận cảnh đó có thể hơi giật thay vì âm tiền nền tảng).
+// Nếu AI ước lượng ra mức RẺ HƠN, dùng thẳng luôn — không hoàn lại phần chênh (khách đã trả trước, giữ
+// đơn giản, đúng như luồng mặc định proceedToVideoStage đang chấp nhận).
+async function resolveFrameChainDurationKey(
+  job: Pick<JobRow, "user_id" | "mini_app_id" | "video_provider_cost_vnd_per_scene">,
+  videoEntry: VideoModelEntry | undefined,
+  motionDurationKey: string | null,
+  sceneId: number
+): Promise<string | null> {
+  if (!motionDurationKey || !videoEntry?.duration_price_vnd) return motionDurationKey;
+  const newCostVnd = videoEntry.duration_price_vnd[motionDurationKey];
+  const alreadyPaidVnd = job.video_provider_cost_vnd_per_scene;
+  if (!newCostVnd || !alreadyPaidVnd || newCostVnd <= alreadyPaidVnd) return motionDurationKey;
+  const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
+  const surcharge = computeDynamicCreditCost(newCostVnd - alreadyPaidVnd, marginPercent, vndPerCredit);
+  const deduction = await deductCredit(job.user_id, surcharge, job.mini_app_id, `story-video-duration-${sceneId}`);
+  return deduction.success ? motionDurationKey : null;
+}
+
 async function applyFrameChainImageResult(jobId: number, sceneId: number) {
   const supabase = getSupabaseAdmin();
   const { data: job } = await supabase
     .from("story_video_jobs")
     .select(
-      "id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url, item_reference_url, story_description, genre_key"
+      "id, user_id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url, item_reference_url, story_description, genre_key, video_provider_cost_vnd_per_scene"
     )
     .eq("id", jobId)
     .single();
@@ -3337,7 +3360,8 @@ async function applyFrameChainImageResult(jobId: number, sceneId: number) {
         genreStyleGuide,
         miniApp.model_config.motion_planner_prompt
       );
-      const motionDurationKey = resolveNearestDurationKey(videoEntry?.duration_price_vnd, plan.durationSeconds) ?? null;
+      const estimatedDurationKey = resolveNearestDurationKey(videoEntry?.duration_price_vnd, plan.durationSeconds) ?? null;
+      const motionDurationKey = await resolveFrameChainDurationKey(job, videoEntry, estimatedDurationKey, sceneId);
       scene.motion_prompt = plan.motionPrompt;
       scene.motion_duration_key = motionDurationKey;
       await supabase
@@ -3381,7 +3405,7 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
     const { data: job } = await supabase
       .from("story_video_jobs")
       .select(
-        "id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url, item_reference_url, story_description, genre_key"
+        "id, user_id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url, item_reference_url, story_description, genre_key, video_provider_cost_vnd_per_scene"
       )
       .eq("id", jobId)
       .single();
@@ -3415,7 +3439,8 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
           genreStyleGuide,
           miniApp.model_config.motion_planner_prompt
         );
-        const motionDurationKey = resolveNearestDurationKey(videoEntry?.duration_price_vnd, plan.durationSeconds) ?? null;
+        const estimatedDurationKey = resolveNearestDurationKey(videoEntry?.duration_price_vnd, plan.durationSeconds) ?? null;
+        const motionDurationKey = await resolveFrameChainDurationKey(job, videoEntry, estimatedDurationKey, nextScene.id);
         nextSceneWithImage.motion_prompt = plan.motionPrompt;
         nextSceneWithImage.motion_duration_key = motionDurationKey;
         await supabase
