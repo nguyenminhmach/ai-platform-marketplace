@@ -569,11 +569,17 @@ function selectCharacterReferenceImages(
   sheetUrl: string | null
 ): VideoCharacterReference | undefined {
   if (!sheetUrl) return undefined;
-  if (!angleUrls) return { frontal: sheetUrl, extras: [] };
+  // Xác nhận qua lỗi 422 THẬT lần 2 trên production ("elementReferList: size must be between 1 and 3"):
+  // khác với suy đoán ban đầu, Kling KHÔNG coi "reference_image_urls" là tuỳ chọn thật — bỏ hẳn key này
+  // (mảng 0 phần tử) vẫn bị từ chối, dù tài liệu ghi optional. Luôn phải có ÍT NHẤT 1 ảnh trong đó. Khi
+  // job không có character_angle_urls (chưa cắt góc riêng), dùng lại chính ảnh sheet Character GỐC (bố
+  // cục 6 ô) làm ảnh tham chiếu phụ — vẫn là 1 ảnh THẬT KHÁC nội dung, không phải lặp lại đúng ảnh mặt.
+  if (!angleUrls) return { frontal: sheetUrl, extras: [sheetUrl] };
   const frontal = angleUrls.face ?? angleUrls.front ?? sheetUrl;
   const extras = [angleUrls.front, angleUrls.three_quarter_left, angleUrls.three_quarter_right].filter(
     (url): url is string => !!url && url !== frontal
   );
+  if (extras.length === 0) extras.push(sheetUrl);
   return { frontal, extras };
 }
 
