@@ -33,7 +33,7 @@ export async function deductCredit(
     p_idempotency_key: idempotencyKey,
   });
 
-  if (error) throw error;
+  if (error) throw new Error(error.message);
 
   const row = data?.[0];
   return {
@@ -47,7 +47,15 @@ export async function deductCredit(
 export async function refundCredit(txId: number): Promise<void> {
   const supabase = getSupabaseAdmin();
   const { error } = await supabase.rpc("refund_credit", { p_original_tx_id: txId });
-  if (error) throw error;
+  if (error) {
+    // safeRefund() ở lib/story-video.ts đọc err.code để bỏ qua lỗi trùng khoá (23505) khi 2 lượt hoàn
+    // credit cùng lúc — giữ nguyên .code trên Error thay vì ném thẳng object Supabase (không phải
+    // instance Error thật, khiến `err instanceof Error ? err.message : String(err)` ở nơi khác rơi vào
+    // String(err) và ra đúng chuỗi "[object Object]" thay vì message thật).
+    const wrapped = new Error(error.message);
+    (wrapped as Error & { code?: string }).code = error.code;
+    throw wrapped;
+  }
 }
 
 export async function getCreditBalance(userId: string): Promise<number> {
@@ -58,6 +66,6 @@ export async function getCreditBalance(userId: string): Promise<number> {
     .eq("user_id", userId)
     .single();
 
-  if (error) throw error;
+  if (error) throw new Error(error.message);
   return data?.credit_balance ?? 0;
 }
