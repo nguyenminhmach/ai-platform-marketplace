@@ -2071,7 +2071,12 @@ export async function continueStoryVideoToSceneStage(
 
 const SCENE_PROMPT_FROM_IMAGE_SYSTEM =
   `You are a screenwriter writing a short motion prompt (1-2 sentences, English) for the given image, to be used as an image-to-video generation prompt. Base it on: what's visible in the image, the overall story context provided, and the customer's hint if given.
-Also estimate how many seconds of video this motion naturally needs to look smooth and natural — NOT rushed (too much motion crammed into too little time looks jerky/sped-up) and NOT padded (too little motion stretched over too much time makes the model invent extra filler motion, looking aimless/drifting). A small, subtle motion (a glance, a slight smile, a small hand gesture) typically needs only a few seconds; a larger motion (standing up, walking, turning around, sitting down) needs more.
+Also estimate how many seconds of video this motion naturally needs to look smooth and natural — NOT rushed (too much motion crammed into too little time looks jerky/sped-up) and NOT padded (too little motion stretched over too much time makes the model invent extra filler motion, looking aimless/drifting). Use this reference (typical durations, adjust as needed for the actual motion):
+- micro (blink, glance, small smile, slight head tilt): 1-2s
+- gesture (nod, wave, point, pick up small object): 2-3s
+- body motion (stand up, sit down, turn 90-180°): 3-4s
+- locomotion (walk a few steps, turn and walk away): 4-6s
+- multi-step action (walk to object + pick it up + turn back): 6-8s
 Return ONLY 1 line of valid JSON, no markdown fence, no explanation, no comment lines: {"motion_prompt": "<the motion description>", "duration_seconds": <integer, your best estimate>}.`;
 
 type SceneMotionPlan = { motionPrompt: string; durationSeconds?: number };
