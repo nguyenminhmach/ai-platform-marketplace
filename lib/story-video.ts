@@ -3581,10 +3581,14 @@ const STITCH_CANVAS_BY_ASPECT_RATIO: Record<string, { width: number; height: num
   "1:1": { width: 720, height: 720 },
 };
 
-// Thời lượng chuyển mờ giữa 2 cảnh khi ghép — ngắn vừa đủ để che lệch nhỏ ở khung hình cuối/đầu giữa
-// 2 clip (model video không luôn bám sát 100% ảnh đích khi tạo 8 giây chuyển động, xem stitchAndFinish),
-// không đủ dài để làm mất nội dung cảnh.
-const STITCH_FADE_SECONDS = 0.25;
+// Thời lượng chuyển mờ giữa 2 cảnh khi ghép — đủ dài để che lệch nhỏ ở khung hình cuối/đầu giữa 2 clip
+// (model video không luôn bám sát 100% ảnh đích khi tạo chuyển động, xem stitchAndFinish), không đủ dài
+// để làm mất nội dung cảnh. Trước là 0.25s — người dùng phản hồi thấy "nháy nhẹ" tại điểm nối: chuyển
+// mờ tuyến tính (xfade "fade") trộn 50/50 khung cuối cảnh A với khung đầu cảnh B, nếu 2 cảnh lệch nhẹ
+// độ sáng/tông màu (2 cảnh do AI tạo độc lập, không đảm bảo khớp tuyệt đối), khoảng giữa phép trộn có
+// thể sáng/tối hơn cả 2 khung gốc — nén vào đúng 0.25s (~6 khung ở 24fps) nên mắt thấy như 1 cái nháy
+// thay vì chuyển mờ êm. Tăng lên 0.4s để trải độ lệch đó ra nhiều khung hình hơn, giảm cảm giác nháy.
+const STITCH_FADE_SECONDS = 0.4;
 
 // Đọc thời lượng + có track âm thanh hay không của 1 clip bằng chính ffmpeg-static đã có sẵn (không
 // thêm dependency ffprobe-static mới — dự án từng tốn nhiều công sửa lỗi ffmpeg-static bị mất quyền
