@@ -2071,15 +2071,50 @@ export async function continueStoryVideoToSceneStage(
 
 const SCENE_PROMPT_FROM_IMAGE_SYSTEM =
   `You are a screenwriter writing a short motion prompt (1-2 sentences, English) for the given image, to be used as an image-to-video generation prompt. Base it on: what's visible in the image, the overall story context provided, and the customer's hint if given.
-Also estimate how many seconds of video this motion naturally needs to look smooth and natural — NOT rushed (too much motion crammed into too little time looks jerky/sped-up) and NOT padded (too little motion stretched over too much time makes the model invent extra filler motion, looking aimless/drifting). Use this reference (typical durations, adjust as needed for the actual motion):
+Also estimate how many seconds of video this motion naturally needs to look smooth and natural — NOT rushed (too much motion crammed into too little time looks jerky/sped-up) and NOT padded (too little motion stretched over too much time makes the model invent extra filler motion, looking aimless/drifting).
+If a rotation/turn hint is given below, use it as the primary guide for duration (bigger rotations need more time, but not linearly — the increase slows down for larger angles). Otherwise use this reference for non-turning motion:
 - micro (blink, glance, small smile, slight head tilt): 1-2s
 - gesture (nod, wave, point, pick up small object): 2-3s
-- body motion (stand up, sit down, turn 90-180°): 3-4s
-- locomotion (walk a few steps, turn and walk away): 4-6s
+- body motion (stand up, sit down): 3-4s
+- locomotion (walk a few steps): 4-6s
 - multi-step action (walk to object + pick it up + turn back): 6-8s
+Write the motion itself with a natural acceleration into the movement and a brief deceleration/settle at the end — not constant-speed motion, and not an abrupt instant stop — this reads as far more physically real.
 Return ONLY 1 line of valid JSON, no markdown fence, no explanation, no comment lines: {"motion_prompt": "<the motion description>", "duration_seconds": <integer, your best estimate>}.`;
 
 type SceneMotionPlan = { motionPrompt: string; durationSeconds?: number };
+
+// Ước lượng góc quay giữa 2 cảnh liên tiếp từ camera_view (6 giá trị cố định, xem CHARACTER_ANGLE_LABELS)
+// -- quy về độ lệch so với "front" rồi lấy trị tuyệt đối chênh lệch. Chỉ là ước lượng gần đúng (vd
+// three_quarter_left -> three_quarter_right thực ra có thể xoay ngược hướng), đủ dùng làm gợi ý thời
+// lượng, không cần chính xác tuyệt đối như đo góc thật.
+const CAMERA_VIEW_DEGREES: Record<string, number> = {
+  front: 0,
+  face: 0,
+  three_quarter_left: 45,
+  three_quarter_right: 45,
+  side: 90,
+  back: 180,
+};
+
+// Dữ liệu tham khảo: thời gian người thật xoay người theo góc không tuyến tính (Turn-H3.6M: ~55°≈1.1s,
+// ~89°≈1.5s, ~135°≈2.4s, ~179°≈2.9s) -- AI video cần lâu hơn người thật (đủ thời gian tăng/giảm tốc +
+// khựng lại cuối chuyển động cho tự nhiên, tránh giật), nên các mốc dưới đây rộng hơn số liệu người thật,
+// không phải copy thẳng.
+function describeCameraTurn(previousView: string | null | undefined, currentView: string | null | undefined): string | undefined {
+  if (!previousView || !currentView) return undefined;
+  const from = CAMERA_VIEW_DEGREES[previousView];
+  const to = CAMERA_VIEW_DEGREES[currentView];
+  if (from === undefined || to === undefined) return undefined;
+  const delta = Math.abs(to - from);
+  if (delta < 15) return undefined; // gần như không xoay -- để rơi về bảng tham khảo hành động thường
+  let range: string;
+  if (delta <= 45) range = "2-3s";
+  else if (delta <= 60) range = "3-4s";
+  else if (delta <= 90) range = "3-5s";
+  else if (delta <= 135) range = "4-6s";
+  else range = "5-7s";
+  return `Rotation hint: this scene turns roughly ${delta}° relative to the previous scene (from "${previousView}" to "${currentView}") — target duration for this turn alone is about ${range} (adjust up if the scene also includes other motion beyond the turn).`;
+}
 
 function parseSceneMotionPlan(output: string): SceneMotionPlan {
   const cleaned = output.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
@@ -2102,14 +2137,16 @@ async function generateSceneDescriptionFromImage(
   storyDescription: string,
   modelChatKey: string | undefined,
   genreStyleGuide?: string,
-  skillOverride?: string
+  skillOverride?: string,
+  cameraTurn?: { previousCameraView?: string | null; currentCameraView?: string | null }
 ): Promise<SceneMotionPlan> {
   let systemPrompt = genreStyleGuide?.trim()
     ? `${SCENE_PROMPT_FROM_IMAGE_SYSTEM}\n\nGhi chú thêm về phong cách/nhịp điệu chuyển động cho đúng thể loại: ${genreStyleGuide.trim()}`
     : SCENE_PROMPT_FROM_IMAGE_SYSTEM;
   // Skill "motion-planner" — admin ghi thêm ghi chú qua /admin (vd luôn nhấn mạnh chuyển động camera).
   if (skillOverride?.trim()) systemPrompt += `\n\nGhi chú thêm từ admin: ${skillOverride.trim()}`;
-  const userPrompt = `Ý tưởng truyện tổng thể: ${storyDescription}${hint ? `\nGợi ý riêng cho cảnh này: ${hint}` : ""}\nViết mô tả chuyển động ngắn cho ảnh này.`;
+  const turnHint = describeCameraTurn(cameraTurn?.previousCameraView, cameraTurn?.currentCameraView);
+  const userPrompt = `Ý tưởng truyện tổng thể: ${storyDescription}${hint ? `\nGợi ý riêng cho cảnh này: ${hint}` : ""}${turnHint ? `\n${turnHint}` : ""}\nViết mô tả chuyển động ngắn cho ảnh này.`;
   const { output } = await callOpenRouter(modelChatKey || "google/gemini-3-flash-preview", 150, systemPrompt, userPrompt, imageUrl);
   return parseSceneMotionPlan(output);
 }
@@ -2966,13 +3003,15 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
         let motionDurationKey = scene.motion_duration_key;
         if (!motionPrompt) {
           if (scene.camera_view) {
+            const previousScene = scenes.find((s) => s.position === scene.position - 1);
             const plan = await generateSceneDescriptionFromImage(
               scene.image_url as string,
               scene.scene_description ?? undefined,
               job.story_description,
               undefined,
               genreStyleGuide,
-              miniApp.model_config.motion_planner_prompt
+              miniApp.model_config.motion_planner_prompt,
+              { previousCameraView: previousScene?.camera_view, currentCameraView: scene.camera_view }
             );
             motionPrompt = plan.motionPrompt;
             // Motion Timing Controller: tái dùng đúng lượt gọi AI vừa viết motion_prompt để chọn luôn
@@ -3380,7 +3419,7 @@ async function applyFrameChainImageResult(jobId: number, sceneId: number) {
 // N+1 dùng khung hình đó làm mỏ neo (chainedFrameUrl), hoặc nếu là cảnh cuối cùng thì ghép video luôn.
 async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoUrl: string) {
   const supabase = getSupabaseAdmin();
-  const { data: scene } = await supabase.from("story_video_scenes").select("id, job_id, position").eq("id", sceneId).single();
+  const { data: scene } = await supabase.from("story_video_scenes").select("id, job_id, position, camera_view").eq("id", sceneId).single();
   if (!scene) return;
 
   let lastFrameUrl: string;
@@ -3437,7 +3476,8 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
           job.story_description,
           undefined,
           genreStyleGuide,
-          miniApp.model_config.motion_planner_prompt
+          miniApp.model_config.motion_planner_prompt,
+          { previousCameraView: scene.camera_view, currentCameraView: nextSceneWithImage.camera_view }
         );
         const estimatedDurationKey = resolveNearestDurationKey(videoEntry?.duration_price_vnd, plan.durationSeconds) ?? null;
         const motionDurationKey = await resolveFrameChainDurationKey(job, videoEntry, estimatedDurationKey, nextScene.id);
