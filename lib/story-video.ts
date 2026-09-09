@@ -93,6 +93,15 @@ Trạng thái kết thúc cảnh (bắt buộc, MỌI cảnh): thêm khoá "end_
 Chỉ trả về DUY NHẤT 1 mảng JSON hợp lệ gồm đúng N phần tử, mỗi phần tử là 1 object có khoá "description" (chuỗi tiếng Anh mô tả cảnh, dùng để tạo ảnh AI), "camera_view" (1 trong 6 giá trị ở trên), "outfit_override" (tuỳ chọn), "face_view" (tuỳ chọn), "dialogue" (tuỳ chọn), "location" (bắt buộc) và "end_pose" (bắt buộc) như hướng dẫn trên — không kèm markdown fence, không giải thích, không đánh số, không có dòng chú thích (comment) nào trong JSON.
 Ví dụ format: [{"description": "a young woman walking into a coffee shop, morning light", "camera_view": "front", "location": "a cozy coffee shop interior, window table", "end_pose": "she has just sat down and is looking around"}, {"description": "still at the coffee shop, she turns her head and looks outside the window, smiling", "camera_view": "three_quarter_left", "dialogue": "Quán này đẹp thật đấy", "location": "a cozy coffee shop interior, window table", "end_pose": "she is smiling, looking out the window"}, {"description": "later, standing by her front door at home, about to head out", "camera_view": "front", "outfit_override": "a beige knit cardigan over a white t-shirt", "location": "the front door of her home, entryway", "end_pose": "she is about to open the door and step outside"}]`;
 
+// Tính năng THỬ NGHIỆM, mặc định TẮT — bật qua model_config.allow_scene_padding (đổi trực tiếp trong
+// Supabase, không cần deploy lại code). Ngoại lệ CÓ PHẠM VI cho quy tắc "không bịa thêm tình tiết" ở
+// trên: khi khách chỉ gợi ý ngắn (ít hành động thật) nhưng chọn N cảnh nhiều hơn số hành động đó, Agent
+// hiện tại buộc phải lặp/kéo dài 1 hành động qua nhiều cảnh giống nhau (đúng nguyên nhân "3 cảnh giống
+// nhau" đã phát hiện) — ngoại lệ này cho phép tự thêm khoảnh khắc CHUYỂN TIẾP hợp lý để lấp đủ N cảnh,
+// nhưng vẫn giữ chặt không cho bịa THÊM tình tiết/địa điểm/nhân vật mới.
+const SCENE_PADDING_INSTRUCTION =
+  'Ngoại lệ CÓ PHẠM VI cho quy tắc "không bịa thêm tình tiết/hành động" ở trên: CHỈ khi số cảnh (N) NHIỀU HƠN số hành động/khoảnh khắc riêng biệt thực sự có trong ý tưởng gốc, được phép tự thêm các khoảnh khắc CHUYỂN TIẾP/TRUNG GIAN hợp lý giữa 2 hành động đã có (ví dụ: đang bước đi giữa 2 điểm, đang dừng lại quan sát, đang chuẩn bị trước khi làm hành động tiếp theo) để lấp đủ N cảnh cho mượt — đây KHÔNG được tính là "hành động mới", chỉ là chia nhỏ khoảng thời gian giữa các hành động đã có sẵn. TUYỆT ĐỐI không được: thêm tình tiết cốt truyện mới, thêm địa điểm mới, thêm nhân vật mới, đổi kết quả/diễn biến câu chuyện. Nếu N đã đủ hoặc ít hơn số hành động, KHÔNG áp dụng ngoại lệ này — vẫn tuân thủ đúng quy tắc "không bịa thêm" như bình thường.';
+
 // Bước "Tạo Character" — chạy trước khi chia cảnh: biến (các) ảnh gốc khách tải lên (thường 1 góc,
 // ánh sáng/nền lộn xộn) thành 1 ảnh sheet nhiều góc chuẩn (chính diện/3-4 trái/3-4 phải/nghiêng/sau
 // lưng/cận mặt), dùng LÀM tham chiếu chung cho mọi lần gọi model ảnh phân cảnh sau đó — giúp nhân vật
@@ -361,6 +370,10 @@ async function getMiniAppModelConfig(miniAppId: string) {
       scene_image_prompt?: string;
       motion_planner_prompt?: string;
       continuity_checker_prompt?: string;
+      // Thử nghiệm, mặc định TẮT — xem chú thích tại SCENE_PADDING_INSTRUCTION. Bật qua Supabase
+      // (update mini_apps set model_config = model_config || '{"allow_scene_padding": true}'::jsonb
+      // where id = 'video-tu-y-tuong';), không cần deploy lại code.
+      allow_scene_padding?: boolean;
     };
   };
 }
@@ -799,7 +812,8 @@ export async function splitStoryIntoScenes(
   customInstructions?: string,
   modelChatKey?: string,
   continuousMotion?: boolean,
-  frameChainMode?: boolean
+  frameChainMode?: boolean,
+  allowScenePadding?: boolean
 ): Promise<SceneSplitResult[]> {
   const chatModel = modelChatKey && ALLOWED_CHAT_MODELS.includes(modelChatKey) ? modelChatKey : ALLOWED_CHAT_MODELS[0];
   // "Agent xử lý" — admin thêm hướng dẫn phong cách/chủ đề qua model_config.prompt_helper_instructions
@@ -809,6 +823,7 @@ export async function splitStoryIntoScenes(
   let systemPrompt = customInstructions?.trim() ? `${basePrompt}\n\nGhi chú thêm từ admin: ${customInstructions.trim()}` : basePrompt;
   if (continuousMotion) systemPrompt += `\n\n${CONTINUOUS_MOTION_INSTRUCTION}`;
   if (frameChainMode) systemPrompt += `\n\n${FRAME_CHAIN_TURN_INSTRUCTION}`;
+  if (allowScenePadding) systemPrompt += `\n\n${SCENE_PADDING_INSTRUCTION}`;
   async function attempt(reminder?: string): Promise<SceneSplitResult[]> {
     const userInput = reminder
       ? `${storyDescription}\n\n(Lưu ý: lần trước bạn trả sai định dạng. Chỉ trả về mảng JSON gồm đúng ${numScenes} object {description, camera_view}, không thêm gì khác.)`
@@ -921,12 +936,14 @@ export async function splitStoryIntoScenesMulti(
   characterLabels: string[],
   customInstructions?: string,
   modelChatKey?: string,
-  continuousMotion?: boolean
+  continuousMotion?: boolean,
+  allowScenePadding?: boolean
 ): Promise<MultiSceneSplitResult[]> {
   const chatModel = modelChatKey && ALLOWED_CHAT_MODELS.includes(modelChatKey) ? modelChatKey : ALLOWED_CHAT_MODELS[0];
   const basePrompt = buildMultiSceneSplitPrompt(characterLabels).replace("N phân cảnh", `${numScenes} phân cảnh`);
   let systemPrompt = customInstructions?.trim() ? `${basePrompt}\n\nGhi chú thêm từ admin: ${customInstructions.trim()}` : basePrompt;
   if (continuousMotion) systemPrompt += `\n\n${CONTINUOUS_MOTION_INSTRUCTION_MULTI}`;
+  if (allowScenePadding) systemPrompt += `\n\n${SCENE_PADDING_INSTRUCTION}`;
   const maxIndex = characterLabels.length - 1;
 
   async function attempt(reminder?: string): Promise<MultiSceneSplitResult[]> {
@@ -1425,7 +1442,8 @@ async function runSceneStage(
       combinedInstructions || undefined,
       modelChatKey,
       job.continuous_motion,
-      job.frame_chain_mode
+      job.frame_chain_mode,
+      miniApp.model_config.allow_scene_padding
     );
     // Skill "story-validator" — kiểm tra bản chia cảnh có phản ánh đúng truyện gốc không, thử chia lại
     // ĐÚNG 1 lần nếu lỗi, không chặn cứng job nếu vẫn lỗi sau lần 2 (tránh false-positive chặn oan).
@@ -1441,7 +1459,8 @@ async function runSceneStage(
         retryInstructions,
         modelChatKey,
         job.continuous_motion,
-        job.frame_chain_mode
+        job.frame_chain_mode,
+        miniApp.model_config.allow_scene_padding
       );
     }
 
@@ -1953,7 +1972,8 @@ async function runMultiCharacterSceneStage(
       characterLabels,
       combinedInstructions || undefined,
       modelChatKey,
-      job.continuous_motion
+      job.continuous_motion,
+      miniApp.model_config.allow_scene_padding
     );
     // Skill "story-validator" — thử chia lại ĐÚNG 1 lần nếu lỗi, không chặn cứng job nếu vẫn lỗi.
     const validation = await validateSceneSplit(finalStoryDescription, scenes, job.mini_app_id, modelChatKey);
@@ -1962,7 +1982,15 @@ async function runMultiCharacterSceneStage(
       const retryInstructions = [combinedInstructions, `Lần chia trước bị lỗi: ${validation.issue}. Sửa lại cho đúng.`]
         .filter((s): s is string => !!s?.trim())
         .join("\n\n");
-      scenes = await splitStoryIntoScenesMulti(extractedStory, job.num_scenes, characterLabels, retryInstructions, modelChatKey, job.continuous_motion);
+      scenes = await splitStoryIntoScenesMulti(
+        extractedStory,
+        job.num_scenes,
+        characterLabels,
+        retryInstructions,
+        modelChatKey,
+        job.continuous_motion,
+        miniApp.model_config.allow_scene_padding
+      );
     }
 
     const { data: sceneRows, error: sceneError } = await supabase
