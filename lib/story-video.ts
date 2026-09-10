@@ -300,6 +300,7 @@ export type SceneRow = {
   face_view: string | null;
   motion_prompt: string | null;
   motion_duration_key: string | null;
+  natural_duration_seconds: number | null;
   location: string | null;
   end_pose: string | null;
   character_positions: number[] | null;
@@ -2898,6 +2899,7 @@ type VideoSceneRefRow = {
   scene_description: string | null;
   motion_prompt: string | null;
   motion_duration_key?: string | null;
+  natural_duration_seconds?: number | null;
   end_image_url?: string | null;
 };
 
@@ -2918,11 +2920,23 @@ async function submitSceneVideoForRow(
   // THẬT giữa 2 khung hình khác nhau, nên KHÔNG dùng câu chỉ dẫn "chỉ hoạt náo nhẹ, giữ nguyên mọi
   // thứ" (mâu thuẫn với việc 2 khung hình vốn khác nhau). Cảnh câm 1 ảnh (đa số model khác) vẫn giữ
   // nguyên câu chỉ dẫn cũ — khách từng phản ánh bối cảnh/nền bị trôi lệch khi model tự "hoạt náo".
-  const prompt = row.end_image_url
+  let prompt = row.end_image_url
     ? basePrompt
     : basePrompt
       ? `${basePrompt} Keep the background, environment, lighting, and every object in the scene exactly the same as the reference image — do not change or add anything to the setting, only animate with subtle natural motion.`
       : basePrompt;
+  // Mức thời lượng gửi model (generation) làm tròn theo catalog, có thể DÀI HƠN nhu cầu thật
+  // (natural_duration_seconds, Motion Timing Controller ước lượng) — vd natural 6s nhưng model chỉ có
+  // 4s/8s nên chọn 8s. Không đụng gì tới cảnh có ảnh cuối riêng (end_image_url, model nội suy giữa 2
+  // khung hình, khái niệm "giữ nguyên tư thế cuối" không áp dụng). MIỄN PHÍ (không đổi mức duration đã
+  // chọn, không tốn thêm credit) — chỉ thêm chỉ dẫn rồi cắt (trim) phần dư sau khi tải về (xem
+  // stitchAndFinish), thay vì để model tự bịa thêm chuyển động cho đủ thời lượng dư (đã ghi chú
+  // "aimless/drifting" ở SCENE_PROMPT_FROM_IMAGE_SYSTEM).
+  const resolvedDurationKey = row.motion_duration_key ?? job.video_duration_key;
+  const generationSeconds = resolvedDurationKey ? Number(resolvedDurationKey) : undefined;
+  if (!row.end_image_url && prompt && row.natural_duration_seconds && generationSeconds && generationSeconds > row.natural_duration_seconds) {
+    prompt = `${prompt} Complete the entire described motion within the first ${row.natural_duration_seconds} seconds, then hold completely still in that final pose for the rest of the clip — no new movement, no repeated motion, no drifting.`;
+  }
   // Chỉ 2 model đã kiểm chứng thật (xem buildVideoRequestBody) mới chấp nhận ảnh Character làm căn cứ
   // lúc TẠO VIDEO — so trực tiếp theo model string, không cần tra lại catalog ở tầng thấp này (đúng
   // cách các nhánh model-riêng khác trong file đang làm, vd FLFV/veo lite).
@@ -3029,6 +3043,7 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
         // luôn, không gọi AI thêm lần nữa.
         let motionPrompt = scene.motion_prompt;
         let motionDurationKey = scene.motion_duration_key;
+        let naturalDurationSeconds = scene.natural_duration_seconds;
         if (!motionPrompt) {
           if (scene.camera_view) {
             const previousScene = scenes.find((s) => s.position === scene.position - 1);
@@ -3045,12 +3060,13 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
             // Motion Timing Controller: tái dùng đúng lượt gọi AI vừa viết motion_prompt để chọn luôn
             // mức thời lượng phù hợp cho cảnh này, không tốn thêm lượt gọi/chi phí nào.
             motionDurationKey = resolveNearestDurationKey(videoEntry?.duration_price_vnd, plan.durationSeconds) ?? null;
+            naturalDurationSeconds = plan.durationSeconds ?? null;
           } else {
             motionPrompt = scene.scene_description;
           }
           await supabase
             .from("story_video_scenes")
-            .update({ motion_prompt: motionPrompt, motion_duration_key: motionDurationKey })
+            .update({ motion_prompt: motionPrompt, motion_duration_key: motionDurationKey, natural_duration_seconds: naturalDurationSeconds })
             .eq("id", scene.id);
         }
         const requestId = await submitSceneVideoForRow(
@@ -3068,6 +3084,7 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
             scene_description: scene.scene_description,
             motion_prompt: motionPrompt,
             motion_duration_key: motionDurationKey,
+            natural_duration_seconds: naturalDurationSeconds,
             end_image_url: scene.end_image_url,
           },
           false
@@ -3402,7 +3419,7 @@ async function applyFrameChainImageResult(jobId: number, sceneId: number) {
   const { data: scene } = await supabase
     .from("story_video_scenes")
     .select(
-      "id, position, image_url, scene_description, motion_prompt, motion_duration_key, camera_view, face_view, outfit_override, location, identity_retry_count"
+      "id, position, image_url, scene_description, motion_prompt, motion_duration_key, natural_duration_seconds, camera_view, face_view, outfit_override, location, identity_retry_count"
     )
     .eq("id", sceneId)
     .single();
@@ -3431,9 +3448,10 @@ async function applyFrameChainImageResult(jobId: number, sceneId: number) {
       const motionDurationKey = await resolveFrameChainDurationKey(job, videoEntry, estimatedDurationKey, sceneId);
       scene.motion_prompt = plan.motionPrompt;
       scene.motion_duration_key = motionDurationKey;
+      scene.natural_duration_seconds = plan.durationSeconds ?? null;
       await supabase
         .from("story_video_scenes")
-        .update({ motion_prompt: plan.motionPrompt, motion_duration_key: motionDurationKey })
+        .update({ motion_prompt: plan.motionPrompt, motion_duration_key: motionDurationKey, natural_duration_seconds: plan.durationSeconds ?? null })
         .eq("id", sceneId);
     }
     const requestId = await submitSceneVideoForRow(job, scene, false);
@@ -3462,7 +3480,7 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
   const { data: nextScene } = await supabase
     .from("story_video_scenes")
     .select(
-      "id, position, scene_description, motion_prompt, motion_duration_key, camera_view, outfit_override, face_view, location, identity_retry_count"
+      "id, position, scene_description, motion_prompt, motion_duration_key, natural_duration_seconds, camera_view, outfit_override, face_view, location, identity_retry_count"
     )
     .eq("job_id", jobId)
     .eq("position", scene.position + 1)
@@ -3511,9 +3529,10 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
         const motionDurationKey = await resolveFrameChainDurationKey(job, videoEntry, estimatedDurationKey, nextScene.id);
         nextSceneWithImage.motion_prompt = plan.motionPrompt;
         nextSceneWithImage.motion_duration_key = motionDurationKey;
+        nextSceneWithImage.natural_duration_seconds = plan.durationSeconds ?? null;
         await supabase
           .from("story_video_scenes")
-          .update({ motion_prompt: plan.motionPrompt, motion_duration_key: motionDurationKey })
+          .update({ motion_prompt: plan.motionPrompt, motion_duration_key: motionDurationKey, natural_duration_seconds: plan.durationSeconds ?? null })
           .eq("id", nextScene.id);
       }
       const requestId = await submitSceneVideoForRow(job, nextSceneWithImage, false);
@@ -3676,8 +3695,22 @@ async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
         // Cảnh có lời thoại đã lồng tiếng (lipsync_url) thì dùng bản đó thay vì clip câm gốc.
         const res = await fetch(scene.lipsync_url ?? scene.video_url!);
         if (!res.ok) throw new Error(`Không tải được clip cảnh ${index + 1}`);
-        const clipPath = path.join(workDir, `clip-${index}.mp4`);
+        let clipPath = path.join(workDir, `clip-${index}.mp4`);
         await writeFile(clipPath, Buffer.from(await res.arrayBuffer()));
+        // Cắt bớt phần "giữ nguyên tư thế" dư ra ở cuối clip — CHỈ khi mức duration đã chọn lúc submit
+        // (generation, motion_duration_key) dài hơn nhu cầu thật (natural_duration_seconds), đúng đk đã
+        // thêm chỉ dẫn "hold pose" ở submitSceneVideoForRow. Không tốn thêm credit (đã trả đúng mức
+        // duration này rồi khi submit) — chỉ loại phần đuôi model có thể tự bịa thêm chuyển động thừa.
+        const generationSeconds = scene.motion_duration_key ? Number(scene.motion_duration_key) : undefined;
+        if (scene.natural_duration_seconds && generationSeconds && generationSeconds > scene.natural_duration_seconds) {
+          const targetSeconds = scene.natural_duration_seconds + 0.5; // đệm nhẹ, tránh cắt cụt lúc vừa khựng lại
+          const { durationSeconds: actualSeconds } = await probeClip(clipPath);
+          if (actualSeconds > targetSeconds + 0.3) {
+            const trimmedPath = path.join(workDir, `clip-${index}-trimmed.mp4`);
+            await execFileAsync(ffmpegPath!, ["-i", clipPath, "-t", targetSeconds.toFixed(3), "-c", "copy", "-y", trimmedPath]);
+            clipPath = trimmedPath;
+          }
+        }
         clipPaths[index] = clipPath;
       })
     );
