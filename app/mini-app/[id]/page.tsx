@@ -258,6 +258,12 @@ export default function MiniAppDetailPage() {
   // MỌI model video thường (không cần loại FLFV riêng). Loại trừ lẫn nhau với continuous motion — v1
   // chỉ hỗ trợ luồng 1 nhân vật, chạy TUẦN TỰ từng cảnh nên chậm hơn nhiều so với luồng song song mặc định.
   const [storyFrameChainMode, setStoryFrameChainMode] = useState(false);
+  // Bước "Tạo kịch bản" (xem lib/story-video.ts: planStoryVideoScenes) — v1 CHỈ hỗ trợ đúng luồng mặc
+  // định: 1 nhân vật, AI tự vẽ ảnh, KHÔNG own-images, KHÔNG chuyển động liên tục (cần thêm field
+  // end_description riêng mà bước kịch bản chưa tạo ra), KHÔNG frame-chain (chưa test/scope). Các chế
+  // độ khác giữ nguyên 100% luồng cũ (dropdown Thời lượng + splitStoryIntoScenes).
+  const storyUsesScriptFlow =
+    storyExtraCharacters.length === 0 && !storyUseOwnSceneImages && !storyContinuousMotion && !storyFrameChainMode;
   // "Model chat" — LLM thực thi bước chia cảnh (tách biệt với "Agent" = persona/hướng dẫn) — đúng 2
   // lựa chọn admin đang dùng cho app tự tạo dạng text (xem MODEL_OPTIONS trong app/admin/page.tsx).
   const STORY_MODEL_CHAT_OPTIONS = [
@@ -1528,19 +1534,19 @@ export default function MiniAppDetailPage() {
     }
     // Luồng mặc định (1 nhân vật, AI tự vẽ ảnh, KHÔNG own-images) bắt buộc phải có kịch bản đã xác nhận
     // trước — đảm bảo giá hiện lúc "Tạo kịch bản" luôn khớp với giá thật lúc submit (không chia cảnh
-    // ngầm bằng số cảnh cũ/mặc định nếu khách quên bấm nút). Own-images không dùng bước kịch bản này
-    // (ảnh phân cảnh khách tự tải, không cần Agent chia cảnh trước).
-    if (!hasMultipleCharacters && !storyUseOwnSceneImages && input.trim() && !storyScriptActions) {
+    // ngầm bằng số cảnh cũ/mặc định nếu khách quên bấm nút). Own-images/nhiều nhân vật/chuyển động liên
+    // tục/frame-chain không dùng bước kịch bản này (xem storyUsesScriptFlow).
+    if (storyUsesScriptFlow && input.trim() && !storyScriptActions) {
       setStoryError('Bấm "Tạo kịch bản" trước khi tạo ảnh phân cảnh');
       return;
     }
     // Nếu khách bấm chạy ngay sau khi rời ô truyện, lượt gợi ý số cảnh (chạy nền từ onBlur) có thể
     // chưa kịp xong — tự đợi nốt ở đây, dùng biến cục bộ (không đọc numScenes từ state, tránh đọc
     // trúng giá trị cũ do setState là bất đồng bộ) để đảm bảo submit đúng số cảnh AI vừa tính. CHỈ áp
-    // dụng luồng nhiều nhân vật (chưa nối kiến trúc "Tạo kịch bản" mới) — luồng mặc định lấy thẳng số
-    // cảnh từ storyScriptActions.length (đã set numScenes lúc "Tạo kịch bản" xong).
+    // dụng luồng CHƯA nối kiến trúc "Tạo kịch bản" mới — luồng mặc định lấy thẳng số cảnh từ
+    // storyScriptActions.length (đã set numScenes lúc "Tạo kịch bản" xong).
     let resolvedNumScenes = numScenes;
-    if (!sceneCountChosen && !storyUseOwnSceneImages && hasMultipleCharacters && input.trim()) {
+    if (!sceneCountChosen && !storyUseOwnSceneImages && !storyUsesScriptFlow && input.trim()) {
       const suggested = await fetchSuggestedSceneCount();
       if (suggested !== null) {
         resolvedNumScenes = suggested;
@@ -1662,10 +1668,10 @@ export default function MiniAppDetailPage() {
           autoVideo: storyAutoVideo,
           aspectRatio: storyAspectRatio,
           resolutionKey: storyResolutionKey,
-          // Luồng mặc định (1 nhân vật, không own-images) đã khoá thời lượng riêng từng cảnh qua
-          // preplannedActions — bỏ qua dropdown phẳng cũ (đã ẩn khỏi UI cho đúng luồng này). Own-images
-          // + nhiều nhân vật vẫn gửi bình thường (chưa nối kiến trúc kịch bản mới).
-          durationKey: hasMultipleCharacters || storyUseOwnSceneImages ? storyDurationKey : undefined,
+          // Luồng dùng bước "Tạo kịch bản" đã khoá thời lượng riêng từng cảnh qua preplannedActions —
+          // bỏ qua dropdown phẳng cũ (đã ẩn khỏi UI cho đúng luồng này). Own-images/nhiều nhân vật/
+          // chuyển động liên tục/frame-chain vẫn gửi bình thường (chưa nối kiến trúc kịch bản mới).
+          durationKey: storyUsesScriptFlow ? undefined : storyDurationKey,
           modelChatKey: storyModelChatKey,
           reuseCharacterId: reuseId ?? undefined,
           skipCharacterCreation: !reuseId && storySkipCharacterCreation,
@@ -1675,7 +1681,7 @@ export default function MiniAppDetailPage() {
           itemReferenceUrl: primaryItemReferenceUrl,
           continuousMotion: storyContinuousMotion,
           frameChainMode: storyFrameChainMode,
-          preplannedActions: !hasMultipleCharacters && !storyUseOwnSceneImages ? storyScriptActions : undefined,
+          preplannedActions: storyUsesScriptFlow ? storyScriptActions : undefined,
         }),
       });
       const data = await res.json();
@@ -2950,9 +2956,9 @@ export default function MiniAppDetailPage() {
                   onChange={(e) => setInput(e.target.value)}
                   onBlur={() => {
                     // Tự gợi ý số cảnh ngay khi khách gõ xong (click ra khỏi ô) — CHỈ còn dùng cho luồng
-                    // nhiều nhân vật (chưa nối kiến trúc "Tạo kịch bản" mới). Luồng mặc định (1 nhân vật)
-                    // dùng nút "Tạo kịch bản" riêng bên dưới thay cho auto-suggest này.
-                    if (!storyUseOwnSceneImages && storyExtraCharacters.length > 0 && input.trim() && !suggestingScenes) {
+                    // chưa nối kiến trúc "Tạo kịch bản" mới (nhiều nhân vật/chuyển động liên tục/frame-chain).
+                    // Luồng mặc định dùng nút "Tạo kịch bản" riêng bên dưới thay cho auto-suggest này.
+                    if (!storyUseOwnSceneImages && !storyUsesScriptFlow && input.trim() && !suggestingScenes) {
                       handleSuggestSceneCount();
                     }
                   }}
@@ -2966,7 +2972,7 @@ export default function MiniAppDetailPage() {
                   <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
                     Số phân cảnh: <strong className="text-zinc-900 dark:text-zinc-50">{storySceneImages.length || "0"}</strong> (theo đúng số ảnh đã tải ở khung "Ảnh phân cảnh" phía dưới)
                   </p>
-                ) : storyExtraCharacters.length > 0 ? (
+                ) : !storyUsesScriptFlow ? (
                   <div className="mt-3">
                     <div className="mb-1 flex items-center justify-between gap-2">
                       <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Số phân cảnh</p>
@@ -3680,7 +3686,7 @@ export default function MiniAppDetailPage() {
                                 Hàng 1 để khoá thời lượng riêng từng cảnh — ẩn dropdown phẳng này để tránh
                                 hiểu nhầm (nó không còn ảnh hưởng gì tới mức thực tế dùng ở luồng đó). Vẫn
                                 giữ nguyên cho own-images/nhiều nhân vật (chưa nối kiến trúc kịch bản mới). */}
-                            {selected?.duration_price_vnd && (storyUseOwnSceneImages || storyExtraCharacters.length > 0) && (
+                            {selected?.duration_price_vnd && !storyUsesScriptFlow && (
                               <div>
                                 <label className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">Thời lượng</label>
                                 <select
@@ -4323,7 +4329,7 @@ export default function MiniAppDetailPage() {
                       (!storySelectedSavedCharacterId && storyCharacterImages.length === 0) ||
                       (!!storySelectedSavedCharacterId && !input.trim()) ||
                       // Luồng mặc định (1 nhân vật, không own-images): bắt buộc đã "Tạo kịch bản" xong.
-                      (storyExtraCharacters.length === 0 && !storyUseOwnSceneImages && !!input.trim() && !storyScriptActions)
+                      (storyUsesScriptFlow && !!input.trim() && !storyScriptActions)
                     }
                     className="rounded-full bg-zinc-900 px-6 py-2.5 text-base font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
                   >
