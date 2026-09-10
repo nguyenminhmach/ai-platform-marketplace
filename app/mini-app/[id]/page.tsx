@@ -180,6 +180,26 @@ export default function MiniAppDetailPage() {
   // chọn thật — chỉ hiện nút nào đó "sáng" sau khi AI đã gợi ý xong hoặc khách tự bấm chọn, tránh
   // khách tưởng nhầm "3 cảnh" là quyết định có sẵn.
   const [sceneCountChosen, setSceneCountChosen] = useState(false);
+  // Bước "Tạo kịch bản" — thay thế ô chọn "số cảnh" + gợi ý AI cũ cho ĐÚNG luồng mặc định (1 nhân vật,
+  // AI tự vẽ ảnh, không own-images). Agent tự liệt kê hành động + giây riêng từng cái, code nhóm thành
+  // cảnh (mặc định 1 hành động = 1 cảnh) — xem lib/story-video.ts: generateStoryScript/planStoryVideoScenes.
+  type StoryScriptAction = {
+    description: string;
+    camera_view: string;
+    location: string;
+    end_pose: string;
+    duration_seconds: number;
+    outfit_override?: string;
+    face_view?: string;
+    dialogue?: string;
+  };
+  type StoryScriptScene = StoryScriptAction & { duration_key: string | null; provider_cost_vnd: number };
+  const [storyScriptActions, setStoryScriptActions] = useState<StoryScriptAction[] | null>(null);
+  const [storyScriptScenes, setStoryScriptScenes] = useState<StoryScriptScene[] | null>(null);
+  const [storyScriptTotalSeconds, setStoryScriptTotalSeconds] = useState<number | null>(null);
+  const [storyScriptVideoCreditCost, setStoryScriptVideoCreditCost] = useState<number | null>(null);
+  const [storyScriptLoading, setStoryScriptLoading] = useState(false);
+  const [storyScriptError, setStoryScriptError] = useState<string | null>(null);
   const [storyCharacterImages, setStoryCharacterImages] = useState<string[]>([]);
   // Nhân vật #2, #3, #4 (nếu có) — nhân vật #1 vẫn dùng nguyên storyCharacterImages/
   // storySelectedSavedCharacterId ở trên, không đổi gì, để giữ đúng luồng 1-nhân-vật hiện có khi khách
@@ -335,6 +355,57 @@ export default function MiniAppDetailPage() {
       setSuggestingScenes(false);
     }
   }
+  // Bước "Tạo kịch bản" — CHỈ dùng cho luồng mặc định (1 nhân vật, AI tự vẽ ảnh, không own-images).
+  async function handleCreateScript() {
+    if (!input.trim()) {
+      setStoryScriptError("Nhập truyện trước đã");
+      return;
+    }
+    if (!storyVideoModelKey) {
+      setStoryScriptError("Chưa chọn model video");
+      return;
+    }
+    setStoryScriptLoading(true);
+    setStoryScriptError(null);
+    try {
+      const res = await fetch("/api/story-video/plan-script", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storyDescription: input.trim(),
+          miniAppId: app!.id,
+          videoModelKey: storyVideoModelKey,
+          modelChatKey: storyModelChatKey,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStoryScriptError(data.error ?? "Không tạo được kịch bản");
+        return;
+      }
+      setStoryScriptActions(data.actions);
+      setStoryScriptScenes(data.scenes);
+      setStoryScriptTotalSeconds(data.totalNaturalSeconds ?? null);
+      setStoryScriptVideoCreditCost(data.videoCreditCost ?? null);
+      setNumScenes(data.scenes.length);
+      setSceneCountChosen(true);
+    } catch {
+      setStoryScriptError("Không kết nối được tới server");
+    } finally {
+      setStoryScriptLoading(false);
+    }
+  }
+  // Kịch bản đã tạo gắn với ĐÚNG nội dung truyện + model video lúc bấm — đổi 1 trong 2 thứ đó sau khi
+  // đã có kịch bản thì huỷ bản cũ, bắt bấm "Tạo kịch bản" lại, đảm bảo giá hiện luôn khớp thực tế dùng.
+  useEffect(() => {
+    if (storyScriptActions) {
+      setStoryScriptActions(null);
+      setStoryScriptScenes(null);
+      setStoryScriptTotalSeconds(null);
+      setStoryScriptVideoCreditCost(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [input, storyVideoModelKey]);
   const [storyRunning, setStoryRunning] = useState(false);
   const [storyContinuing, setStoryContinuing] = useState(false);
   const [storyFinalizingPartial, setStoryFinalizingPartial] = useState(false);
@@ -1455,11 +1526,21 @@ export default function MiniAppDetailPage() {
       setStoryError("Có nhân vật chưa tải ảnh — xoá bớt hoặc tải ảnh cho đủ trước khi chạy");
       return;
     }
+    // Luồng mặc định (1 nhân vật, AI tự vẽ ảnh, KHÔNG own-images) bắt buộc phải có kịch bản đã xác nhận
+    // trước — đảm bảo giá hiện lúc "Tạo kịch bản" luôn khớp với giá thật lúc submit (không chia cảnh
+    // ngầm bằng số cảnh cũ/mặc định nếu khách quên bấm nút). Own-images không dùng bước kịch bản này
+    // (ảnh phân cảnh khách tự tải, không cần Agent chia cảnh trước).
+    if (!hasMultipleCharacters && !storyUseOwnSceneImages && input.trim() && !storyScriptActions) {
+      setStoryError('Bấm "Tạo kịch bản" trước khi tạo ảnh phân cảnh');
+      return;
+    }
     // Nếu khách bấm chạy ngay sau khi rời ô truyện, lượt gợi ý số cảnh (chạy nền từ onBlur) có thể
     // chưa kịp xong — tự đợi nốt ở đây, dùng biến cục bộ (không đọc numScenes từ state, tránh đọc
-    // trúng giá trị cũ do setState là bất đồng bộ) để đảm bảo submit đúng số cảnh AI vừa tính.
+    // trúng giá trị cũ do setState là bất đồng bộ) để đảm bảo submit đúng số cảnh AI vừa tính. CHỈ áp
+    // dụng luồng nhiều nhân vật (chưa nối kiến trúc "Tạo kịch bản" mới) — luồng mặc định lấy thẳng số
+    // cảnh từ storyScriptActions.length (đã set numScenes lúc "Tạo kịch bản" xong).
     let resolvedNumScenes = numScenes;
-    if (!sceneCountChosen && !storyUseOwnSceneImages && input.trim()) {
+    if (!sceneCountChosen && !storyUseOwnSceneImages && hasMultipleCharacters && input.trim()) {
       const suggested = await fetchSuggestedSceneCount();
       if (suggested !== null) {
         resolvedNumScenes = suggested;
@@ -1581,7 +1662,10 @@ export default function MiniAppDetailPage() {
           autoVideo: storyAutoVideo,
           aspectRatio: storyAspectRatio,
           resolutionKey: storyResolutionKey,
-          durationKey: storyDurationKey,
+          // Luồng mặc định (1 nhân vật, không own-images) đã khoá thời lượng riêng từng cảnh qua
+          // preplannedActions — bỏ qua dropdown phẳng cũ (đã ẩn khỏi UI cho đúng luồng này). Own-images
+          // + nhiều nhân vật vẫn gửi bình thường (chưa nối kiến trúc kịch bản mới).
+          durationKey: hasMultipleCharacters || storyUseOwnSceneImages ? storyDurationKey : undefined,
           modelChatKey: storyModelChatKey,
           reuseCharacterId: reuseId ?? undefined,
           skipCharacterCreation: !reuseId && storySkipCharacterCreation,
@@ -1591,6 +1675,7 @@ export default function MiniAppDetailPage() {
           itemReferenceUrl: primaryItemReferenceUrl,
           continuousMotion: storyContinuousMotion,
           frameChainMode: storyFrameChainMode,
+          preplannedActions: !hasMultipleCharacters && !storyUseOwnSceneImages ? storyScriptActions : undefined,
         }),
       });
       const data = await res.json();
@@ -2864,9 +2949,12 @@ export default function MiniAppDetailPage() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onBlur={() => {
-                    // Tự gợi ý số cảnh ngay khi khách gõ xong (click ra khỏi ô) — tránh bẫy quên bấm nút
-                    // riêng rồi lỡ chạy job với số cảnh mặc định/cũ không đủ cho truyện vừa viết.
-                    if (!storyUseOwnSceneImages && input.trim() && !suggestingScenes) handleSuggestSceneCount();
+                    // Tự gợi ý số cảnh ngay khi khách gõ xong (click ra khỏi ô) — CHỈ còn dùng cho luồng
+                    // nhiều nhân vật (chưa nối kiến trúc "Tạo kịch bản" mới). Luồng mặc định (1 nhân vật)
+                    // dùng nút "Tạo kịch bản" riêng bên dưới thay cho auto-suggest này.
+                    if (!storyUseOwnSceneImages && storyExtraCharacters.length > 0 && input.trim() && !suggestingScenes) {
+                      handleSuggestSceneCount();
+                    }
                   }}
                   placeholder="Mô tả mạch truyện, bối cảnh — AI sẽ chia thành phân cảnh"
                   rows={8}
@@ -2878,7 +2966,7 @@ export default function MiniAppDetailPage() {
                   <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
                     Số phân cảnh: <strong className="text-zinc-900 dark:text-zinc-50">{storySceneImages.length || "0"}</strong> (theo đúng số ảnh đã tải ở khung "Ảnh phân cảnh" phía dưới)
                   </p>
-                ) : (
+                ) : storyExtraCharacters.length > 0 ? (
                   <div className="mt-3">
                     <div className="mb-1 flex items-center justify-between gap-2">
                       <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Số phân cảnh</p>
@@ -2903,6 +2991,35 @@ export default function MiniAppDetailPage() {
                         </button>
                       ))}
                     </div>
+                  </div>
+                ) : (
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={handleCreateScript}
+                      disabled={storyScriptLoading || !input.trim() || !storyVideoModelKey}
+                      className="rounded-full border border-zinc-900 bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
+                    >
+                      {storyScriptLoading ? "Đang tạo kịch bản..." : "📝 Tạo kịch bản"}
+                    </button>
+                    {!storyVideoModelKey && (
+                      <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">Đang tải danh sách model video...</p>
+                    )}
+                    {storyScriptError && <p className="mt-1 text-xs text-red-500">{storyScriptError}</p>}
+                    {storyScriptScenes && (
+                      <div className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800">
+                        <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                          {storyScriptScenes.length} cảnh · ~{storyScriptTotalSeconds}s · ~{storyScriptVideoCreditCost} credit video
+                        </p>
+                        <ul className="space-y-1 text-xs text-zinc-600 dark:text-zinc-400">
+                          {storyScriptScenes.map((s, i) => (
+                            <li key={i}>
+                              <strong>Cảnh {i + 1}</strong> {s.duration_key ? `(${s.duration_key}s)` : ""}: {s.description.length > 90 ? `${s.description.slice(0, 90)}…` : s.description}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -3559,7 +3676,11 @@ export default function MiniAppDetailPage() {
                                 ))}
                               </select>
                             </div>
-                            {selected?.duration_price_vnd && (
+                            {/* Luồng mặc định (1 nhân vật, AI tự vẽ ảnh) đã dùng bước "Tạo kịch bản" ở
+                                Hàng 1 để khoá thời lượng riêng từng cảnh — ẩn dropdown phẳng này để tránh
+                                hiểu nhầm (nó không còn ảnh hưởng gì tới mức thực tế dùng ở luồng đó). Vẫn
+                                giữ nguyên cho own-images/nhiều nhân vật (chưa nối kiến trúc kịch bản mới). */}
+                            {selected?.duration_price_vnd && (storyUseOwnSceneImages || storyExtraCharacters.length > 0) && (
                               <div>
                                 <label className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">Thời lượng</label>
                                 <select
@@ -4200,7 +4321,9 @@ export default function MiniAppDetailPage() {
                       !storyVideoModelKey ||
                       !storyImageModelKey ||
                       (!storySelectedSavedCharacterId && storyCharacterImages.length === 0) ||
-                      (!!storySelectedSavedCharacterId && !input.trim())
+                      (!!storySelectedSavedCharacterId && !input.trim()) ||
+                      // Luồng mặc định (1 nhân vật, không own-images): bắt buộc đã "Tạo kịch bản" xong.
+                      (storyExtraCharacters.length === 0 && !storyUseOwnSceneImages && !!input.trim() && !storyScriptActions)
                     }
                     className="rounded-full bg-zinc-900 px-6 py-2.5 text-base font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
                   >

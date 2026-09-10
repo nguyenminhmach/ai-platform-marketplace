@@ -1,10 +1,10 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { generateStoryScript, planStoryVideoScenes, MAX_SCENES } from "@/lib/story-video";
 import type { VideoModelEntry } from "@/lib/story-video";
+import { computeDynamicCreditCost, getMediaPricingSettings } from "@/lib/pricing";
 
-// Bước "Tạo kịch bản" — luồng MỚI (xem ghi nhớ project_story_video_scene_duration_architecture).
-// Route THỬ NGHIỆM, chưa nối vào luồng submit thật — chỉ trả về bản nháp kịch bản + giá video ước
-// tính để kiểm tra logic Agent-trả-danh-sách + code-nhóm-cảnh trước khi nối vào toàn bộ pipeline.
+// Bước "Tạo kịch bản" — luồng MỚI (xem ghi nhớ project_story_video_scene_duration_architecture), ĐÃ
+// nối vào luồng submit thật qua app/api/story-video/submit/route.ts (field preplannedActions).
 export async function POST(req: Request) {
   const { storyDescription, miniAppId, videoModelKey, requestedSceneCount, modelChatKey } = await req.json();
 
@@ -33,11 +33,14 @@ export async function POST(req: Request) {
   try {
     const actions = await generateStoryScript(storyDescription.trim(), typeof modelChatKey === "string" ? modelChatKey : undefined);
     const plan = planStoryVideoScenes(actions, videoEntry, typeof requestedSceneCount === "number" ? requestedSceneCount : undefined);
+    const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
+    const videoCreditCost = computeDynamicCreditCost(plan.totalVideoProviderCostVnd, marginPercent, vndPerCredit);
     return Response.json({
       actions,
       scenes: plan.scenes,
       totalNaturalSeconds: plan.totalNaturalSeconds,
       totalVideoProviderCostVnd: plan.totalVideoProviderCostVnd,
+      videoCreditCost,
       videoModel: { key: videoEntry.key, label: videoEntry.label, duration_price_vnd: videoEntry.duration_price_vnd },
     });
   } catch (err) {

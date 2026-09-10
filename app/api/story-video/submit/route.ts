@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import {
   submitStoryVideoJob,
+  validateScriptSceneResult,
   MIN_SCENES,
   MAX_SCENES,
   MIN_CHARACTER_IMAGES,
@@ -8,6 +9,7 @@ import {
   MAX_STORY_CHARACTERS,
   REQUIRES_CONTINUOUS_MOTION_VIDEO_KEYS,
   type MultiCharacterInput,
+  type ScriptSceneResult,
 } from "@/lib/story-video";
 import { InsufficientCreditError } from "@/lib/credit-system";
 import { getAuthenticatedUserId } from "@/lib/auth-server";
@@ -39,6 +41,7 @@ export async function POST(req: Request) {
     itemReferenceUrl,
     continuousMotion,
     frameChainMode,
+    preplannedActions,
   } = await req.json();
 
   const userId = await getAuthenticatedUserId();
@@ -98,6 +101,21 @@ export async function POST(req: Request) {
     return Response.json({ error: `Cần từ ${MIN_CHARACTER_IMAGES} đến ${MAX_CHARACTER_IMAGES} ảnh nhân vật` }, { status: 400 });
   }
 
+  // Bước "Tạo kịch bản" — CHỈ luồng 1 nhân vật, AI tự vẽ ảnh (isMultiCharacter=false). Không tin trực
+  // tiếp giá/duration_key nào trong đây — chỉ giữ lại các field mô tả (description/camera_view/...),
+  // submitStoryVideoJob/runSceneStage sẽ tự chạy lại planStoryVideoScenes() để tính giá thật.
+  let parsedPreplannedActions: ScriptSceneResult[] | undefined;
+  if (!isMultiCharacter && preplannedActions !== undefined) {
+    try {
+      parsedPreplannedActions = validateScriptSceneResult(preplannedActions, storyDescription);
+    } catch (err) {
+      return Response.json(
+        { error: `Kịch bản không hợp lệ, vui lòng bấm "Tạo kịch bản" lại: ${err instanceof Error ? err.message : String(err)}` },
+        { status: 400 }
+      );
+    }
+  }
+
   try {
     const result = await submitStoryVideoJob(
       userId,
@@ -124,7 +142,8 @@ export async function POST(req: Request) {
         ? false
         : continuousMotion === true || (typeof videoModelKey === "string" && REQUIRES_CONTINUOUS_MOTION_VIDEO_KEYS.has(videoModelKey)),
       !isMultiCharacter && frameChainMode === true,
-      typeof itemReferenceUrl === "string" && itemReferenceUrl ? itemReferenceUrl : undefined
+      typeof itemReferenceUrl === "string" && itemReferenceUrl ? itemReferenceUrl : undefined,
+      parsedPreplannedActions
     );
     return Response.json({ success: true, jobId: result.jobId, newBalance: result.newBalance });
   } catch (err) {

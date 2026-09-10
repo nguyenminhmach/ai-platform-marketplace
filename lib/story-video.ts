@@ -347,6 +347,10 @@ type JobRow = {
   item_reference_url: string | null;
   continuous_motion: boolean;
   frame_chain_mode: boolean;
+  // Bước "Tạo kịch bản" — lưu lại mảng "actions" khách đã xác nhận lúc submit, để continueStoryVideoToSceneStage
+  // (khi Character phải tạo mới, chạy sau qua webhook) vẫn dùng lại đúng kịch bản đã hiện giá cho khách,
+  // không phải chia cảnh lại từ đầu bằng splitStoryIntoScenes (LLM cũ).
+  preplanned_actions: ScriptSceneResult[] | null;
 };
 
 async function getMiniAppModelConfig(miniAppId: string) {
@@ -813,20 +817,21 @@ Dù số giây ước lượng cho 1 hành động cao (kể cả xoay 360° 6-8
 Chỉ trả về DUY NHẤT 1 mảng JSON hợp lệ, mỗi phần tử có khoá "description", "camera_view", "outfit_override" (tuỳ chọn), "face_view" (tuỳ chọn), "dialogue" (tuỳ chọn), "location" (bắt buộc), "end_pose" (bắt buộc), "duration_seconds" (bắt buộc) — không kèm markdown fence, không giải thích, không đánh số, không có dòng chú thích nào trong JSON.
 Ví dụ format: [{"description": "a young woman walking into a coffee shop, morning light", "camera_view": "front", "location": "a cozy coffee shop interior, window table", "end_pose": "she has just sat down and is looking around", "duration_seconds": 4}, {"description": "still at the coffee shop, she turns her head and looks outside the window, smiling", "camera_view": "three_quarter_left", "location": "a cozy coffee shop interior, window table", "end_pose": "she is smiling, looking out the window", "duration_seconds": 2}]`;
 
-function parseScriptSceneResult(output: string, storyDescription: string): ScriptSceneResult[] {
-  const cleaned = output.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
-  const parsed = JSON.parse(cleaned);
-  if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("AI không trả về danh sách cảnh hợp lệ");
-  if (parsed.length > MAX_SCENES) throw new Error(`AI chia quá nhiều cảnh (${parsed.length}), vượt giới hạn ${MAX_SCENES}`);
+// Dùng chung cho 2 nơi: (1) parse JSON thô từ LLM (parseScriptSceneResult), (2) validate lại mảng
+// "actions" client gửi lên lúc submit thật — đảm bảo dù nguồn nào, dữ liệu vào planStoryVideoScenes()
+// luôn đúng hình dạng (không tin field giá/duration_key nào từ client, chỉ tin các field mô tả này).
+export function validateScriptSceneResult(parsed: unknown, storyDescription: string): ScriptSceneResult[] {
+  if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("Danh sách hành động không hợp lệ");
+  if (parsed.length > MAX_SCENES) throw new Error(`Quá nhiều hành động (${parsed.length}), vượt giới hạn ${MAX_SCENES} cảnh`);
   return parsed.map((s: Record<string, unknown>) => {
-    if (typeof s.description !== "string" || !s.description.trim()) throw new Error("Thiếu description ở 1 cảnh");
+    if (typeof s.description !== "string" || !s.description.trim()) throw new Error("Thiếu description ở 1 hành động");
     if (typeof s.camera_view !== "string" || !CHARACTER_ANGLE_LABELS.includes(s.camera_view as CharacterAngleKey)) {
-      throw new Error("camera_view không hợp lệ ở 1 cảnh");
+      throw new Error("camera_view không hợp lệ ở 1 hành động");
     }
-    if (typeof s.location !== "string" || !s.location.trim()) throw new Error("Thiếu location ở 1 cảnh");
-    if (typeof s.end_pose !== "string" || !s.end_pose.trim()) throw new Error("Thiếu end_pose ở 1 cảnh");
+    if (typeof s.location !== "string" || !s.location.trim()) throw new Error("Thiếu location ở 1 hành động");
+    if (typeof s.end_pose !== "string" || !s.end_pose.trim()) throw new Error("Thiếu end_pose ở 1 hành động");
     const durationSeconds = Number(s.duration_seconds);
-    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) throw new Error("duration_seconds không hợp lệ ở 1 cảnh");
+    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) throw new Error("duration_seconds không hợp lệ ở 1 hành động");
     const dialogue =
       typeof s.dialogue === "string" && s.dialogue.trim() && isVerbatimQuoteInStory(s.dialogue, storyDescription) ? s.dialogue.trim() : undefined;
     return {
@@ -843,6 +848,16 @@ function parseScriptSceneResult(output: string, storyDescription: string): Scrip
       duration_seconds: Math.round(durationSeconds),
     };
   });
+}
+
+function parseScriptSceneResult(output: string, storyDescription: string): ScriptSceneResult[] {
+  const cleaned = output.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  const parsed = JSON.parse(cleaned);
+  try {
+    return validateScriptSceneResult(parsed, storyDescription);
+  } catch (err) {
+    throw new Error(`AI không trả về danh sách cảnh hợp lệ: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 // Gọi Agent 1 lần (thử lại đúng 1 lần nếu sai định dạng) — trả về danh sách chi tiết, chưa nhóm cảnh,
@@ -867,7 +882,9 @@ export type PlannedScene = ScriptSceneResult & {
   // Nhóm hành động nào bị gộp chung cảnh này (chỉ có >1 phần tử khi khách chỉnh N thấp hơn số hành
   // động thật và việc gộp không vượt mức giây tối đa model hỗ trợ — xem planStoryVideoScenes).
   merged_from: ScriptSceneResult[];
-  duration_key: string;
+  // null khi model video KHÔNG có duration_price_vnd riêng (giá phẳng, vd Kling v1.6 Standard) — không
+  // có mức nào để "khoá", submitSceneVideoForRow/proceedToVideoStage đã xử lý null đúng như hành vi cũ.
+  duration_key: string | null;
   provider_cost_vnd: number;
 };
 
@@ -922,9 +939,8 @@ export function planStoryVideoScenes(
   const scenes: PlannedScene[] = groups.map((group) => {
     const naturalSeconds = groupSeconds(group);
     totalNaturalSeconds += naturalSeconds;
-    const resolved = durationMap ? resolveNearestDurationKey(durationMap, naturalSeconds) : undefined;
-    const durationKey = resolved ?? Object.keys(durationMap ?? {})[0] ?? "";
-    const providerCostVnd = durationMap?.[durationKey] ?? videoEntry.provider_cost_vnd;
+    const durationKey = durationMap ? (resolveNearestDurationKey(durationMap, naturalSeconds) ?? null) : null;
+    const providerCostVnd = durationKey !== null ? (durationMap?.[durationKey] ?? videoEntry.provider_cost_vnd) : videoEntry.provider_cost_vnd;
     totalVideoProviderCostVnd += providerCostVnd;
     // Cảnh gộp từ nhiều hành động -> nối "description" theo thứ tự, giữ nguyên location/camera_view
     // của hành động ĐẦU trong nhóm (đại diện cho cả cảnh), end_pose lấy của hành động CUỐI trong nhóm.
@@ -1199,6 +1215,7 @@ type SceneStageInput = Pick<
   | "video_provider_cost_vnd_per_scene"
   | "num_scenes"
   | "image_model"
+  | "video_model"
   | "aspect_ratio"
   | "image_resolution_key"
   | "character_sheet_url"
@@ -1575,7 +1592,12 @@ async function runSceneStage(
   job: SceneStageInput,
   finalStoryDescription: string,
   modelChatKey: string | undefined,
-  idempotencyKey: string
+  idempotencyKey: string,
+  // Bước "Tạo kịch bản" (xem plan-script/route.ts) — khi khách đã xác nhận danh sách hành động trên
+  // màn hình, gửi lại ĐÚNG mảng "actions" đó (không có giá) để nối vào luồng thật. Không tin bất kỳ
+  // giá/duration_key nào client gửi kèm — luôn tự chạy lại planStoryVideoScenes() (hàm thuần, không
+  // gọi LLM, cùng input luôn ra cùng kết quả) để tính lại đúng giá đã hiện cho khách lúc xem trước.
+  preplannedActions?: ScriptSceneResult[]
 ): Promise<{ newBalance: number }> {
   const supabase = getSupabaseAdmin();
   if (!job.character_sheet_url) throw new Error("Thiếu ảnh Character của job");
@@ -1587,7 +1609,22 @@ async function runSceneStage(
   // Chuỗi liên tục: N+1 ảnh cho N cảnh (không phải 2N) — xem resolveCosts().
   const imageCallCount = job.continuous_motion ? job.num_scenes + 1 : job.num_scenes;
   const imageCost = computeDynamicCreditCost(job.image_provider_cost_vnd_per_scene * imageCallCount, marginPercent, vndPerCredit);
-  const videoCost = computeDynamicCreditCost(job.video_provider_cost_vnd_per_scene * job.num_scenes, marginPercent, vndPerCredit);
+
+  // Mỗi cảnh từ bước kịch bản có thể có duration_key khác nhau (nhóm hành động khác tổng giây) — giá
+  // video không còn là 1 mức phẳng nhân đều số cảnh, phải dùng đúng tổng giá thật planStoryVideoScenes
+  // đã tính (xem comment tham số preplannedActions ở trên).
+  let plannedScenes: PlannedScene[] | undefined;
+  let videoCost: number;
+  if (preplannedActions) {
+    const miniAppForPlan = await getMiniAppModelConfig(job.mini_app_id);
+    const videoEntryForPlan = miniAppForPlan.model_config.video_models.find((m) => m.model === job.video_model);
+    if (!videoEntryForPlan) throw new Error("Không tìm thấy model video của job");
+    const plan = planStoryVideoScenes(preplannedActions, videoEntryForPlan, undefined);
+    plannedScenes = plan.scenes;
+    videoCost = computeDynamicCreditCost(plan.totalVideoProviderCostVnd, marginPercent, vndPerCredit);
+  } else {
+    videoCost = computeDynamicCreditCost(job.video_provider_cost_vnd_per_scene * job.num_scenes, marginPercent, vndPerCredit);
+  }
 
   const deduction = await deductCredit(userId, job.auto_video ? imageCost + videoCost : imageCost, job.mini_app_id, idempotencyKey);
   if (!deduction.success) throw new InsufficientCreditError();
@@ -1606,35 +1643,41 @@ async function runSceneStage(
     ]
       .filter((s): s is string => !!s?.trim())
       .join("\n\n");
-    // Skill "story-extractor" — chỉ dùng làm input nội bộ cho chia cảnh, không ghi đè story_description
-    // đã lưu ở trên (khách vẫn thấy đúng nguyên văn mình gõ).
-    const extractedStory = await extractStoryEssentials(finalStoryDescription, job.mini_app_id, modelChatKey);
-    let scenes = await splitStoryIntoScenes(
-      extractedStory,
-      job.num_scenes,
-      combinedInstructions || undefined,
-      modelChatKey,
-      job.continuous_motion,
-      job.frame_chain_mode,
-      miniApp.model_config.allow_scene_padding
-    );
-    // Skill "story-validator" — kiểm tra bản chia cảnh có phản ánh đúng truyện gốc không, thử chia lại
-    // ĐÚNG 1 lần nếu lỗi, không chặn cứng job nếu vẫn lỗi sau lần 2 (tránh false-positive chặn oan).
-    const validation = await validateSceneSplit(finalStoryDescription, scenes, job.mini_app_id, modelChatKey);
-    if (!validation.ok) {
-      console.error(`[story-video] story-validator báo lỗi job #${job.id}, thử chia lại 1 lần: ${validation.issue}`);
-      const retryInstructions = [combinedInstructions, `Lần chia trước bị lỗi: ${validation.issue}. Sửa lại cho đúng.`]
-        .filter((s): s is string => !!s?.trim())
-        .join("\n\n");
+
+    let scenes: SceneSplitResult[];
+    if (plannedScenes) {
+      scenes = plannedScenes;
+    } else {
+      // Skill "story-extractor" — chỉ dùng làm input nội bộ cho chia cảnh, không ghi đè
+      // story_description đã lưu ở trên (khách vẫn thấy đúng nguyên văn mình gõ).
+      const extractedStory = await extractStoryEssentials(finalStoryDescription, job.mini_app_id, modelChatKey);
       scenes = await splitStoryIntoScenes(
         extractedStory,
         job.num_scenes,
-        retryInstructions,
+        combinedInstructions || undefined,
         modelChatKey,
         job.continuous_motion,
         job.frame_chain_mode,
         miniApp.model_config.allow_scene_padding
       );
+      // Skill "story-validator" — kiểm tra bản chia cảnh có phản ánh đúng truyện gốc không, thử chia
+      // lại ĐÚNG 1 lần nếu lỗi, không chặn cứng job nếu vẫn lỗi sau lần 2 (tránh false-positive chặn oan).
+      const validation = await validateSceneSplit(finalStoryDescription, scenes, job.mini_app_id, modelChatKey);
+      if (!validation.ok) {
+        console.error(`[story-video] story-validator báo lỗi job #${job.id}, thử chia lại 1 lần: ${validation.issue}`);
+        const retryInstructions = [combinedInstructions, `Lần chia trước bị lỗi: ${validation.issue}. Sửa lại cho đúng.`]
+          .filter((s): s is string => !!s?.trim())
+          .join("\n\n");
+        scenes = await splitStoryIntoScenes(
+          extractedStory,
+          job.num_scenes,
+          retryInstructions,
+          modelChatKey,
+          job.continuous_motion,
+          job.frame_chain_mode,
+          miniApp.model_config.allow_scene_padding
+        );
+      }
     }
 
     const { data: sceneRows, error: sceneError } = await supabase
@@ -1651,6 +1694,8 @@ async function runSceneStage(
           dialogue_line: scene.dialogue?.trim() || null,
           location: scene.location,
           end_pose: scene.end_pose,
+          motion_duration_key: plannedScenes ? plannedScenes[index].duration_key : null,
+          natural_duration_seconds: plannedScenes ? plannedScenes[index].duration_seconds : null,
         }))
       )
       .select("id, position, scene_description, camera_view, outfit_override, face_view, location");
@@ -1739,9 +1784,14 @@ export async function submitStoryVideoJob(
   // Ảnh Vật phẩm riêng (tuỳ chọn) của nhân vật #1 — chỉ dùng ở nhánh 1 nhân vật bên dưới. Nhánh nhiều
   // nhân vật KHÔNG đọc tham số này — mỗi nhân vật (kể cả #1) tự có itemReferenceUrl riêng trong mảng
   // "characters" (xem MultiCharacterInput), truyền thẳng vào submitMultiCharacterStoryVideoJob.
-  itemReferenceUrl?: string
+  itemReferenceUrl?: string,
+  // Bước "Tạo kịch bản" (xem runSceneStage) — CHỈ áp dụng nhánh 1 nhân vật, AI tự vẽ ảnh bên dưới. Khi
+  // có, số cảnh THẬT SỰ dùng luôn lấy từ preplannedActions.length (bỏ qua numScenes client gửi lên cho
+  // đúng nhánh này) — Agent đã tự quyết định số cảnh lúc lập kịch bản, không phải khách tự chọn.
+  preplannedActions?: ScriptSceneResult[]
 ): Promise<{ jobId: number; newBalance: number }> {
-  if (numScenes < MIN_SCENES || numScenes > MAX_SCENES) {
+  const resolvedNumScenes = preplannedActions ? preplannedActions.length : numScenes;
+  if (resolvedNumScenes < MIN_SCENES || resolvedNumScenes > MAX_SCENES) {
     throw new Error(`Cần từ ${MIN_SCENES} đến ${MAX_SCENES} phân cảnh`);
   }
   // Whitelist qua tra bảng GENRE_STYLE_GUIDES — key lạ/không hợp lệ thì coi như không chọn thể loại
@@ -1792,7 +1842,7 @@ export async function submitStoryVideoJob(
   }
 
   const { imageEntry, videoEntry, imageProviderCostVnd, videoProviderCostVnd, resolvedResolutionKey, resolvedDurationKey } =
-    await resolveCosts(miniAppId, numScenes, imageModelKey, videoModelKey, resolutionKey, durationKey);
+    await resolveCosts(miniAppId, resolvedNumScenes, imageModelKey, videoModelKey, resolutionKey, durationKey);
 
   const { data: job, error: insertError } = await supabase
     .from("story_video_jobs")
@@ -1801,14 +1851,16 @@ export async function submitStoryVideoJob(
       mini_app_id: miniAppId,
       status: "pending",
       story_description: storyDescription,
-      num_scenes: numScenes,
+      num_scenes: resolvedNumScenes,
       character_image_urls: characterImageUrls,
       image_model: imageEntry.model,
       video_model: videoEntry.model,
       auto_video: autoVideo,
       aspect_ratio: aspectRatio,
       image_resolution_key: resolvedResolutionKey ?? null,
-      video_duration_key: resolvedDurationKey ?? null,
+      // Bước "Tạo kịch bản": mỗi cảnh tự khoá duration_key riêng (xem runSceneStage), giá trị phẳng
+      // này không còn ý nghĩa cho nhánh đó -- để null tránh hiểu nhầm là mức đang thật sự dùng.
+      video_duration_key: preplannedActions ? null : (resolvedDurationKey ?? null),
       image_provider_cost_vnd_per_scene: imageProviderCostVnd,
       video_provider_cost_vnd_per_scene: videoProviderCostVnd,
       genre_key: resolvedGenreKey,
@@ -1816,6 +1868,9 @@ export async function submitStoryVideoJob(
       item_reference_url: itemReferenceUrl ?? null,
       continuous_motion: continuousMotion === true,
       frame_chain_mode: frameChainMode === true,
+      // Lưu lại để continueStoryVideoToSceneStage (chạy sau, khi Character phải tạo mới qua webhook)
+      // vẫn dùng đúng kịch bản đã xác nhận/hiện giá cho khách, không chia cảnh lại bằng LLM cũ.
+      preplanned_actions: preplannedActions ?? null,
     })
     .select("id")
     .single();
@@ -1829,8 +1884,9 @@ export async function submitStoryVideoJob(
     auto_video: autoVideo,
     image_provider_cost_vnd_per_scene: imageProviderCostVnd,
     video_provider_cost_vnd_per_scene: videoProviderCostVnd,
-    num_scenes: numScenes,
+    num_scenes: resolvedNumScenes,
     image_model: imageEntry.model,
+    video_model: videoEntry.model,
     aspect_ratio: aspectRatio,
     image_resolution_key: resolvedResolutionKey ?? null,
     character_sheet_url: null,
@@ -1857,7 +1913,10 @@ export async function submitStoryVideoJob(
       if (finalStoryDescription) {
         sceneStageJob.character_sheet_url = reusedImageUrl;
         sceneStageJob.character_angle_urls = reusedAngleUrls;
-        return { jobId: job.id, ...(await runSceneStage(userId, sceneStageJob, finalStoryDescription, modelChatKey, idempotencyKey)) };
+        return {
+          jobId: job.id,
+          ...(await runSceneStage(userId, sceneStageJob, finalStoryDescription, modelChatKey, idempotencyKey, preplannedActions)),
+        };
       }
     } else {
       // Khách chủ động tick "Bỏ qua tạo Character" — dùng thẳng ảnh đầu tiên đã tải làm tham chiếu
@@ -1881,7 +1940,10 @@ export async function submitStoryVideoJob(
           .eq("id", job.id);
         if (finalStoryDescription) {
           sceneStageJob.character_sheet_url = sheetUrl;
-          return { jobId: job.id, ...(await runSceneStage(userId, sceneStageJob, finalStoryDescription, modelChatKey, idempotencyKey)) };
+          return {
+          jobId: job.id,
+          ...(await runSceneStage(userId, sceneStageJob, finalStoryDescription, modelChatKey, idempotencyKey, preplannedActions)),
+        };
         }
       } else {
         const { creditCost } = await computeCharacterCreditCost();
@@ -2267,7 +2329,7 @@ export async function continueStoryVideoToSceneStage(
 
   if (!job.character_sheet_url) throw new Error("Thiếu ảnh Character của job");
 
-  return runSceneStage(userId, job, finalStoryDescription, modelChatKey, idempotencyKey);
+  return runSceneStage(userId, job, finalStoryDescription, modelChatKey, idempotencyKey, job.preplanned_actions ?? undefined);
 }
 
 const SCENE_PROMPT_FROM_IMAGE_SYSTEM =
@@ -3230,9 +3292,13 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
             );
             motionPrompt = plan.motionPrompt;
             // Motion Timing Controller: tái dùng đúng lượt gọi AI vừa viết motion_prompt để chọn luôn
-            // mức thời lượng phù hợp cho cảnh này, không tốn thêm lượt gọi/chi phí nào.
-            motionDurationKey = resolveNearestDurationKey(videoEntry?.duration_price_vnd, plan.durationSeconds) ?? null;
-            naturalDurationSeconds = plan.durationSeconds ?? null;
+            // mức thời lượng phù hợp cho cảnh này, không tốn thêm lượt gọi/chi phí nào. KHÔNG ghi đè
+            // nếu bước "Tạo kịch bản" đã khoá sẵn (motion_duration_key có giá trị từ trước) — giá đã
+            // hiện cho khách trước khi trả tiền dựa trên mức đó, ghi đè sẽ làm giá thật lệch giá đã hiện.
+            if (!motionDurationKey) {
+              motionDurationKey = resolveNearestDurationKey(videoEntry?.duration_price_vnd, plan.durationSeconds) ?? null;
+              naturalDurationSeconds = plan.durationSeconds ?? null;
+            }
           } else {
             motionPrompt = scene.scene_description;
           }
@@ -3366,11 +3432,27 @@ export async function continueStoryVideoToVideoStage(userId: string, jobId: numb
   // submit (không có nấc ảnh riêng để trừ sau) — nếu trừ thêm ở đây sẽ tính tiền 2 lần cho cùng 1 lượt
   // tạo video. Chỉ trừ credit ở đây khi job CHƯA có video_credit_tx_id (đúng luồng AI tự tạo ảnh).
   let newBalance: number;
+  const scenes = await getScenes(jobId);
   if (job.video_credit_tx_id) {
     newBalance = await getCreditBalance(userId);
   } else {
     const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
-    const videoCost = computeDynamicCreditCost(job.video_provider_cost_vnd_per_scene * job.num_scenes, marginPercent, vndPerCredit);
+    // Bước "Tạo kịch bản" đã khoá motion_duration_key riêng từng cảnh TRƯỚC khi tới đây (proceedToVideoStage
+    // chưa chạy, chỉ nó mới điền motion_duration_key cho luồng cũ) — nếu MỌI cảnh đã có sẵn, đây chắc
+    // chắn là job dùng kịch bản mới -> phải cộng đúng giá thật từng cảnh (mỗi cảnh có thể khác duration_key),
+    // không dùng công thức phẳng "1 giá x N cảnh" (sai khi các cảnh dùng mức thời lượng khác nhau).
+    const flatVideoProviderCostVndPerScene = job.video_provider_cost_vnd_per_scene;
+    let videoProviderCostVndTotal = flatVideoProviderCostVndPerScene * job.num_scenes;
+    if (scenes.length > 0 && scenes.every((s) => s.motion_duration_key)) {
+      const miniApp = await getMiniAppModelConfig(job.mini_app_id);
+      const videoEntry = miniApp.model_config.video_models.find((m) => m.model === job.video_model);
+      const durationMap = videoEntry?.duration_price_vnd;
+      videoProviderCostVndTotal = scenes.reduce(
+        (sum, s) => sum + (durationMap?.[s.motion_duration_key as string] ?? flatVideoProviderCostVndPerScene),
+        0
+      );
+    }
+    const videoCost = computeDynamicCreditCost(videoProviderCostVndTotal, marginPercent, vndPerCredit);
 
     const deduction = await deductCredit(userId, videoCost, job.mini_app_id, idempotencyKey);
     if (!deduction.success) throw new InsufficientCreditError();
@@ -3379,7 +3461,6 @@ export async function continueStoryVideoToVideoStage(userId: string, jobId: numb
     newBalance = deduction.newBalance;
   }
 
-  const scenes = await getScenes(jobId);
   await proceedToVideoStage(jobId, scenes);
 
   return { newBalance };
