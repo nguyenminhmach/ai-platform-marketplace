@@ -776,6 +776,177 @@ export type SceneSplitResult = {
   end_pose: string;
 };
 
+// ==== "Tạo kịch bản" — luồng MỚI thay cho suggestSceneCount + splitStoryIntoScenes(numScenes cố định) ====
+// Agent tự quyết định số cảnh dựa theo số hành động lớn thật sự có trong truyện (không nhận N từ
+// ngoài vào) VÀ ước lượng luôn số giây mỗi cảnh cần — trả về DANH SÁCH CHI TIẾT từng cảnh kèm giây
+// riêng (KHÔNG phải 1 con số tổng), để code (planStoryVideoScenes) tự nhóm/tính giá theo đúng model
+// video khách đã chọn. Chạy TRƯỚC khi có ảnh nhân vật/Character — thuần văn bản, không tốn chi phí
+// tạo ảnh nào. Xem ghi nhớ project_story_video_scene_duration_architecture.
+export type ScriptSceneResult = SceneSplitResult & {
+  duration_seconds: number;
+};
+
+const STORY_SCRIPT_SYSTEM_PROMPT = `Bạn là đạo diễn dựng phân cảnh kiêm lên lịch trình quay. Người dùng đưa 1 ý tưởng truyện/kịch bản ngắn.
+Nhiệm vụ 1 — Tự quyết định số phân cảnh: KHÔNG có số cảnh cố định cho trước — bạn phải đếm số hành động/khoảnh khắc thay đổi tư thế LỚN của nhân vật chính (ví dụ: ngồi xuống, đứng dậy, quay người, bắt đầu đi, dừng lại, cầm/đặt đồ vật, đổi biểu cảm rõ rệt...) và tạo ĐÚNG 1 phân cảnh cho MỖI hành động lớn như vậy — không gộp 2 hành động lớn khác nhau vào chung 1 cảnh, không tách 1 hành động ra nhiều cảnh. Tối thiểu 1 cảnh, tối đa 8 cảnh — nếu truyện có nhiều hơn 8 hành động lớn, gộp bớt các hành động ít quan trọng nhất (không đổi tư thế lớn) lại cho vừa 8.
+Với MỖI cảnh, xác định thêm góc camera đang nhìn thấy nhân vật rõ nhất, chỉ được chọn ĐÚNG 1 trong 6 giá trị sau (viết y hệt, chữ thường): "front" (chính diện), "three_quarter_left" (nghiêng 3/4 trái), "three_quarter_right" (nghiêng 3/4 phải), "side" (nhìn ngang hẳn 1 bên), "back" (quay lưng lại camera), "face" (cận mặt).
+Quy tắc khi mô tả không nói rõ góc quay: nếu không nói gì đặc biệt về hướng, mặc định "front". Nếu chỉ nói "quay đầu"/"nhìn sang" (không nói "quay người"/"quay lưng"), coi là góc "three_quarter_left" hoặc "three_quarter_right" tương ứng hướng nhìn, KHÔNG phải "back". Chỉ chọn "back" khi mô tả rõ ràng nhân vật quay LƯNG/CẢ NGƯỜI lại camera.
+Khi viết "description" (tiếng Anh): viết như 1 đạo diễn hình ảnh thật sự — có thể thêm chi tiết điện ảnh phù hợp với bối cảnh gốc (ánh sáng, loại khung hình/shot size, không khí, chất liệu/kết cấu môi trường xung quanh) để ảnh tạo ra sống động hơn, nhưng KHÔNG bịa thêm tình tiết, hành động, hay địa điểm không có trong ý tưởng gốc.
+Rào chắn giữ đúng danh tính nhân vật (bắt buộc, không được vi phạm dù thêm chi tiết điện ảnh): giữ nguyên giới tính, độ tuổi, kiểu tóc, màu tóc của nhân vật chính xuyên suốt mọi cảnh (đây là phần KHÔNG BAO GIỜ được đổi); không tự thêm nhân vật phụ mới nếu ý tưởng gốc không nhắc; nếu ý tưởng gốc mô tả 1 địa điểm liên tục thì không tự đổi bối cảnh giữa các cảnh.
+Trang phục — TUYỆT ĐỐI KHÔNG tự mô tả cụ thể màu sắc/kiểu dáng/chất liệu trang phục trong "description" trừ đúng lúc dùng "outfit_override". Nếu cần nhắc trang phục để giữ liên tục, chỉ viết chung chung kiểu "wearing the same outfit as before".
+Trạng thái liên tục giữa các cảnh: MỖI cảnh được gửi cho model tạo ảnh RIÊNG BIỆT, độc lập — mỗi "description" phải TỰ ĐẦY ĐỦ ngữ cảnh (self-contained), nhắc lại rõ địa điểm/bối cảnh nếu tiếp nối cảnh trước.
+Tư thế/hành động nối tiếp: "description" của cảnh này PHẢI bắt đầu đúng từ tư thế/hành động mà "end_pose" của cảnh NGAY TRƯỚC nó vừa mô tả — viết liền thành 1 câu tự nhiên (thì hiện tại, 1 khoảnh khắc duy nhất), không kể lại 2 mốc thời gian nối nhau.
+Bối cảnh vật lý (bắt buộc, MỌI cảnh): thêm khoá "location" (chuỗi tiếng Anh NGẮN GỌN) mô tả nơi + ánh sáng/thời điểm trong ngày. Nếu nhiều cảnh liên tiếp cùng 1 chỗ, "location" phải viết Y HỆT NHAU, ĐÚNG TỪNG CHỮ.
+Trạng thái kết thúc cảnh (bắt buộc, MỌI cảnh): thêm khoá "end_pose" (chuỗi tiếng Anh NGẮN GỌN) mô tả tư thế/hành động lúc KẾT THÚC cảnh — dùng làm điểm nối sang cảnh sau.
+Lời thoại (chỉ khi ý tưởng gốc CÓ trích dẫn rõ ràng): thêm khoá "dialogue" (tiếng Việt, NGUYÊN VĂN, dưới 15 từ). Không có thì bỏ hẳn khoá này.
+Đổi trang phục (chỉ khi ý tưởng gốc NÓI RÕ): thêm "outfit_override" ở cảnh đầu tiên xuất hiện đồ mới, lặp lại Y HỆT ở các cảnh sau đó.
+Mặt/thân lệch hướng (chỉ khi ý tưởng gốc NÓI RÕ): thêm "face_view" nếu khác "camera_view".
+
+Nhiệm vụ 2 — Ước lượng thời lượng mỗi cảnh: thêm khoá "duration_seconds" (số nguyên, MỌI cảnh, bắt buộc) — số giây chuyển động cảnh này cần để trông tự nhiên, mượt mà (không rush, không lê thê). Dùng bảng tham khảo sau làm gốc, điều chỉnh theo mức độ phức tạp thực tế:
+- hành động nhỏ (liếc mắt, mỉm cười nhẹ, nghiêng đầu): 1-2s
+- cử chỉ (gật đầu, vẫy tay, chỉ tay, nhặt vật nhỏ): 2-3s
+- chuyển động thân người (đứng dậy, ngồi xuống): 3-4s
+- di chuyển (đi vài bước): 4-6s
+- xoay người theo góc: xoay nhẹ (<45°) 2-3s; xoay vừa (45-90°) 3-5s; xoay nhiều/quay hẳn lưng (90-180°) 5-7s; xoay trọn 1 vòng (360°) 6-8s
+- hành động nhiều bước gộp lại (đi tới + nhặt đồ + quay lại): 6-8s
+
+Chỉ trả về DUY NHẤT 1 mảng JSON hợp lệ, mỗi phần tử có khoá "description", "camera_view", "outfit_override" (tuỳ chọn), "face_view" (tuỳ chọn), "dialogue" (tuỳ chọn), "location" (bắt buộc), "end_pose" (bắt buộc), "duration_seconds" (bắt buộc) — không kèm markdown fence, không giải thích, không đánh số, không có dòng chú thích nào trong JSON.
+Ví dụ format: [{"description": "a young woman walking into a coffee shop, morning light", "camera_view": "front", "location": "a cozy coffee shop interior, window table", "end_pose": "she has just sat down and is looking around", "duration_seconds": 4}, {"description": "still at the coffee shop, she turns her head and looks outside the window, smiling", "camera_view": "three_quarter_left", "location": "a cozy coffee shop interior, window table", "end_pose": "she is smiling, looking out the window", "duration_seconds": 2}]`;
+
+function parseScriptSceneResult(output: string, storyDescription: string): ScriptSceneResult[] {
+  const cleaned = output.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  const parsed = JSON.parse(cleaned);
+  if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("AI không trả về danh sách cảnh hợp lệ");
+  if (parsed.length > MAX_SCENES) throw new Error(`AI chia quá nhiều cảnh (${parsed.length}), vượt giới hạn ${MAX_SCENES}`);
+  return parsed.map((s: Record<string, unknown>) => {
+    if (typeof s.description !== "string" || !s.description.trim()) throw new Error("Thiếu description ở 1 cảnh");
+    if (typeof s.camera_view !== "string" || !CHARACTER_ANGLE_LABELS.includes(s.camera_view as CharacterAngleKey)) {
+      throw new Error("camera_view không hợp lệ ở 1 cảnh");
+    }
+    if (typeof s.location !== "string" || !s.location.trim()) throw new Error("Thiếu location ở 1 cảnh");
+    if (typeof s.end_pose !== "string" || !s.end_pose.trim()) throw new Error("Thiếu end_pose ở 1 cảnh");
+    const durationSeconds = Number(s.duration_seconds);
+    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) throw new Error("duration_seconds không hợp lệ ở 1 cảnh");
+    const dialogue =
+      typeof s.dialogue === "string" && s.dialogue.trim() && isVerbatimQuoteInStory(s.dialogue, storyDescription) ? s.dialogue.trim() : undefined;
+    return {
+      description: s.description.trim(),
+      camera_view: s.camera_view as CharacterAngleKey,
+      outfit_override: typeof s.outfit_override === "string" && s.outfit_override.trim() ? s.outfit_override.trim() : undefined,
+      face_view:
+        typeof s.face_view === "string" && CHARACTER_ANGLE_LABELS.includes(s.face_view as CharacterAngleKey)
+          ? (s.face_view as CharacterAngleKey)
+          : undefined,
+      dialogue,
+      location: s.location.trim(),
+      end_pose: s.end_pose.trim(),
+      duration_seconds: Math.round(durationSeconds),
+    };
+  });
+}
+
+// Gọi Agent 1 lần (thử lại đúng 1 lần nếu sai định dạng) — trả về danh sách chi tiết, chưa nhóm cảnh,
+// chưa chọn duration_key theo model nào (xem planStoryVideoScenes để làm bước đó).
+export async function generateStoryScript(storyDescription: string, modelChatKey?: string): Promise<ScriptSceneResult[]> {
+  const chatModel = modelChatKey && ALLOWED_CHAT_MODELS.includes(modelChatKey) ? modelChatKey : ALLOWED_CHAT_MODELS[0];
+  const { output } = await callOpenRouter(chatModel, 2000, STORY_SCRIPT_SYSTEM_PROMPT, storyDescription);
+  try {
+    return parseScriptSceneResult(output, storyDescription);
+  } catch (err) {
+    const { output: retryOutput } = await callOpenRouter(
+      chatModel,
+      2000,
+      STORY_SCRIPT_SYSTEM_PROMPT,
+      `${storyDescription}\n\n(Lưu ý: lần trước bạn trả sai định dạng: ${err instanceof Error ? err.message : String(err)}. Chỉ trả về mảng JSON hợp lệ đúng theo hướng dẫn.)`
+    );
+    return parseScriptSceneResult(retryOutput, storyDescription);
+  }
+}
+
+export type PlannedScene = ScriptSceneResult & {
+  // Nhóm hành động nào bị gộp chung cảnh này (chỉ có >1 phần tử khi khách chỉnh N thấp hơn số hành
+  // động thật và việc gộp không vượt mức giây tối đa model hỗ trợ — xem planStoryVideoScenes).
+  merged_from: ScriptSceneResult[];
+  duration_key: string;
+  provider_cost_vnd: number;
+};
+
+export type StoryVideoPlan = {
+  scenes: PlannedScene[];
+  totalNaturalSeconds: number;
+  totalVideoProviderCostVnd: number;
+};
+
+// Nhóm danh sách hành động Agent trả về (generateStoryScript) thành N cảnh THEO ĐÚNG model video khách
+// đã chọn + tính giá thật. Quy tắc ĐÃ CHỐT (xem ghi nhớ project_story_video_scene_duration_architecture):
+// - Mặc định (không truyền requestedSceneCount, hoặc requestedSceneCount >= số hành động): 1 hành động
+//   = 1 cảnh, mỗi cảnh tự chọn mức duration GẦN NHẤT trong catalog model đó.
+// - Nếu khách muốn N THẤP hơn số hành động: gộp các hành động LIỀN KỀ lại (không đảo thứ tự) — CHỈ gộp
+//   khi tổng giây của nhóm ≤ mức GIÂY TỐI ĐA model hỗ trợ; vượt ngưỡng thì TUYỆT ĐỐI không gộp thêm,
+//   để N cuối cùng cao hơn requestedSceneCount nếu cần (bảo toàn chất lượng chuyển động, không rush).
+// - Không đụng gì tới model ẢNH/giá ảnh — hàm này chỉ lo phần VIDEO (thời lượng), giá ảnh tính riêng
+//   theo đúng số cảnh cuối cùng (scenes.length) ở nơi gọi.
+export function planStoryVideoScenes(
+  actions: ScriptSceneResult[],
+  videoEntry: VideoModelEntry,
+  requestedSceneCount?: number
+): StoryVideoPlan {
+  const durationMap = videoEntry.duration_price_vnd;
+  const maxSeconds = durationMap ? Math.max(...Object.keys(durationMap).map(Number).filter((n) => Number.isFinite(n))) : undefined;
+
+  // Gộp liền kề theo yêu cầu, không bao giờ vượt maxSeconds — kể cả khi requestedSceneCount đòi hỏi
+  // ít hơn, dừng gộp sớm hơn để giữ mượt (N thực tế có thể cao hơn requestedSceneCount).
+  const groups: ScriptSceneResult[][] = actions.map((a) => [a]);
+  const groupSeconds = (g: ScriptSceneResult[]) => g.reduce((sum, a) => sum + a.duration_seconds, 0);
+  if (requestedSceneCount && requestedSceneCount < groups.length && maxSeconds !== undefined) {
+    while (groups.length > requestedSceneCount) {
+      // Tìm cặp liền kề có tổng giây NHỎ NHẤT sau khi gộp (ưu tiên gộp cặp "rẻ" nhất trước) mà vẫn
+      // trong ngưỡng maxSeconds -- nếu không còn cặp nào gộp được nữa thì dừng sớm (N > khách muốn).
+      let bestIdx = -1;
+      let bestSum = Infinity;
+      for (let i = 0; i < groups.length - 1; i++) {
+        const sum = groupSeconds(groups[i]) + groupSeconds(groups[i + 1]);
+        if (sum <= maxSeconds && sum < bestSum) {
+          bestSum = sum;
+          bestIdx = i;
+        }
+      }
+      if (bestIdx === -1) break; // không gộp thêm được nữa mà vẫn mượt -- giữ N hiện tại
+      groups[bestIdx] = [...groups[bestIdx], ...groups[bestIdx + 1]];
+      groups.splice(bestIdx + 1, 1);
+    }
+  }
+
+  let totalNaturalSeconds = 0;
+  let totalVideoProviderCostVnd = 0;
+  const scenes: PlannedScene[] = groups.map((group) => {
+    const naturalSeconds = groupSeconds(group);
+    totalNaturalSeconds += naturalSeconds;
+    const resolved = durationMap ? resolveNearestDurationKey(durationMap, naturalSeconds) : undefined;
+    const durationKey = resolved ?? Object.keys(durationMap ?? {})[0] ?? "";
+    const providerCostVnd = durationMap?.[durationKey] ?? videoEntry.provider_cost_vnd;
+    totalVideoProviderCostVnd += providerCostVnd;
+    // Cảnh gộp từ nhiều hành động -> nối "description" theo thứ tự, giữ nguyên location/camera_view
+    // của hành động ĐẦU trong nhóm (đại diện cho cả cảnh), end_pose lấy của hành động CUỐI trong nhóm.
+    const primary = group[0];
+    const last = group[group.length - 1];
+    return {
+      description: group.length === 1 ? primary.description : group.map((a) => a.description).join(" Then, "),
+      camera_view: primary.camera_view,
+      outfit_override: primary.outfit_override,
+      face_view: primary.face_view,
+      dialogue: group.find((a) => a.dialogue)?.dialogue,
+      location: primary.location,
+      end_pose: last.end_pose,
+      duration_seconds: naturalSeconds,
+      merged_from: group,
+      duration_key: durationKey,
+      provider_cost_vnd: providerCostVnd,
+    };
+  });
+
+  return { scenes, totalNaturalSeconds, totalVideoProviderCostVnd };
+}
+
 // Câu chỉ dẫn thêm khi bật "chuyển động liên tục giữa các cảnh" (continuousMotion) — mỗi cảnh cần
 // thêm "end_description" (khoảnh khắc KẾT THÚC của cảnh, dùng làm ảnh cuối) bên cạnh "description"
 // (khoảnh khắc chính/đầu cảnh) — ảnh cuối cảnh N sẽ được dùng làm ảnh đầu cảnh N+1 (xem lib này,
