@@ -3697,14 +3697,20 @@ async function applyFrameChainImageResult(jobId: number, sceneId: number) {
         genreStyleGuide,
         miniApp.model_config.motion_planner_prompt
       );
-      const estimatedDurationKey = resolveNearestDurationKey(videoEntry?.duration_price_vnd, plan.durationSeconds) ?? null;
-      const motionDurationKey = await resolveFrameChainDurationKey(job, videoEntry, estimatedDurationKey, sceneId);
+      // Bước "Tạo kịch bản" có thể đã khoá sẵn motion_duration_key + trừ đúng giá thật lúc runSceneStage
+      // — KHÔNG ước lượng/trừ phụ phí lại ở đây nữa (resolveFrameChainDurationKey có thể trừ thêm tiền,
+      // sẽ tính trùng nếu cảnh này đã được tính giá trong plan.totalVideoProviderCostVnd).
+      let motionDurationKey = scene.motion_duration_key;
+      if (!motionDurationKey) {
+        const estimatedDurationKey = resolveNearestDurationKey(videoEntry?.duration_price_vnd, plan.durationSeconds) ?? null;
+        motionDurationKey = await resolveFrameChainDurationKey(job, videoEntry, estimatedDurationKey, sceneId);
+      }
       scene.motion_prompt = plan.motionPrompt;
       scene.motion_duration_key = motionDurationKey;
-      scene.natural_duration_seconds = plan.durationSeconds ?? null;
+      scene.natural_duration_seconds = scene.natural_duration_seconds ?? plan.durationSeconds ?? null;
       await supabase
         .from("story_video_scenes")
-        .update({ motion_prompt: plan.motionPrompt, motion_duration_key: motionDurationKey, natural_duration_seconds: plan.durationSeconds ?? null })
+        .update({ motion_prompt: plan.motionPrompt, motion_duration_key: motionDurationKey, natural_duration_seconds: scene.natural_duration_seconds })
         .eq("id", sceneId);
     }
     const requestId = await submitSceneVideoForRow(job, scene, false);
@@ -3778,14 +3784,23 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
           miniApp.model_config.motion_planner_prompt,
           { previousCameraView: scene.camera_view, currentCameraView: nextSceneWithImage.camera_view }
         );
-        const estimatedDurationKey = resolveNearestDurationKey(videoEntry?.duration_price_vnd, plan.durationSeconds) ?? null;
-        const motionDurationKey = await resolveFrameChainDurationKey(job, videoEntry, estimatedDurationKey, nextScene.id);
+        // Bước "Tạo kịch bản" có thể đã khoá sẵn motion_duration_key + trừ đúng giá thật lúc runSceneStage
+        // — KHÔNG ước lượng/trừ phụ phí lại ở đây (xem chú thích tương tự trong applyFrameChainImageResult).
+        let motionDurationKey = nextSceneWithImage.motion_duration_key;
+        if (!motionDurationKey) {
+          const estimatedDurationKey = resolveNearestDurationKey(videoEntry?.duration_price_vnd, plan.durationSeconds) ?? null;
+          motionDurationKey = await resolveFrameChainDurationKey(job, videoEntry, estimatedDurationKey, nextScene.id);
+        }
         nextSceneWithImage.motion_prompt = plan.motionPrompt;
         nextSceneWithImage.motion_duration_key = motionDurationKey;
-        nextSceneWithImage.natural_duration_seconds = plan.durationSeconds ?? null;
+        nextSceneWithImage.natural_duration_seconds = nextSceneWithImage.natural_duration_seconds ?? plan.durationSeconds ?? null;
         await supabase
           .from("story_video_scenes")
-          .update({ motion_prompt: plan.motionPrompt, motion_duration_key: motionDurationKey, natural_duration_seconds: plan.durationSeconds ?? null })
+          .update({
+            motion_prompt: plan.motionPrompt,
+            motion_duration_key: motionDurationKey,
+            natural_duration_seconds: nextSceneWithImage.natural_duration_seconds,
+          })
           .eq("id", nextScene.id);
       }
       const requestId = await submitSceneVideoForRow(job, nextSceneWithImage, false);

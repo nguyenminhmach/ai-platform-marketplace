@@ -258,12 +258,12 @@ export default function MiniAppDetailPage() {
   // MỌI model video thường (không cần loại FLFV riêng). Loại trừ lẫn nhau với continuous motion — v1
   // chỉ hỗ trợ luồng 1 nhân vật, chạy TUẦN TỰ từng cảnh nên chậm hơn nhiều so với luồng song song mặc định.
   const [storyFrameChainMode, setStoryFrameChainMode] = useState(false);
-  // Bước "Tạo kịch bản" (xem lib/story-video.ts: planStoryVideoScenes) — v1 CHỈ hỗ trợ đúng luồng mặc
-  // định: 1 nhân vật, AI tự vẽ ảnh, KHÔNG own-images, KHÔNG chuyển động liên tục (cần thêm field
-  // end_description riêng mà bước kịch bản chưa tạo ra), KHÔNG frame-chain (chưa test/scope). Các chế
-  // độ khác giữ nguyên 100% luồng cũ (dropdown Thời lượng + splitStoryIntoScenes).
-  const storyUsesScriptFlow =
-    storyExtraCharacters.length === 0 && !storyUseOwnSceneImages && !storyContinuousMotion && !storyFrameChainMode;
+  // Bước "Tạo kịch bản" (xem lib/story-video.ts: planStoryVideoScenes) — hỗ trợ luồng 1 nhân vật, AI tự
+  // vẽ ảnh, dùng được CẢ khi bật frame-chain (đã sửa applyFrameChainImageResult/applyFrameChainVideoResult
+  // để không ước lượng/trừ phụ phí lại khi motion_duration_key đã khoá sẵn từ bước kịch bản). KHÔNG hỗ
+  // trợ own-images (không cần), nhiều nhân vật (pipeline chia cảnh riêng), chuyển động liên tục (cần
+  // thêm field end_description riêng mà bước kịch bản chưa tạo ra).
+  const storyUsesScriptFlow = storyExtraCharacters.length === 0 && !storyUseOwnSceneImages && !storyContinuousMotion;
   // "Model chat" — LLM thực thi bước chia cảnh (tách biệt với "Agent" = persona/hướng dẫn) — đúng 2
   // lựa chọn admin đang dùng cho app tự tạo dạng text (xem MODEL_OPTIONS trong app/admin/page.tsx).
   const STORY_MODEL_CHAT_OPTIONS = [
