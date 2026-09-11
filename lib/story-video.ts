@@ -2419,11 +2419,20 @@ async function generateSceneDescriptionFromImage(
 // (vd "5"/"8" giây) -- tìm mức GẦN NHẤT với số giây skill motion-planner vừa ước lượng cho đúng cảnh
 // đó. Trả undefined nếu model không có bảng giá theo thời lượng (chỉ 1 mức cố định, không có gì để
 // chọn) hoặc chưa ước lượng được số giây -- cả 2 trường hợp đều rơi về video_duration_key của job.
+// Ưu tiên mức NHỎ NHẤT trong các mức ĐỦ HOẶC DƯ so với nhu cầu thật (seconds) — phần dư (nếu có) được
+// cơ chế "giữ tư thế + cắt" xử lý an toàn, miễn phí, không có nguy cơ model tự bịa thêm chuyển động lặp.
+// Ngược lại, chọn mức THIẾU sẽ ép hành động bị nén lại cho vừa (giật/nhanh hơn tự nhiên) — không có cơ
+// chế nào bù được phần thiếu đó, nên rủi ro cao hơn hẳn so với rủi ro của phần dư. Chỉ khi KHÔNG còn
+// mức nào đủ (seconds vượt quá cả mức cao nhất model hỗ trợ) mới đành lấy mức cao nhất hiện có (chắc
+// chắn thiếu, không còn lựa chọn khác).
 function resolveNearestDurationKey(durationPriceMap: Record<string, number> | undefined, seconds: number | undefined): string | undefined {
   if (!durationPriceMap || seconds === undefined) return undefined;
-  const keys = Object.keys(durationPriceMap);
-  if (keys.length === 0) return undefined;
-  return keys.reduce((closest, key) => (Math.abs(Number(key) - seconds) < Math.abs(Number(closest) - seconds) ? key : closest));
+  const numericKeys = Object.keys(durationPriceMap)
+    .map(Number)
+    .filter((n) => Number.isFinite(n));
+  if (numericKeys.length === 0) return undefined;
+  const coveringKeys = numericKeys.filter((n) => n >= seconds);
+  return String(coveringKeys.length > 0 ? Math.min(...coveringKeys) : Math.max(...numericKeys));
 }
 
 // Khách đã có sẵn ảnh cho từng phân cảnh (tải lên thay vì để AI tạo) -> bỏ qua hoàn toàn bước Character
