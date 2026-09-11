@@ -301,6 +301,8 @@ export type SceneRow = {
   motion_prompt: string | null;
   motion_duration_key: string | null;
   natural_duration_seconds: number | null;
+  pace: string | null;
+  rotation_degrees: number | null;
   location: string | null;
   end_pose: string | null;
   character_positions: number[] | null;
@@ -788,6 +790,12 @@ export type SceneSplitResult = {
 // tạo ảnh nào. Xem ghi nhớ project_story_video_scene_duration_architecture.
 export type ScriptSceneResult = SceneSplitResult & {
   duration_seconds: number;
+  // Motion Timing Controller — xem migration-story-video-motion-timing.sql. Agent đọc ra "pace" từ
+  // chính từ ngữ khách dùng trong truyện (vd "vội vã"/"hối hả" -> fast, "từ tốn"/"chậm rãi" -> slow),
+  // và "rotation_degrees" là số độ xoay THẬT (không suy ra được từ camera_view — 6 giá trị rời rạc
+  // không phân biệt nổi "xoay 360 độ" với "không xoay", cả 2 đều trả về cùng camera_view).
+  pace?: "fast" | "normal" | "slow";
+  rotation_degrees?: number;
 };
 
 const STORY_SCRIPT_SYSTEM_PROMPT = `Bạn là đạo diễn dựng phân cảnh kiêm lên lịch trình quay. Người dùng đưa 1 ý tưởng truyện/kịch bản ngắn.
@@ -814,8 +822,12 @@ Nhiệm vụ 2 — Ước lượng thời lượng mỗi cảnh: thêm khoá "du
 - hành động nhiều bước gộp lại (đi tới + nhặt đồ + quay lại): 6-8s
 Dù số giây ước lượng cho 1 hành động cao (kể cả xoay 360° 6-8s) — VẪN PHẢI giữ nguyên là 1 cảnh DUY NHẤT, một khoá "duration_seconds" DUY NHẤT cho hành động đó. TUYỆT ĐỐI KHÔNG được tự chia 1 chuyển động xoay/di chuyển liên tục thành "nửa đầu"/"nửa sau"/"giai đoạn 1"/"giai đoạn 2" ở 2 cảnh khác nhau — dù bạn thấy giây ước lượng dài. Ví dụ SAI cần tránh: quay 1 vòng 360° bị chia thành cảnh A "bắt đầu xoay, xoay tới nửa vòng" + cảnh B "xoay nốt nửa vòng còn lại" — đây là lỗi nghiêm trọng, chỉ được viết ĐÚNG 1 cảnh "she rotates a full 360 degrees" với "duration_seconds": 7 (hoặc tương đương trong khoảng 6-8s).
 
-Chỉ trả về DUY NHẤT 1 mảng JSON hợp lệ, mỗi phần tử có khoá "description", "camera_view", "outfit_override" (tuỳ chọn), "face_view" (tuỳ chọn), "dialogue" (tuỳ chọn), "location" (bắt buộc), "end_pose" (bắt buộc), "duration_seconds" (bắt buộc) — không kèm markdown fence, không giải thích, không đánh số, không có dòng chú thích nào trong JSON.
-Ví dụ format: [{"description": "a young woman walking into a coffee shop, morning light", "camera_view": "front", "location": "a cozy coffee shop interior, window table", "end_pose": "she has just sat down and is looking around", "duration_seconds": 4}, {"description": "still at the coffee shop, she turns her head and looks outside the window, smiling", "camera_view": "three_quarter_left", "location": "a cozy coffee shop interior, window table", "end_pose": "she is smiling, looking out the window", "duration_seconds": 2}]`;
+Nhiệm vụ 3 — Nhịp độ chuyển động: thêm khoá "pace" ("fast"/"normal"/"slow") cho MỌI cảnh, đọc ra từ CHÍNH TỪ NGỮ khách dùng trong ý tưởng gốc (không tự bịa cảm giác riêng). Nếu truyện dùng từ như "vội vã", "hối hả", "gấp gáp", "nhanh chóng", "chạy" → "fast". Nếu dùng từ như "từ tốn", "chậm rãi", "khoan thai", "êm đềm", "thong thả" → "slow". Không có từ nào gợi ý tốc độ → "normal" (mặc định, đa số trường hợp). "pace": "fast" thì nghiêng "duration_seconds" về đầu THẤP của khoảng tham khảo; "slow" thì nghiêng về đầu CAO.
+
+Nhiệm vụ 4 — Số độ xoay thật (CHỈ khi cảnh có xoay người/quay người/quay đầu): thêm khoá "rotation_degrees" (số nguyên 0-360) — số độ xoay THẬT tính từ tư thế bắt đầu tới tư thế kết thúc của ĐÚNG cảnh này. Đây là số ĐỘC LẬP với "camera_view" (camera_view chỉ có 6 giá trị rời rạc, không phân biệt được "xoay trọn 1 vòng quay lại đúng hướng cũ" với "không xoay gì cả" — cả 2 đều có camera_view giống nhau ở đầu/cuối). Ví dụ: xoay nhẹ liếc qua vai ~30°, xoay hẳn người 90°, quay lưng lại 180°, xoay trọn 1 vòng về lại hướng cũ = 360° (KHÔNG phải 0, dù camera_view đầu/cuối giống nhau). Cảnh không có xoay thì bỏ hẳn khoá này.
+
+Chỉ trả về DUY NHẤT 1 mảng JSON hợp lệ, mỗi phần tử có khoá "description", "camera_view", "outfit_override" (tuỳ chọn), "face_view" (tuỳ chọn), "dialogue" (tuỳ chọn), "location" (bắt buộc), "end_pose" (bắt buộc), "duration_seconds" (bắt buộc), "pace" (bắt buộc), "rotation_degrees" (tuỳ chọn, chỉ khi có xoay) — không kèm markdown fence, không giải thích, không đánh số, không có dòng chú thích nào trong JSON.
+Ví dụ format: [{"description": "a young woman walking into a coffee shop, morning light", "camera_view": "front", "location": "a cozy coffee shop interior, window table", "end_pose": "she has just sat down and is looking around", "duration_seconds": 4, "pace": "normal"}, {"description": "still at the coffee shop, she turns her head and looks outside the window, smiling", "camera_view": "three_quarter_left", "location": "a cozy coffee shop interior, window table", "end_pose": "she is smiling, looking out the window", "duration_seconds": 2, "pace": "normal", "rotation_degrees": 30}]`;
 
 // Dùng chung cho 2 nơi: (1) parse JSON thô từ LLM (parseScriptSceneResult), (2) validate lại mảng
 // "actions" client gửi lên lúc submit thật — đảm bảo dù nguồn nào, dữ liệu vào planStoryVideoScenes()
@@ -834,6 +846,12 @@ export function validateScriptSceneResult(parsed: unknown, storyDescription: str
     if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) throw new Error("duration_seconds không hợp lệ ở 1 hành động");
     const dialogue =
       typeof s.dialogue === "string" && s.dialogue.trim() && isVerbatimQuoteInStory(s.dialogue, storyDescription) ? s.dialogue.trim() : undefined;
+    const pace = s.pace === "fast" || s.pace === "slow" || s.pace === "normal" ? s.pace : "normal";
+    const rotationDegreesRaw = Number(s.rotation_degrees);
+    const rotationDegrees =
+      Number.isFinite(rotationDegreesRaw) && rotationDegreesRaw > 0 && rotationDegreesRaw <= 360
+        ? Math.round(rotationDegreesRaw)
+        : undefined;
     return {
       description: s.description.trim(),
       camera_view: s.camera_view as CharacterAngleKey,
@@ -846,6 +864,8 @@ export function validateScriptSceneResult(parsed: unknown, storyDescription: str
       location: s.location.trim(),
       end_pose: s.end_pose.trim(),
       duration_seconds: Math.round(durationSeconds),
+      pace,
+      rotation_degrees: rotationDegrees,
     };
   });
 }
@@ -1696,6 +1716,8 @@ async function runSceneStage(
           end_pose: scene.end_pose,
           motion_duration_key: plannedScenes ? plannedScenes[index].duration_key : null,
           natural_duration_seconds: plannedScenes ? plannedScenes[index].duration_seconds : null,
+          pace: plannedScenes ? plannedScenes[index].pace ?? null : null,
+          rotation_degrees: plannedScenes ? plannedScenes[index].rotation_degrees ?? null : null,
         }))
       )
       .select("id, position, scene_description, camera_view, outfit_override, face_view, location");
@@ -2416,6 +2438,38 @@ function parseSceneMotionPlan(output: string): SceneMotionPlan {
   return { motionPrompt: cleaned };
 }
 
+// Motion Timing Controller — xem migration-story-video-motion-timing.sql + ghi nhớ
+// project_story_video_scene_duration_architecture. CODE tính toán deterministic (tốc độ, chia giai
+// đoạn), AI chỉ dịch số liệu đó thành câu văn tự nhiên — không để AI tự đoán mù nhịp độ nữa. Tỉ lệ %
+// mỗi giai đoạn khác nhau theo "pace": fast dồn nhiều thời lượng vào "steady" (tăng/giảm tốc gọn hơn,
+// cảm giác dứt khoát); slow kéo dài tăng/giảm tốc (êm hơn, từ tốn hơn).
+const MOTION_PHASE_RATIOS: Record<"fast" | "normal" | "slow", number[]> = {
+  fast: [0.05, 0.12, 0.66, 0.12, 0.05],
+  normal: [0.1, 0.15, 0.5, 0.17, 0.08],
+  slow: [0.1, 0.2, 0.4, 0.2, 0.1],
+};
+const MOTION_PHASE_LABELS = ["preparation", "acceleration", "steady motion", "deceleration", "settle"];
+
+function buildMotionTimingSpec(
+  durationSeconds: number,
+  pace: "fast" | "normal" | "slow",
+  rotationDegrees?: number
+): string {
+  const ratios = MOTION_PHASE_RATIOS[pace];
+  let cursor = 0;
+  const timeline = MOTION_PHASE_LABELS.map((phase, i) => {
+    const start = cursor;
+    cursor += durationSeconds * ratios[i];
+    return `${phase} (${start.toFixed(1)}-${cursor.toFixed(1)}s)`;
+  });
+  const paceWord = pace === "fast" ? "brisk, energetic" : pace === "slow" ? "slow, deliberate" : "steady, natural";
+  const speedLine =
+    rotationDegrees && rotationDegrees > 0
+      ? `This motion covers ${rotationDegrees}° of rotation over ${durationSeconds}s (average ${(rotationDegrees / durationSeconds).toFixed(1)}°/s — pace the rotation evenly across the timeline below, not front-loaded into the first second). `
+      : "";
+  return `${speedLine}Pace this motion in 5 phases matching the exact timeline: ${timeline.join(", ")}. Begin gently, build into a ${paceWord} pace through the middle "steady motion" phase, then decelerate smoothly and settle into the final pose — never a fast initial snap, and never an abrupt instant stop.`;
+}
+
 async function generateSceneDescriptionFromImage(
   imageUrl: string,
   hint: string | undefined,
@@ -2423,7 +2477,15 @@ async function generateSceneDescriptionFromImage(
   modelChatKey: string | undefined,
   genreStyleGuide?: string,
   skillOverride?: string,
-  cameraTurn?: { previousCameraView?: string | null; currentCameraView?: string | null }
+  cameraTurn?: { previousCameraView?: string | null; currentCameraView?: string | null },
+  // Khi bước "Tạo kịch bản" đã chốt sẵn số giây thật cho cảnh này (preplannedActions/script-flow),
+  // truyền vào đây để Agent viết đúng nhịp độ khớp với thời lượng ĐÃ QUYẾT ĐỊNH — thay vì tự đoán mù 1
+  // con số khác rồi bị code phía sau âm thầm vứt bỏ (đã xác nhận qua đọc code: applyFrameChainImageResult/
+  // applyFrameChainVideoResult/proceedToVideoStage đều ưu tiên giữ scene.natural_duration_seconds đã có
+  // sẵn, không bao giờ dùng plan.durationSeconds của lượt gọi này khi đã có số chốt từ trước).
+  knownDurationSeconds?: number,
+  pace?: "fast" | "normal" | "slow" | null,
+  rotationDegrees?: number | null
 ): Promise<SceneMotionPlan> {
   let systemPrompt = genreStyleGuide?.trim()
     ? `${SCENE_PROMPT_FROM_IMAGE_SYSTEM}\n\nGhi chú thêm về phong cách/nhịp điệu chuyển động cho đúng thể loại: ${genreStyleGuide.trim()}`
@@ -2431,7 +2493,13 @@ async function generateSceneDescriptionFromImage(
   // Skill "motion-planner" — admin ghi thêm ghi chú qua /admin (vd luôn nhấn mạnh chuyển động camera).
   if (skillOverride?.trim()) systemPrompt += `\n\nGhi chú thêm từ admin: ${skillOverride.trim()}`;
   const turnHint = describeCameraTurn(cameraTurn?.previousCameraView, cameraTurn?.currentCameraView);
-  const userPrompt = `Ý tưởng truyện tổng thể: ${storyDescription}${hint ? `\nGợi ý riêng cho cảnh này: ${hint}` : ""}${turnHint ? `\n${turnHint}` : ""}\nViết mô tả chuyển động ngắn cho ảnh này.`;
+  // Có đủ số giây đã chốt -> dùng Motion Timing Spec tính sẵn (chính xác hơn, thay cho việc để AI tự
+  // đoán nhịp độ) thay vì chỉ nói "vừa khít X giây" chung chung.
+  const durationLine =
+    knownDurationSeconds && knownDurationSeconds > 0
+      ? `\nThời lượng cảnh này ĐÃ ĐƯỢC CHỐT SẴN: ${knownDurationSeconds} giây — không cần tự ước lượng lại số giây. ${buildMotionTimingSpec(knownDurationSeconds, pace ?? "normal", rotationDegrees ?? undefined)}`
+      : "";
+  const userPrompt = `Ý tưởng truyện tổng thể: ${storyDescription}${hint ? `\nGợi ý riêng cho cảnh này: ${hint}` : ""}${turnHint ? `\n${turnHint}` : ""}${durationLine}\nViết mô tả chuyển động ngắn cho ảnh này.`;
   const { output } = await callOpenRouter(modelChatKey || "google/gemini-3-flash-preview", 300, systemPrompt, userPrompt, imageUrl);
   return parseSceneMotionPlan(output);
 }
@@ -3319,7 +3387,10 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
               undefined,
               genreStyleGuide,
               miniApp.model_config.motion_planner_prompt,
-              { previousCameraView: previousScene?.camera_view, currentCameraView: scene.camera_view }
+              { previousCameraView: previousScene?.camera_view, currentCameraView: scene.camera_view },
+              naturalDurationSeconds ?? undefined,
+              scene.pace as "fast" | "normal" | "slow" | null,
+              scene.rotation_degrees
             );
             motionPrompt = plan.motionPrompt;
             // Motion Timing Controller: tái dùng đúng lượt gọi AI vừa viết motion_prompt để chọn luôn
@@ -3703,7 +3774,7 @@ async function applyFrameChainImageResult(jobId: number, sceneId: number) {
   const { data: scene } = await supabase
     .from("story_video_scenes")
     .select(
-      "id, position, image_url, scene_description, motion_prompt, motion_duration_key, natural_duration_seconds, camera_view, face_view, outfit_override, location, identity_retry_count"
+      "id, position, image_url, scene_description, motion_prompt, motion_duration_key, natural_duration_seconds, pace, rotation_degrees, camera_view, face_view, outfit_override, location, identity_retry_count"
     )
     .eq("id", sceneId)
     .single();
@@ -3726,7 +3797,11 @@ async function applyFrameChainImageResult(jobId: number, sceneId: number) {
         job.story_description,
         undefined,
         genreStyleGuide,
-        miniApp.model_config.motion_planner_prompt
+        miniApp.model_config.motion_planner_prompt,
+        undefined,
+        scene.natural_duration_seconds ?? undefined,
+        scene.pace as "fast" | "normal" | "slow" | null,
+        scene.rotation_degrees
       );
       // Bước "Tạo kịch bản" có thể đã khoá sẵn motion_duration_key + trừ đúng giá thật lúc runSceneStage
       // — KHÔNG ước lượng/trừ phụ phí lại ở đây nữa (resolveFrameChainDurationKey có thể trừ thêm tiền,
@@ -3770,7 +3845,7 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
   const { data: nextScene } = await supabase
     .from("story_video_scenes")
     .select(
-      "id, position, scene_description, motion_prompt, motion_duration_key, natural_duration_seconds, camera_view, outfit_override, face_view, location, identity_retry_count"
+      "id, position, scene_description, motion_prompt, motion_duration_key, natural_duration_seconds, pace, rotation_degrees, camera_view, outfit_override, face_view, location, identity_retry_count"
     )
     .eq("job_id", jobId)
     .eq("position", scene.position + 1)
@@ -3813,7 +3888,10 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
           undefined,
           genreStyleGuide,
           miniApp.model_config.motion_planner_prompt,
-          { previousCameraView: scene.camera_view, currentCameraView: nextSceneWithImage.camera_view }
+          { previousCameraView: scene.camera_view, currentCameraView: nextSceneWithImage.camera_view },
+          nextSceneWithImage.natural_duration_seconds ?? undefined,
+          nextSceneWithImage.pace as "fast" | "normal" | "slow" | null,
+          nextSceneWithImage.rotation_degrees
         );
         // Bước "Tạo kịch bản" có thể đã khoá sẵn motion_duration_key + trừ đúng giá thật lúc runSceneStage
         // — KHÔNG ước lượng/trừ phụ phí lại ở đây (xem chú thích tương tự trong applyFrameChainImageResult).
