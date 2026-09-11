@@ -3899,20 +3899,6 @@ const STITCH_CANVAS_BY_ASPECT_RATIO: Record<string, { width: number; height: num
   "1:1": { width: 720, height: 720 },
 };
 
-// Thời lượng chuyển mờ giữa 2 cảnh khi ghép — đủ dài để che lệch nhỏ ở khung hình cuối/đầu giữa 2 clip
-// (model video không luôn bám sát 100% ảnh đích khi tạo chuyển động, xem stitchAndFinish), không đủ dài
-// để làm mất nội dung cảnh. Trước là 0.25s — người dùng phản hồi thấy "nháy nhẹ" tại điểm nối: chuyển
-// mờ tuyến tính (xfade "fade") trộn 50/50 khung cuối cảnh A với khung đầu cảnh B, nếu 2 cảnh lệch nhẹ
-// độ sáng/tông màu (2 cảnh do AI tạo độc lập, không đảm bảo khớp tuyệt đối), khoảng giữa phép trộn có
-// thể sáng/tối hơn cả 2 khung gốc — nén vào đúng 0.25s (~6 khung ở 24fps) nên mắt thấy như 1 cái nháy
-// thay vì chuyển mờ êm. Tăng lên 0.4s (đợt 1) rồi 0.6s (đợt 2, hiện tại) — kể cả với frame-chain (ảnh
-// đầu cảnh sau = đúng khung cuối cảnh trước, khớp pixel), đo thật qua ffmpeg scene-change score (job
-// story-115) vẫn thấy lệch nhỏ đúng tại 2 điểm nối (model video tự "chuẩn hoá" lại màu/phơi sáng ở vài
-// khung đầu clip mới dù nhận đúng ảnh khớp pixel) — dễ nhận ra nhất ở cảnh tĩnh (không có chuyển động
-// che lấp). Trải rộng thêm ra 0.6s để giảm tiếp mức nhận thấy, không giải quyết được gốc rễ (hành vi
-// riêng của model AI).
-const STITCH_FADE_SECONDS = 0.6;
-
 // Đọc thời lượng + có track âm thanh hay không của 1 clip bằng chính ffmpeg-static đã có sẵn (không
 // thêm dependency ffprobe-static mới — dự án từng tốn nhiều công sửa lỗi ffmpeg-static bị mất quyền
 // thực thi trên Vercel, không muốn lặp lại rủi ro đó với 1 binary khác). "ffmpeg -i <file>" luôn thoát
@@ -4023,116 +4009,40 @@ async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
         "-i", clipPaths[0], "-vf", scaleFilter, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-y", outputPath,
       ]);
     } else {
-      // Chuyển mờ ngắn (crossfade) giữa các cảnh thay vì cắt cứng — xem chú thích STITCH_FADE_SECONDS.
-      // LƯU Ý (đã sửa lỗi thật): bản đầu tiên gộp DẦN cả khối tích luỹ (accumulator) qua từng bước —
-      // mỗi bước re-encode LẠI TOÀN BỘ phần đã ghép trước đó, nên tổng chi phí encode tăng theo cấp số
-      // nhân với số cảnh (O(N^2)) — job đủ nhiều cảnh (6-8+) khiến tổng thời gian vượt quá giới hạn 60s
-      // của Vercel Hobby, gây timeout dù RAM đã ổn (xem OOM fix trước đó). Sửa lại: mỗi clip chỉ
-      // re-encode ĐÚNG 1 LẦN (phần "core" — toàn bộ clip trừ đúng nửa giây giao với clip liền kề), các
-      // đoạn chuyển mờ chỉ ghép 2 MẨU NHỎ (đúng STITCH_FADE_SECONDS mỗi bên) — tổng chi phí giờ tuyến
-      // tính theo tổng thời lượng video (O(N)), không phụ thuộc số cảnh theo cấp số nhân. Nối các mảnh
-      // lại bằng concat demuxer + "-c copy" (không re-encode, gần như tức thời) vì mọi mảnh đều được
-      // encode ra cùng 1 bộ tham số codec. Verify thật: 8 cảnh 5s chỉ mất ~10s (so với ~48s cách cũ).
+      // Nối CỨNG (hard cut) giữa các cảnh — trước đây dùng chuyển mờ (crossfade) STITCH_FADE_SECONDS,
+      // nhưng người dùng test thật (job story-121/123, nối cứng vs 0.6s vs 0.1s) xác nhận nối cứng nhìn
+      // tốt hơn — bỏ hẳn crossfade. Mỗi clip chỉ scale + encode ĐÚNG 1 LẦN rồi nối bằng concat demuxer +
+      // "-c copy" (không re-encode lần 2, gần như tức thời) — đơn giản và rẻ hơn nhiều so với cơ chế
+      // core+transition trước đây (vốn chỉ tồn tại để làm mượt điểm nối chuyển mờ, giờ không cần nữa).
       const clipInfo = await Promise.all(clipPaths.map((p) => probeClip(p)));
-      const durations = clipInfo.map((c) => c.durationSeconds);
       const anyHasAudio = clipInfo.some((c) => c.hasAudio);
-      const fade = STITCH_FADE_SECONDS;
-      const n = clipPaths.length;
-
-      const audioFilterFor = (idx: number, dur: number, outLabel: string) =>
-        clipInfo[idx].hasAudio
-          ? `[0:a]aformat=sample_rates=44100:channel_layouts=stereo[${outLabel}]`
-          : `anullsrc=channel_layout=stereo:sample_rate=44100:d=${dur.toFixed(3)}[${outLabel}]`;
       const encodeArgs = ["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", ...(anyHasAudio ? ["-c:a", "aac"] : ["-an"])];
 
-      // 1) "core" — thân mỗi clip, trừ đúng nửa giao chuyển mờ với clip liền kề (đầu/cuối). Mỗi clip
-      // chỉ encode ĐÚNG 1 LẦN, không phụ thuộc số cảnh còn lại phía sau.
-      const corePaths: string[] = [];
-      for (let i = 0; i < n; i++) {
-        const headTrim = i > 0 ? fade : 0;
-        const tailTrim = i < n - 1 ? fade : 0;
-        const coreDur = Math.max(0.01, durations[i] - headTrim - tailTrim);
-        const outPath = path.join(workDir, `core-${i}.mp4`);
+      const scaledPaths: string[] = [];
+      for (let i = 0; i < clipPaths.length; i++) {
+        const outPath = path.join(workDir, `scene-${i}.mp4`);
         const filterParts = [`[0:v]${scaleFilter}[vout]`];
         const mapArgs = ["-map", "[vout]"];
         if (anyHasAudio) {
-          filterParts.push(audioFilterFor(i, coreDur, "aout"));
+          if (clipInfo[i].hasAudio) {
+            filterParts.push(`[0:a]aformat=sample_rates=44100:channel_layouts=stereo[aout]`);
+          } else {
+            filterParts.push(`anullsrc=channel_layout=stereo:sample_rate=44100:d=${clipInfo[i].durationSeconds.toFixed(3)}[aout]`);
+          }
           mapArgs.push("-map", "[aout]");
         }
         await execFileAsync(ffmpegPath, [
-          "-ss", headTrim.toFixed(3), "-i", clipPaths[i], "-t", coreDur.toFixed(3),
+          "-i", clipPaths[i],
           "-filter_complex", filterParts.join(";"),
           ...mapArgs,
           ...encodeArgs,
           "-y", outPath,
         ]);
-        corePaths[i] = outPath;
+        scaledPaths[i] = outPath;
       }
 
-      // 2) transition — 2 mẩu nhỏ (đuôi clip i + đầu clip i+1) crossfade với nhau, chi phí luôn nhỏ và
-      // cố định (đúng "fade" giây), không phụ thuộc độ dài clip hay tổng số cảnh trong job.
-      const transitionPaths: string[] = [];
-      for (let i = 0; i < n - 1; i++) {
-        const j = i + 1;
-        const tailPath = path.join(workDir, `tail-${i}.mp4`);
-        const headPath = path.join(workDir, `head-${j}.mp4`);
-        const transPath = path.join(workDir, `trans-${i}.mp4`);
-
-        const tailFilter = [`[0:v]${scaleFilter}[vout]`];
-        const tailMap = ["-map", "[vout]"];
-        if (anyHasAudio) {
-          tailFilter.push(audioFilterFor(i, fade, "aout"));
-          tailMap.push("-map", "[aout]");
-        }
-        await execFileAsync(ffmpegPath, [
-          "-ss", Math.max(0, durations[i] - fade).toFixed(3), "-i", clipPaths[i], "-t", fade.toFixed(3),
-          "-filter_complex", tailFilter.join(";"),
-          ...tailMap,
-          ...encodeArgs,
-          "-y", tailPath,
-        ]);
-
-        const headFilter = [`[0:v]${scaleFilter}[vout]`];
-        const headMap = ["-map", "[vout]"];
-        if (anyHasAudio) {
-          headFilter.push(audioFilterFor(j, fade, "aout"));
-          headMap.push("-map", "[aout]");
-        }
-        await execFileAsync(ffmpegPath, [
-          "-ss", "0", "-i", clipPaths[j], "-t", fade.toFixed(3),
-          "-filter_complex", headFilter.join(";"),
-          ...headMap,
-          ...encodeArgs,
-          "-y", headPath,
-        ]);
-
-        // "-pix_fmt yuv420p" bắt buộc — filter "xfade" tự chuyển sang không gian màu 4:4:4 khi chuyển
-        // mờ, nếu không ép lại libx264 sẽ encode ra profile "High 4:4:4 Predictive" (yuv444p) mà hầu
-        // hết trình phát thường (kể cả Windows Media Player mặc định) không phát được.
-        const transFilterParts = [`[0:v][1:v]xfade=transition=fade:duration=${fade}:offset=0[vout]`];
-        const transMap = ["-map", "[vout]"];
-        if (anyHasAudio) {
-          transFilterParts.push(`[0:a][1:a]acrossfade=d=${fade}[aout]`);
-          transMap.push("-map", "[aout]");
-        }
-        await execFileAsync(ffmpegPath, [
-          "-i", tailPath, "-i", headPath,
-          "-filter_complex", transFilterParts.join(";"),
-          ...transMap,
-          ...encodeArgs,
-          "-y", transPath,
-        ]);
-        transitionPaths[i] = transPath;
-      }
-
-      // 3) Nối tất cả mảnh lại bằng concat demuxer + "-c copy" — KHÔNG re-encode, gần như tức thời, an
-      // toàn vì mọi mảnh ở trên đều đã encode cùng 1 bộ tham số codec.
       const listPath = path.join(workDir, "concat-list.txt");
-      const listLines: string[] = [];
-      for (let i = 0; i < n; i++) {
-        listLines.push(`file '${corePaths[i].replace(/'/g, "'\\''")}'`);
-        if (i < n - 1) listLines.push(`file '${transitionPaths[i].replace(/'/g, "'\\''")}'`);
-      }
+      const listLines = scaledPaths.map((p) => `file '${p.replace(/'/g, "'\\''")}'`);
       await writeFile(listPath, listLines.join("\n"));
       await execFileAsync(ffmpegPath, ["-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", "-y", outputPath]);
     }
