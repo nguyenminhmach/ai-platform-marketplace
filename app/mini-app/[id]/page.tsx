@@ -3646,19 +3646,24 @@ export default function MiniAppDetailPage() {
                                 }}
                                 className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                               >
-                                {/* "veo31-lite-flf" bắt buộc có ảnh CUỐI cảnh (last_frame_url) — luồng "khách tự tải ảnh
-                                    phân cảnh" chỉ có đúng 1 ảnh/cảnh, không có cơ chế tạo ảnh cuối, nên model này luôn
-                                    lỗi 422 (thiếu field) nếu chọn ở chế độ đó. Ẩn khỏi danh sách khi đang bật chế độ này. */}
+                                {/* "veo31-lite-flf" bắt buộc CẢ ảnh đầu lẫn ảnh cuối (last_frame_url — Fal.ai không cho
+                                    tuỳ chọn như Kling O1's end_image_url, thiếu là lỗi 422 ngay). Luồng "khách tự tải
+                                    ảnh phân cảnh" (chỉ 1 ảnh/cảnh) VÀ frame-chain (chỉ 1 ảnh đầu thật/cảnh, không có
+                                    ảnh cuối) đều không có cơ chế tạo ảnh cuối cho model này — ẩn khỏi danh sách khi
+                                    đang bật 1 trong 2 chế độ đó. Kling O1 FLFV KHÔNG cần loại trừ tương tự — ảnh cuối
+                                    của nó tuỳ chọn thật (thiếu thì tự chạy như model 1 ảnh bình thường, không lỗi). */}
                                 {Array.from(
                                   new Set(
                                     storyVideoModels
-                                      .filter((m) => !(storyUseOwnSceneImages && m.key === "veo31-lite-flf"))
+                                      .filter((m) => !((storyUseOwnSceneImages || storyFrameChainMode) && m.key === "veo31-lite-flf"))
                                       .map((m) => m.provider)
                                   )
                                 ).map((provider) => (
                                   <optgroup key={provider} label={provider}>
                                     {storyVideoModels
-                                      .filter((m) => m.provider === provider && !(storyUseOwnSceneImages && m.key === "veo31-lite-flf"))
+                                      .filter(
+                                        (m) => m.provider === provider && !((storyUseOwnSceneImages || storyFrameChainMode) && m.key === "veo31-lite-flf")
+                                      )
                                       .map((m) => (
                                         <option key={m.key} value={m.key}>
                                           {m.label} — {m.provider_cost_vnd}đ/cảnh
@@ -3734,7 +3739,20 @@ export default function MiniAppDetailPage() {
                             checked={storyFrameChainMode}
                             onChange={(e) => {
                               setStoryFrameChainMode(e.target.checked);
-                              if (e.target.checked) setStoryContinuousMotion(false);
+                              if (e.target.checked) {
+                                setStoryContinuousMotion(false);
+                                // "veo31-lite-flf" bắt buộc CẢ ảnh đầu lẫn ảnh cuối (Fal.ai từ chối thiếu field,
+                                // lỗi 422) — frame-chain chỉ có đúng 1 ảnh đầu thật/cảnh, không có ảnh cuối, không
+                                // tương thích. Đổi sang model khác nếu đang chọn dở, tránh submit với model không
+                                // tương thích (đúng cơ chế đã có cho toggle "khách tự tải ảnh phân cảnh" ở trên).
+                                // Kling O1 FLFV KHÔNG cần loại trừ — ảnh cuối của nó tuỳ chọn thật, thiếu thì tự
+                                // chạy như model 1 ảnh bình thường, không lỗi.
+                                if (storyVideoModelKey === "veo31-lite-flf") {
+                                  const fallback = storyVideoModels.find((m) => m.key !== "veo31-lite-flf");
+                                  setStoryVideoModelKey(fallback?.key ?? null);
+                                  setStoryDurationKey(fallback?.duration_price_vnd ? Object.keys(fallback.duration_price_vnd)[0] : null);
+                                }
+                              }
                             }}
                             className="mt-0.5"
                           />
