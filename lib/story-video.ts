@@ -2334,6 +2334,7 @@ export async function continueStoryVideoToSceneStage(
 
 const SCENE_PROMPT_FROM_IMAGE_SYSTEM =
   `You are a screenwriter writing a short motion prompt (1-2 sentences, English) for the given image, to be used as an image-to-video generation prompt. Base it on: what's visible in the image, the overall story context provided, and the customer's hint if given.
+IMPORTANT constraint when a per-scene hint IS given: the image + that specific hint are the ONLY authoritative source for what happens in THIS moment — the overall story is background/tone context only. Do NOT pull in, add, or continue any action, gesture, or plot beat from the overall story that is not present in this scene's own hint, even if the story mentions it elsewhere — that action belongs to a different scene and must not appear here. Only when NO hint is given at all should you infer the motion directly from the overall story.
 Also estimate how many seconds of video this motion naturally needs to look smooth and natural — NOT rushed (too much motion crammed into too little time looks jerky/sped-up) and NOT padded (too little motion stretched over too much time makes the model invent extra filler motion, looking aimless/drifting).
 If a rotation/turn hint is given below, use it as the primary guide for duration (bigger rotations need more time, but not linearly — the increase slows down for larger angles). Otherwise use this reference for non-turning motion:
 - micro (blink, glance, small smile, slight head tilt): 1-2s
