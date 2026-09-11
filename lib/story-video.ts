@@ -3612,9 +3612,11 @@ export async function applyVideoStageResult(
   const { data: job } = await supabase.from("story_video_jobs").select("mini_app_id, frame_chain_mode").eq("id", jobId).single();
 
   // Frame-chaining — hoàn toàn tách khỏi luồng song song bên dưới (không chờ "đủ cảnh", tự nối tiếp
-  // tuần tự sang cảnh kế bằng khung hình THẬT vừa render ra). Không hỗ trợ lồng tiếng/tạo lại ở v1.
+  // tuần tự sang cảnh kế bằng khung hình THẬT vừa render ra). Không hỗ trợ lồng tiếng ở v1. "Tạo lại"
+  // (isRegenerate) VẪN tiếp tục chuỗi khi an toàn (xem chú thích trong applyFrameChainVideoResult) —
+  // hàm đó tự quyết định dừng lại nếu cảnh sau đã có ảnh từ trước (tránh cascade).
   if (job?.frame_chain_mode) {
-    if (!isRegenerate) await applyFrameChainVideoResult(jobId, sceneId, videoUrl);
+    await applyFrameChainVideoResult(jobId, sceneId, videoUrl, isRegenerate);
     return;
   }
 
@@ -3828,7 +3830,12 @@ async function applyFrameChainImageResult(jobId: number, sceneId: number) {
 
 // Video cảnh N vừa render xong -> tách khung hình cuối THẬT (extractLastFrame) -> hoặc submit ảnh cảnh
 // N+1 dùng khung hình đó làm mỏ neo (chainedFrameUrl), hoặc nếu là cảnh cuối cùng thì ghép video luôn.
-async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoUrl: string) {
+// isRegenerate=true khi gọi từ "Tạo lại" — mặc định KHÔNG tiếp tục chuỗi (cảnh N+1 nếu đã có ảnh sẵn
+// là dựa trên khung hình CŨ, ghi đè sẽ làm lệch chuỗi các cảnh sau nó). NHƯNG nếu cảnh N+1 CHƯA TỪNG có
+// ảnh (job đang "failed", "Tạo lại" chính là cách duy nhất để job tiến tiếp) thì vẫn phải tiếp tục —
+// không có gì để lệch pha, và không tiếp tục sẽ khiến job kẹt vĩnh viễn (xác nhận qua job thật #124:
+// "Tạo lại" cảnh 1 thành công nhưng cảnh 2 mãi mãi không có ảnh, job không bao giờ tự hoàn thành).
+async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoUrl: string, isRegenerate = false) {
   const supabase = getSupabaseAdmin();
   const { data: scene } = await supabase.from("story_video_scenes").select("id, job_id, position, camera_view").eq("id", sceneId).single();
   if (!scene) return;
@@ -3845,11 +3852,13 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
   const { data: nextScene } = await supabase
     .from("story_video_scenes")
     .select(
-      "id, position, scene_description, motion_prompt, motion_duration_key, natural_duration_seconds, pace, rotation_degrees, camera_view, outfit_override, face_view, location, identity_retry_count"
+      "id, position, image_url, scene_description, motion_prompt, motion_duration_key, natural_duration_seconds, pace, rotation_degrees, camera_view, outfit_override, face_view, location, identity_retry_count"
     )
     .eq("job_id", jobId)
     .eq("position", scene.position + 1)
     .maybeSingle();
+
+  if (nextScene?.image_url && isRegenerate) return; // cảnh sau đã có ảnh từ trước -- tránh cascade
 
   if (nextScene) {
     const { data: job } = await supabase
