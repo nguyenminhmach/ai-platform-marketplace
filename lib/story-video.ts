@@ -988,6 +988,8 @@ export function planStoryVideoScenes(
       location: primary.location,
       end_pose: last.end_pose,
       duration_seconds: naturalSeconds,
+      pace: primary.pace,
+      rotation_degrees: primary.rotation_degrees,
       merged_from: group,
       duration_key: durationKey,
       provider_cost_vnd: providerCostVnd,
@@ -2379,7 +2381,7 @@ If a rotation/turn hint is given below, use it as the primary guide for duration
 - multi-step action (walk to object + pick it up + turn back): 6-8s
 If the motion is (or includes) a FULL 360-degree rotation/turn: explicitly pace it as EVEN, roughly constant-speed rotation across the whole clip — about a quarter-turn every 1.5-2s (0°→90°, 90°→180°, 180°→270°, 270°→360°), never a fast initial snap that then slows down. Write this even pacing directly into the motion description itself (e.g. "she turns steadily and evenly through a full 360-degree rotation at an unhurried, constant pace, completing roughly a quarter turn every couple seconds") — a vague phrase like "smoothly rotates" alone is not enough guidance for the video model and tends to render as an abrupt fast turn in the first second.
 Write the motion itself with a natural acceleration into the movement and a brief deceleration/settle at the end — not constant-speed motion, and not an abrupt instant stop — this reads as far more physically real.
-Return ONLY 1 line of valid JSON, no markdown fence, no explanation, no comment lines: {"motion_prompt": "<the motion description>", "duration_seconds": <integer, your best estimate>}.`;
+Return ONLY 1 line of valid JSON with EXACTLY these 2 keys, no markdown fence, no explanation, no comment lines, and NO other keys of any kind: {"motion_prompt": "<the motion description>", "duration_seconds": <integer, your best estimate>}. Do NOT add extra keys like "primary_motion", "secondary_motion", "camera_motion", or any other breakdown — put everything into the single "motion_prompt" string. Adding extra keys makes the response too long and get cut off mid-way, breaking the JSON entirely.`;
 
 type SceneMotionPlan = { motionPrompt: string; durationSeconds?: number };
 
@@ -2513,7 +2515,7 @@ async function generateSceneDescriptionFromImage(
       ? `\nThời lượng cảnh này ĐÃ ĐƯỢC CHỐT SẴN: ${knownDurationSeconds} giây — không cần tự ước lượng lại số giây. ${buildMotionTimingSpec(knownDurationSeconds, pace ?? "normal", rotationDegrees ?? undefined)}`
       : "";
   const userPrompt = `Ý tưởng truyện tổng thể: ${storyDescription}${hint ? `\nGợi ý riêng cho cảnh này: ${hint}` : ""}${turnHint ? `\n${turnHint}` : ""}${durationLine}\nViết mô tả chuyển động ngắn cho ảnh này.`;
-  const { output } = await callOpenRouter(modelChatKey || "google/gemini-3-flash-preview", 300, systemPrompt, userPrompt, imageUrl);
+  const { output } = await callOpenRouter(modelChatKey || "google/gemini-3-flash-preview", 500, systemPrompt, userPrompt, imageUrl);
   return parseSceneMotionPlan(output);
 }
 
