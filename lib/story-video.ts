@@ -2381,6 +2381,24 @@ function describeCameraTurn(previousView: string | null | undefined, currentView
   return `Rotation hint: this scene turns roughly ${delta}° relative to the previous scene (from "${previousView}" to "${currentView}") — target duration for this turn alone is about ${range} (adjust up if the scene also includes other motion beyond the turn).`;
 }
 
+// Model đôi khi bỏ qua chỉ dẫn "chỉ trả 2 field" và tự thêm field khác (primary_motion/camera_motion/...),
+// khiến response dài hơn max_tokens và bị cắt cụt giữa chừng -> JSON.parse() cả chuỗi sẽ luôn fail dù
+// field "motion_prompt" (thường đứng trước, đã đóng ngoặc kép đầy đủ) vẫn còn nguyên vẹn. Trích riêng
+// field đó bằng regex trước khi rơi về dùng nguyên văn cả chuỗi thô -- tránh lặp lại bug thật đã gặp: cả
+// chuỗi JSON thô (lẫn field name/dấu ngoặc, mô tả cùng 1 động tác lặp lại nhiều lần ở nhiều field) bị gửi
+// thẳng làm prompt tạo video, khiến model video hiểu nhầm 1 động tác thành nhiều nhịp (vd job 121: xoay
+// 360 độ bị render thành "quay nửa vòng rồi quay lại").
+function extractMotionPromptFragment(text: string): string | undefined {
+  const match = text.match(/"motion_prompt"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (!match) return undefined;
+  try {
+    const value = JSON.parse(`"${match[1]}"`).trim();
+    return value || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function parseSceneMotionPlan(output: string): SceneMotionPlan {
   const cleaned = output.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
   try {
@@ -2390,8 +2408,10 @@ function parseSceneMotionPlan(output: string): SceneMotionPlan {
       return { motionPrompt: parsed.motion_prompt.trim(), durationSeconds: Number.isFinite(seconds) && seconds > 0 ? seconds : undefined };
     }
   } catch {
-    // model không trả đúng JSON -> rơi về coi nguyên câu trả lời là motion_prompt, không có gợi ý thời
-    // lượng (an toàn hơn báo lỗi cả cảnh chỉ vì thiếu đúng 1 field phụ này).
+    const extracted = extractMotionPromptFragment(cleaned);
+    if (extracted) return { motionPrompt: extracted };
+    // Không trích được field riêng -> rơi về coi nguyên câu trả lời là motion_prompt, không có gợi ý
+    // thời lượng (an toàn hơn báo lỗi cả cảnh chỉ vì thiếu đúng 1 field phụ này).
   }
   return { motionPrompt: cleaned };
 }
@@ -2412,7 +2432,7 @@ async function generateSceneDescriptionFromImage(
   if (skillOverride?.trim()) systemPrompt += `\n\nGhi chú thêm từ admin: ${skillOverride.trim()}`;
   const turnHint = describeCameraTurn(cameraTurn?.previousCameraView, cameraTurn?.currentCameraView);
   const userPrompt = `Ý tưởng truyện tổng thể: ${storyDescription}${hint ? `\nGợi ý riêng cho cảnh này: ${hint}` : ""}${turnHint ? `\n${turnHint}` : ""}\nViết mô tả chuyển động ngắn cho ảnh này.`;
-  const { output } = await callOpenRouter(modelChatKey || "google/gemini-3-flash-preview", 150, systemPrompt, userPrompt, imageUrl);
+  const { output } = await callOpenRouter(modelChatKey || "google/gemini-3-flash-preview", 300, systemPrompt, userPrompt, imageUrl);
   return parseSceneMotionPlan(output);
 }
 
