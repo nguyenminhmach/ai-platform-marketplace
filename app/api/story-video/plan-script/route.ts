@@ -31,7 +31,7 @@ export async function POST(req: Request) {
   if (!videoEntry) return Response.json({ error: "Không có model video nào đang bật" }, { status: 400 });
 
   try {
-    const actions = await generateStoryScript(storyDescription.trim(), typeof modelChatKey === "string" ? modelChatKey : undefined);
+    const actions = await generateStoryScript(storyDescription.trim(), typeof modelChatKey === "string" ? modelChatKey : undefined, miniAppId);
     const plan = planStoryVideoScenes(actions, videoEntry, typeof requestedSceneCount === "number" ? requestedSceneCount : undefined);
     const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
     const videoCreditCost = computeDynamicCreditCost(plan.totalVideoProviderCostVnd, marginPercent, vndPerCredit);

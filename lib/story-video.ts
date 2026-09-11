@@ -882,16 +882,29 @@ function parseScriptSceneResult(output: string, storyDescription: string): Scrip
 
 // Gọi Agent 1 lần (thử lại đúng 1 lần nếu sai định dạng) — trả về danh sách chi tiết, chưa nhóm cảnh,
 // chưa chọn duration_key theo model nào (xem planStoryVideoScenes để làm bước đó).
-export async function generateStoryScript(storyDescription: string, modelChatKey?: string): Promise<ScriptSceneResult[]> {
+export async function generateStoryScript(
+  storyDescription: string,
+  modelChatKey?: string,
+  // Skill "story-planner" — admin ghi thêm ghi chú qua /admin (model_config.prompt_helper_instructions).
+  // Trước đây field này CHỈ tới được luồng chia cảnh LLM cũ (splitStoryIntoScenes), Agent "Tạo kịch
+  // bản" mới (luồng đang chạy thật) không đọc field này -- nối vào đây để admin chỉnh được thật.
+  miniAppId?: string
+): Promise<ScriptSceneResult[]> {
   const chatModel = modelChatKey && ALLOWED_CHAT_MODELS.includes(modelChatKey) ? modelChatKey : ALLOWED_CHAT_MODELS[0];
-  const { output } = await callOpenRouter(chatModel, 2000, STORY_SCRIPT_SYSTEM_PROMPT, storyDescription);
+  let systemPrompt = STORY_SCRIPT_SYSTEM_PROMPT;
+  if (miniAppId) {
+    const miniApp = await getMiniAppModelConfig(miniAppId);
+    const override = miniApp.model_config.prompt_helper_instructions;
+    if (override?.trim()) systemPrompt += `\n\nGhi chú thêm từ admin: ${override.trim()}`;
+  }
+  const { output } = await callOpenRouter(chatModel, 2000, systemPrompt, storyDescription);
   try {
     return parseScriptSceneResult(output, storyDescription);
   } catch (err) {
     const { output: retryOutput } = await callOpenRouter(
       chatModel,
       2000,
-      STORY_SCRIPT_SYSTEM_PROMPT,
+      systemPrompt,
       `${storyDescription}\n\n(Lưu ý: lần trước bạn trả sai định dạng: ${err instanceof Error ? err.message : String(err)}. Chỉ trả về mảng JSON hợp lệ đúng theo hướng dẫn.)`
     );
     return parseScriptSceneResult(retryOutput, storyDescription);
