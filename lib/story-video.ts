@@ -2342,6 +2342,7 @@ If a rotation/turn hint is given below, use it as the primary guide for duration
 - body motion (stand up, sit down): 3-4s
 - locomotion (walk a few steps): 4-6s
 - multi-step action (walk to object + pick it up + turn back): 6-8s
+If the motion is (or includes) a FULL 360-degree rotation/turn: explicitly pace it as EVEN, roughly constant-speed rotation across the whole clip — about a quarter-turn every 1.5-2s (0°→90°, 90°→180°, 180°→270°, 270°→360°), never a fast initial snap that then slows down. Write this even pacing directly into the motion description itself (e.g. "she turns steadily and evenly through a full 360-degree rotation at an unhurried, constant pace, completing roughly a quarter turn every couple seconds") — a vague phrase like "smoothly rotates" alone is not enough guidance for the video model and tends to render as an abrupt fast turn in the first second.
 Write the motion itself with a natural acceleration into the movement and a brief deceleration/settle at the end — not constant-speed motion, and not an abrupt instant stop — this reads as far more physically real.
 Return ONLY 1 line of valid JSON, no markdown fence, no explanation, no comment lines: {"motion_prompt": "<the motion description>", "duration_seconds": <integer, your best estimate>}.`;
 
