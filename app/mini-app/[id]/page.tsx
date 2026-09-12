@@ -3529,6 +3529,59 @@ export default function MiniAppDetailPage() {
                         </>
                       )}
 
+                      {/* Vật phẩm riêng của nhân vật #1 (tuỳ chọn) — mirror khối tương tự ở mỗi card
+                          nhân vật #2+ phía dưới, độc lập với ảnh mặt/thân, đặt ngay dưới ảnh nhân vật #1
+                          để không bị hiểu nhầm là thiếu. */}
+                      <div className="mt-3">
+                        <p className="mb-1 text-xs text-zinc-500 dark:text-zinc-400">
+                          👟 Vật phẩm riêng (tuỳ chọn, tối đa {STORY_MAX_ITEM_REFERENCES}, vd đôi giày, túi xách...)
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {storyPrimaryItemReferences.map((img, imgIndex) => (
+                            <div key={imgIndex} className="relative w-24" style={{ aspectRatio: "1 / 1" }}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={img}
+                                alt={`Vật phẩm ${imgIndex + 1} nhân vật 1`}
+                                onClick={() => setStoryQuickZoomUrl(img)}
+                                className="h-full w-full cursor-zoom-in rounded-lg object-cover"
+                                title="Bấm để xem to"
+                              />
+                              <button
+                                onClick={() =>
+                                  setStoryPrimaryItemReferences((prev) => prev.filter((_, j) => j !== imgIndex))
+                                }
+                                className="absolute -right-2 -top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white hover:bg-black/90"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ))}
+                          {storyPrimaryItemReferences.length < STORY_MAX_ITEM_REFERENCES && (
+                            <label
+                              className="flex w-24 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800"
+                              style={{ aspectRatio: "1 / 1" }}
+                            >
+                              <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  e.target.value = "";
+                                  if (!file) return;
+                                  const reader = new FileReader();
+                                  reader.onload = () =>
+                                    setStoryPrimaryItemReferences((prev) => [...prev, reader.result as string]);
+                                  reader.readAsDataURL(file);
+                                }}
+                              />
+                            </label>
+                          )}
+                        </div>
+                      </div>
+
                       {/* Nhân vật #2+ — cùng xuất hiện chung 1 khung hình với nhân vật #1 (vd tuần trăng
                           mật, cầu hôn). Mỗi nhân vật thêm là 1 khối riêng, độc lập với khối chính ở trên. */}
                       {storyExtraCharacters.map((slot, slotIndex) => (
@@ -3699,57 +3752,6 @@ export default function MiniAppDetailPage() {
                           Banana Pro Edit, GPT Image 2 Edit). App sẽ tự lọc lại dropdown Model ảnh bên dưới.
                         </p>
                       )}
-                      {/* Vật phẩm riêng của nhân vật #1 (tuỳ chọn) — mirror khối tương tự ở mỗi card
-                          nhân vật #2+ phía trên, độc lập với ảnh mặt/thân. */}
-                      <div className="mt-3">
-                        <p className="mb-1 text-xs text-zinc-500 dark:text-zinc-400">
-                          👟 Vật phẩm riêng (tuỳ chọn, tối đa {STORY_MAX_ITEM_REFERENCES}, vd đôi giày, túi xách...)
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                          {storyPrimaryItemReferences.map((img, imgIndex) => (
-                            <div key={imgIndex} className="relative w-24" style={{ aspectRatio: "1 / 1" }}>
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={img}
-                                alt={`Vật phẩm ${imgIndex + 1} nhân vật 1`}
-                                onClick={() => setStoryQuickZoomUrl(img)}
-                                className="h-full w-full cursor-zoom-in rounded-lg object-cover"
-                                title="Bấm để xem to"
-                              />
-                              <button
-                                onClick={() =>
-                                  setStoryPrimaryItemReferences((prev) => prev.filter((_, j) => j !== imgIndex))
-                                }
-                                className="absolute -right-2 -top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white hover:bg-black/90"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          ))}
-                          {storyPrimaryItemReferences.length < STORY_MAX_ITEM_REFERENCES && (
-                            <label
-                              className="flex w-24 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800"
-                              style={{ aspectRatio: "1 / 1" }}
-                            >
-                              <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
-                              <input
-                                type="file"
-                                accept="image/*"
-                                className="hidden"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  e.target.value = "";
-                                  if (!file) return;
-                                  const reader = new FileReader();
-                                  reader.onload = () =>
-                                    setStoryPrimaryItemReferences((prev) => [...prev, reader.result as string]);
-                                  reader.readAsDataURL(file);
-                                }}
-                              />
-                            </label>
-                          )}
-                        </div>
-                      </div>
                     </div>
 
               {/* Hàng 5: Bối cảnh/Địa điểm thật (tuỳ chọn) — full width, độc lập với Ảnh nhân vật */}
