@@ -711,15 +711,18 @@ export default function MiniAppDetailPage() {
   // Từ 2 nhân vật trở lên bắt buộc dùng model hỗ trợ nhiều ảnh tham chiếu (multi_image) — đã kiểm
   // chứng qua test thật chỉ loại model này ghép được nhiều người vào 1 cảnh. Tự chuyển sang model
   // multi_image đầu tiên nếu model đang chọn không hỗ trợ, tránh khách bấm chạy rồi mới bị lỗi. Ảnh
-  // Bối cảnh/Địa điểm cũng cần multi_image (thêm 1 ảnh tham chiếu nữa) nên dùng chung điều kiện.
+  // Bối cảnh/Địa điểm và ảnh Vật phẩm riêng cũng cần multi_image (thêm ảnh tham chiếu nữa) nên dùng
+  // chung điều kiện — thiếu điều kiện vật phẩm trước đây khiến job chỉ có vật phẩm (không kèm nhiều
+  // nhân vật/địa điểm) âm thầm bỏ qua hẳn ảnh vật phẩm vì vẫn ở model 1-ảnh mặc định (xác nhận qua
+  // job thật #127: item_reference_urls có dữ liệu nhưng image_model vẫn là flux-pro/kontext).
   useEffect(() => {
-    if (storyExtraCharacters.length === 0 && !storyLocationReference) return;
+    if (storyExtraCharacters.length === 0 && !storyLocationReference && storyPrimaryItemReferences.length === 0) return;
     const current = storyImageModels.find((m) => m.key === storyImageModelKey);
     if (current && !current.multi_image) {
       const fallback = storyImageModels.find((m) => m.multi_image);
       if (fallback) setStoryImageModelKey(fallback.key);
     }
-  }, [storyExtraCharacters.length, storyLocationReference, storyImageModels, storyImageModelKey]);
+  }, [storyExtraCharacters.length, storyLocationReference, storyPrimaryItemReferences.length, storyImageModels, storyImageModelKey]);
 
   // "Video từ ý tưởng truyện": tự khôi phục job gần nhất còn dở dang khi khách quay lại trang (đóng
   // tab/tắt máy giữa chừng) — trước đây mọi tiến trình chỉ nằm trong state trình duyệt nên tắt đi là
@@ -3564,9 +3567,16 @@ export default function MiniAppDetailPage() {
                           Đang có nhiều nhân vật — chỉ hiện model hỗ trợ nhiều ảnh tham chiếu (ghép nhiều người vào 1 cảnh).
                         </p>
                       )}
+                      {storyExtraCharacters.length === 0 && storyPrimaryItemReferences.length > 0 && (
+                        <p className="mb-2 text-sm text-zinc-400 dark:text-zinc-500">
+                          Đang có ảnh vật phẩm — chỉ hiện model hỗ trợ nhiều ảnh tham chiếu (nếu không, vật phẩm sẽ bị bỏ qua).
+                        </p>
+                      )}
                       {(() => {
                         const availableImageModels =
-                          storyExtraCharacters.length > 0 ? storyImageModels.filter((m) => m.multi_image) : storyImageModels;
+                          storyExtraCharacters.length > 0 || storyPrimaryItemReferences.length > 0
+                            ? storyImageModels.filter((m) => m.multi_image)
+                            : storyImageModels;
                         const selected = availableImageModels.find((m) => m.key === storyImageModelKey);
                         return (
                           <div className="grid grid-cols-2 gap-2">
