@@ -205,7 +205,7 @@ export default function MiniAppDetailPage() {
   // storySelectedSavedCharacterId ở trên, không đổi gì, để giữ đúng luồng 1-nhân-vật hiện có khi khách
   // không thêm ai — chỉ khi mảng này có phần tử mới coi là job nhiều nhân vật.
   const [storyExtraCharacters, setStoryExtraCharacters] = useState<
-    { images: string[]; reuseId: number | null; label: string; itemImage: string | null }[]
+    { images: string[]; reuseId: number | null; label: string; itemImages: string[] }[]
   >([]);
   // Tên nhân vật #1 — chỉ cần điền khi có thêm nhân vật khác (job nhiều người), để Agent chia cảnh
   // khớp đúng tên trong Ý tưởng truyện (vd truyện viết "Lan ôm Mai" thì cần đúng tên "Lan" ở đây,
@@ -214,10 +214,11 @@ export default function MiniAppDetailPage() {
   // Ảnh THẬT của 1 địa điểm (sân vườn, nhà, cửa hàng...) — tuỳ chọn, dùng chung cho cả job, để ảnh
   // phân cảnh AI vẽ diễn ra đúng tại khung cảnh thật đó thay vì AI tự bịa bối cảnh.
   const [storyLocationReference, setStoryLocationReference] = useState<string | null>(null);
-  // Ảnh THẬT của 1 vật phẩm riêng của nhân vật #1 (đôi giày, túi xách, đồng hồ...) — tuỳ chọn, mỗi
-  // nhân vật (kể cả nhân vật #2+ trong storyExtraCharacters) có ô riêng, không dùng chung cho cả job
-  // như địa điểm — xem chú thích itemReferenceUrl trong lib/story-video.ts.
-  const [storyPrimaryItemReference, setStoryPrimaryItemReference] = useState<string | null>(null);
+  // Ảnh THẬT của tối đa MAX_ITEM_REFERENCES vật phẩm riêng của nhân vật #1 (đôi giày, túi xách, đồng
+  // hồ...) — tuỳ chọn, mỗi nhân vật (kể cả nhân vật #2+ trong storyExtraCharacters) có ô riêng, không
+  // dùng chung cho cả job như địa điểm — xem chú thích itemReferenceUrls trong lib/story-video.ts.
+  const STORY_MAX_ITEM_REFERENCES = 3;
+  const [storyPrimaryItemReferences, setStoryPrimaryItemReferences] = useState<string[]>([]);
   // Khách chủ động chọn bỏ qua bước tạo Character (AI vẽ sheet nhiều góc) — dùng thẳng ảnh đầu tiên đã
   // tải làm tham chiếu duy nhất, tiết kiệm ~18 credit nhưng các cảnh cần góc khác (quay lưng, nghiêng)
   // dễ kém đồng nhất hơn vì chỉ có đúng 1 góc ảnh để AI tham chiếu, không phải sheet đủ 6 góc.
@@ -1579,14 +1580,15 @@ export default function MiniAppDetailPage() {
       }
     }
 
-    // Vật phẩm riêng của nhân vật #1 (tuỳ chọn) — tải lên TRƯỚC khối nhiều nhân vật vì cả 2 nhánh bên
-    // dưới (1 nhân vật lẫn nhiều nhân vật) đều cần dùng lại đúng 1 URL này cho nhân vật #1.
-    let primaryItemReferenceUrl: string | undefined;
-    if (storyPrimaryItemReference) {
+    // Vật phẩm riêng của nhân vật #1 (tuỳ chọn, tối đa STORY_MAX_ITEM_REFERENCES) — tải lên TRƯỚC khối
+    // nhiều nhân vật vì cả 2 nhánh bên dưới (1 nhân vật lẫn nhiều nhân vật) đều cần dùng lại đúng mảng
+    // URL này cho nhân vật #1.
+    let primaryItemReferenceUrls: string[] = [];
+    if (storyPrimaryItemReferences.length > 0) {
       try {
-        primaryItemReferenceUrl = storyPrimaryItemReference.startsWith("http")
-          ? storyPrimaryItemReference
-          : await uploadOutfitSwapImage(storyPrimaryItemReference);
+        primaryItemReferenceUrls = await Promise.all(
+          storyPrimaryItemReferences.map((img) => (img.startsWith("http") ? img : uploadOutfitSwapImage(img)))
+        );
       } catch (err) {
         setStoryError(err instanceof Error ? err.message : "Không tải được ảnh vật phẩm lên, thử lại");
         setStoryRunning(false);
@@ -1598,7 +1600,7 @@ export default function MiniAppDetailPage() {
     // Job nhiều nhân vật — tải thêm ảnh của từng nhân vật phụ (#2, #3, #4) lên, gộp cùng nhân vật #1
     // thành mảng "characters" gửi server. Không đụng gì tới nhánh 1-nhân-vật ở dưới nếu không có ai thêm.
     let characters:
-      | { imageUrls: string[]; reuseCharacterId?: number; skipCharacterCreation?: boolean; label?: string; itemReferenceUrl?: string }[]
+      | { imageUrls: string[]; reuseCharacterId?: number; skipCharacterCreation?: boolean; label?: string; itemReferenceUrls?: string[] }[]
       | undefined;
     if (hasMultipleCharacters) {
       setStoryStatusText("Đang tải ảnh nhân vật lên...");
@@ -1610,11 +1612,7 @@ export default function MiniAppDetailPage() {
               : await Promise.all(slot.images.map((img) => (img.startsWith("http") ? img : uploadOutfitSwapImage(img)))),
             reuseCharacterId: slot.reuseId ?? undefined,
             label: slot.label.trim() || undefined,
-            itemReferenceUrl: slot.itemImage
-              ? slot.itemImage.startsWith("http")
-                ? slot.itemImage
-                : await uploadOutfitSwapImage(slot.itemImage)
-              : undefined,
+            itemReferenceUrls: await Promise.all(slot.itemImages.map((img) => (img.startsWith("http") ? img : uploadOutfitSwapImage(img)))),
           }))
         );
         characters = [
@@ -1623,7 +1621,7 @@ export default function MiniAppDetailPage() {
             reuseCharacterId: reuseId ?? undefined,
             skipCharacterCreation: !reuseId && storySkipCharacterCreation,
             label: storyPrimaryCharacterLabel.trim() || undefined,
-            itemReferenceUrl: primaryItemReferenceUrl,
+            itemReferenceUrls: primaryItemReferenceUrls,
           },
           ...extraUploaded,
         ];
@@ -1678,7 +1676,7 @@ export default function MiniAppDetailPage() {
           genreKey: storyGenreKey !== "default" ? storyGenreKey : undefined,
           characters,
           locationReferenceUrl,
-          itemReferenceUrl: primaryItemReferenceUrl,
+          itemReferenceUrls: primaryItemReferenceUrls,
           continuousMotion: storyContinuousMotion,
           frameChainMode: storyFrameChainMode,
           preplannedActions: storyUsesScriptFlow ? storyScriptActions : undefined,
@@ -3383,58 +3381,67 @@ export default function MiniAppDetailPage() {
                               lập với ảnh mặt/thân ở trên, luôn hiện kể cả khi dùng ảnh từ thư viện. */}
                           <div className="mt-3">
                             <p className="mb-1 text-xs text-zinc-500 dark:text-zinc-400">
-                              👟 Vật phẩm riêng (tuỳ chọn, vd đôi giày, túi xách...)
+                              👟 Vật phẩm riêng (tuỳ chọn, tối đa {STORY_MAX_ITEM_REFERENCES}, vd đôi giày, túi xách...)
                             </p>
-                            {slot.itemImage ? (
-                              <div className="relative w-24" style={{ aspectRatio: "1 / 1" }}>
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={slot.itemImage}
-                                  alt={`Vật phẩm của ${slot.label || `Nhân vật ${slotIndex + 2}`}`}
-                                  onClick={() => setStoryQuickZoomUrl(slot.itemImage as string)}
-                                  className="h-full w-full cursor-zoom-in rounded-lg object-cover"
-                                  title="Bấm để xem to"
-                                />
-                                <button
-                                  onClick={() =>
-                                    setStoryExtraCharacters((prev) => prev.map((s, i) => (i === slotIndex ? { ...s, itemImage: null } : s)))
-                                  }
-                                  className="absolute -right-2 -top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white hover:bg-black/90"
-                                >
-                                  ✕
-                                </button>
-                              </div>
-                            ) : (
-                              <label
-                                className="flex w-24 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800"
-                                style={{ aspectRatio: "1 / 1" }}
-                              >
-                                <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  className="hidden"
-                                  onChange={(e) => {
-                                    const file = e.target.files?.[0];
-                                    e.target.value = "";
-                                    if (!file) return;
-                                    const reader = new FileReader();
-                                    reader.onload = () =>
+                            <div className="flex flex-wrap gap-2">
+                              {slot.itemImages.map((img, imgIndex) => (
+                                <div key={imgIndex} className="relative w-24" style={{ aspectRatio: "1 / 1" }}>
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={img}
+                                    alt={`Vật phẩm ${imgIndex + 1} của ${slot.label || `Nhân vật ${slotIndex + 2}`}`}
+                                    onClick={() => setStoryQuickZoomUrl(img)}
+                                    className="h-full w-full cursor-zoom-in rounded-lg object-cover"
+                                    title="Bấm để xem to"
+                                  />
+                                  <button
+                                    onClick={() =>
                                       setStoryExtraCharacters((prev) =>
-                                        prev.map((s, i) => (i === slotIndex ? { ...s, itemImage: reader.result as string } : s))
-                                      );
-                                    reader.readAsDataURL(file);
-                                  }}
-                                />
-                              </label>
-                            )}
+                                        prev.map((s, i) =>
+                                          i === slotIndex ? { ...s, itemImages: s.itemImages.filter((_, j) => j !== imgIndex) } : s
+                                        )
+                                      )
+                                    }
+                                    className="absolute -right-2 -top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white hover:bg-black/90"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              ))}
+                              {slot.itemImages.length < STORY_MAX_ITEM_REFERENCES && (
+                                <label
+                                  className="flex w-24 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800"
+                                  style={{ aspectRatio: "1 / 1" }}
+                                >
+                                  <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      e.target.value = "";
+                                      if (!file) return;
+                                      const reader = new FileReader();
+                                      reader.onload = () =>
+                                        setStoryExtraCharacters((prev) =>
+                                          prev.map((s, i) =>
+                                            i === slotIndex ? { ...s, itemImages: [...s.itemImages, reader.result as string] } : s
+                                          )
+                                        );
+                                      reader.readAsDataURL(file);
+                                    }}
+                                  />
+                                </label>
+                              )}
+                            </div>
                           </div>
                         </div>
                       ))}
 
                       {storyExtraCharacters.length < STORY_MAX_CHARACTERS - 1 && (
                         <button
-                          onClick={() => setStoryExtraCharacters((prev) => [...prev, { images: [], reuseId: null, label: "", itemImage: null }])}
+                          onClick={() => setStoryExtraCharacters((prev) => [...prev, { images: [], reuseId: null, label: "", itemImages: [] }])}
                           className="mt-3 rounded-full border border-zinc-300 px-4 py-1.5 text-sm font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
                         >
                           + Thêm nhân vật (tối đa {STORY_MAX_CHARACTERS} người cùng khung hình)
@@ -3450,46 +3457,52 @@ export default function MiniAppDetailPage() {
                           nhân vật #2+ phía trên, độc lập với ảnh mặt/thân. */}
                       <div className="mt-3">
                         <p className="mb-1 text-xs text-zinc-500 dark:text-zinc-400">
-                          👟 Vật phẩm riêng (tuỳ chọn, vd đôi giày, túi xách...)
+                          👟 Vật phẩm riêng (tuỳ chọn, tối đa {STORY_MAX_ITEM_REFERENCES}, vd đôi giày, túi xách...)
                         </p>
-                        {storyPrimaryItemReference ? (
-                          <div className="relative w-24" style={{ aspectRatio: "1 / 1" }}>
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={storyPrimaryItemReference}
-                              alt="Vật phẩm nhân vật 1"
-                              onClick={() => setStoryQuickZoomUrl(storyPrimaryItemReference)}
-                              className="h-full w-full cursor-zoom-in rounded-lg object-cover"
-                              title="Bấm để xem to"
-                            />
-                            <button
-                              onClick={() => setStoryPrimaryItemReference(null)}
-                              className="absolute -right-2 -top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white hover:bg-black/90"
+                        <div className="flex flex-wrap gap-2">
+                          {storyPrimaryItemReferences.map((img, imgIndex) => (
+                            <div key={imgIndex} className="relative w-24" style={{ aspectRatio: "1 / 1" }}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={img}
+                                alt={`Vật phẩm ${imgIndex + 1} nhân vật 1`}
+                                onClick={() => setStoryQuickZoomUrl(img)}
+                                className="h-full w-full cursor-zoom-in rounded-lg object-cover"
+                                title="Bấm để xem to"
+                              />
+                              <button
+                                onClick={() =>
+                                  setStoryPrimaryItemReferences((prev) => prev.filter((_, j) => j !== imgIndex))
+                                }
+                                className="absolute -right-2 -top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white hover:bg-black/90"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ))}
+                          {storyPrimaryItemReferences.length < STORY_MAX_ITEM_REFERENCES && (
+                            <label
+                              className="flex w-24 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800"
+                              style={{ aspectRatio: "1 / 1" }}
                             >
-                              ✕
-                            </button>
-                          </div>
-                        ) : (
-                          <label
-                            className="flex w-24 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 text-center dark:border-zinc-700 dark:bg-zinc-800"
-                            style={{ aspectRatio: "1 / 1" }}
-                          >
-                            <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                e.target.value = "";
-                                if (!file) return;
-                                const reader = new FileReader();
-                                reader.onload = () => setStoryPrimaryItemReference(reader.result as string);
-                                reader.readAsDataURL(file);
-                              }}
-                            />
-                          </label>
-                        )}
+                              <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">+ Tải ảnh</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  e.target.value = "";
+                                  if (!file) return;
+                                  const reader = new FileReader();
+                                  reader.onload = () =>
+                                    setStoryPrimaryItemReferences((prev) => [...prev, reader.result as string]);
+                                  reader.readAsDataURL(file);
+                                }}
+                              />
+                            </label>
+                          )}
+                        </div>
                       </div>
                     </div>
 

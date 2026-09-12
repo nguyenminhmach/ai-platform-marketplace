@@ -43,17 +43,29 @@ export const MAX_CHARACTER_IMAGES = 20;
 // Nhiều nhân vật cùng xuất hiện chung 1 khung hình (vd tuần trăng mật, cầu hôn) — cận trên giống đúng
 // MAX_CHARACTERS của lib/dialogue-video.ts để nhất quán, dù đây là 2 tính năng khác nhau.
 export const MAX_STORY_CHARACTERS = 4;
+// Vật phẩm riêng của 1 nhân vật (vd vừa giày vừa túi xách cùng lúc) — cận trên giữ nhỏ vì mỗi vật
+// phẩm tốn thêm đúng 1 ảnh tham chiếu, cộng dồn với ảnh mặt/thân/địa điểm đã có sẵn trong cùng 1 lượt
+// gọi model ảnh (một số model multi-image có giới hạn tổng số ảnh tham chiếu).
+export const MAX_ITEM_REFERENCES = 3;
 
 export type MultiCharacterInput = {
   imageUrls: string[];
   reuseCharacterId?: number;
   skipCharacterCreation?: boolean;
   label?: string;
-  // Ảnh THẬT của 1 vật phẩm riêng của nhân vật này (vd đôi giày, túi xách, đồng hồ...) — tuỳ chọn, để
-  // AI vẽ đúng y hệt món đó khi truyện tả nhân vật mặc/mang/cầm nó, thay vì tự bịa kiểu dáng khác. Mỗi
-  // nhân vật có vật phẩm riêng (khác location_reference_url dùng chung cho cả job).
-  itemReferenceUrl?: string;
+  // Ảnh THẬT của (tối đa MAX_ITEM_REFERENCES) vật phẩm riêng của nhân vật này (vd đôi giày, túi xách,
+  // đồng hồ...) — tuỳ chọn, để AI vẽ đúng y hệt món đó khi truyện tả nhân vật mặc/mang/cầm nó, thay vì
+  // tự bịa kiểu dáng khác. Mỗi nhân vật có vật phẩm riêng (khác location_reference_url dùng chung cho
+  // cả job).
+  itemReferenceUrls?: string[];
 };
+
+// Lọc bỏ chuỗi rỗng + cắt về đúng cận trên MAX_ITEM_REFERENCES — dùng chung mọi nơi nhận mảng vật
+// phẩm từ client (không tin số lượng/nội dung client tự gửi). Trả null khi rỗng (khớp cột DB nullable).
+function normalizeItemReferenceUrls(urls?: (string | null | undefined)[] | null): string[] | null {
+  const filtered = (urls ?? []).filter((u): u is string => typeof u === "string" && u.trim().length > 0);
+  return filtered.length > 0 ? filtered.slice(0, MAX_ITEM_REFERENCES) : null;
+}
 
 // Skill "story-extractor" — chạy TRƯỚC story-planner, viết lại ý tưởng thô của khách (có thể lủng
 // củng/thiếu chi tiết) thành 1 đoạn mô tả rõ ràng, giữ NGUYÊN mọi tình tiết — không tóm tắt, không bịa
@@ -347,6 +359,7 @@ type JobRow = {
   genre_key: string | null;
   location_reference_url: string | null;
   item_reference_url: string | null;
+  item_reference_urls: string[] | null;
   continuous_motion: boolean;
   frame_chain_mode: boolean;
   // Bước "Tạo kịch bản" — lưu lại mảng "actions" khách đã xác nhận lúc submit, để continueStoryVideoToSceneStage
@@ -1257,7 +1270,7 @@ type SceneStageInput = Pick<
   | "character_angle_urls"
   | "genre_key"
   | "location_reference_url"
-  | "item_reference_url"
+  | "item_reference_urls"
   | "continuous_motion"
   | "frame_chain_mode"
 >;
@@ -1329,7 +1342,7 @@ async function submitSceneImageForRow(
     | "aspect_ratio"
     | "image_resolution_key"
     | "location_reference_url"
-    | "item_reference_url"
+    | "item_reference_urls"
   >,
   row: ImageSceneRefRow,
   imageEntry: ImageModelEntry | undefined,
@@ -1369,10 +1382,11 @@ async function submitSceneImageForRow(
   // khung hình chain gần như chắc chắn giữ được; khác cả mặt — luôn có ảnh Character riêng không phụ
   // thuộc chain). Giữ ảnh vật phẩm làm nguồn tham chiếu cố định xuyên suốt, giống hệt vai trò ảnh
   // Character cho khuôn mặt.
-  const hasItem = !!job.item_reference_url && (imageEntry?.multi_image ?? false);
+  const itemUrls = (imageEntry?.multi_image ?? false) ? (job.item_reference_urls ?? []) : [];
+  const hasItem = itemUrls.length > 0;
   const hasLocation = !chainedFrameUrl && !!job.location_reference_url && (imageEntry?.multi_image ?? false);
   const referenceImages = [...characterImages];
-  if (hasItem) referenceImages.push(job.item_reference_url as string);
+  if (hasItem) referenceImages.push(...itemUrls);
   if (hasLocation) referenceImages.push(job.location_reference_url as string);
   if (chainedFrameUrl) referenceImages.push(chainedFrameUrl);
   // Tầng 2 (Appearance) — chỉ cảnh có outfit_override mới chèn thêm chỉ dẫn đổi đồ vào cuối prompt,
@@ -1429,17 +1443,19 @@ async function submitSceneImageForRow(
       ? ` The FIRST reference image shows the body pose/angle to follow, the SECOND shows the face/gaze direction to follow — combine them: keep the body pose from the first image, but the face orientation and eye direction from the second image.`
       : ` The FIRST reference image shows the body pose/angle to follow, the SECOND is a close-up reference for the character's face — use it to keep facial identity accurate and consistent while following the body pose from the first image.`;
   }
-  if (hasItem) {
-    const idx = characterImages.length + 1;
+  // Nhiều vật phẩm (tối đa MAX_ITEM_REFERENCES) — mỗi ảnh có câu chỉ dẫn RIÊNG nêu rõ số thứ tự ảnh,
+  // tránh model lẫn lộn/trộn đặc điểm của vật phẩm này sang vật phẩm khác khi có từ 2 món trở lên.
+  itemUrls.forEach((_, i) => {
+    const idx = characterImages.length + i + 1;
     // Xác nhận qua phản hồi thật: câu chỉ dẫn cũ ("depict accurately") quá yếu — model vẫn vẽ ra vật
     // phẩm có kiểu/màu khác (đúng loại đồ vật, sai chi tiết thật), giống hệt lỗi trang phục đã sửa
     // trước đây. Viết mạnh hơn theo đúng công thức đã hiệu quả với outfit_override: gọi thẳng đây là
     // ẢNH THẬT của khách, liệt kê rõ các khía cạnh KHÔNG được đổi (màu/kiểu/hoạ tiết/chất liệu), và cấm
     // rõ việc vẽ 1 phiên bản "giống giống" hoặc chung chung thay cho ảnh thật.
-    scenePrompt += ` Reference image #${idx} is a REAL photo of the character's own physical item (e.g. shoes, a bag, an accessory, or another object) — this is not a generic example, it is the customer's actual item. Whenever the scene description mentions the character wearing, holding, or using such an item, you MUST copy this exact real item's appearance precisely: same color, same shape/silhouette, same pattern/design details, same material/texture — exactly as shown in reference image #${idx}. Do NOT substitute a different color, a different style, a generic or similar-looking version, or any item that merely resembles it — treat matching this item's exact real appearance with the same strictness as matching the character's face.`;
-  }
+    scenePrompt += ` Reference image #${idx} is a REAL photo of one of the character's own physical items (e.g. shoes, a bag, an accessory, or another object) — this is not a generic example, it is the customer's actual item. Whenever the scene description mentions the character wearing, holding, or using such an item, you MUST copy this exact real item's appearance precisely: same color, same shape/silhouette, same pattern/design details, same material/texture — exactly as shown in reference image #${idx}. Do NOT substitute a different color, a different style, a generic or similar-looking version, or any item that merely resembles it — treat matching this item's exact real appearance with the same strictness as matching the character's face.`;
+  });
   if (hasLocation) {
-    const idx = characterImages.length + (hasItem ? 1 : 0) + 1;
+    const idx = characterImages.length + itemUrls.length + 1;
     scenePrompt += ` Reference image #${idx} shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
   }
   // Ép ảnh chụp thật — model dễ ngả sang phong cách minh hoạ/tranh vẽ khi scene_description dùng
@@ -1484,7 +1500,7 @@ type JobCharacterRefRow = {
   label: string | null;
   character_sheet_url: string | null;
   character_angle_urls: CharacterAngleUrls | null;
-  item_reference_url: string | null;
+  item_reference_urls: string[] | null;
 };
 
 // Reference Selector cho job NHIỀU NHÂN VẬT (Bước 2) — đơn giản hơn hẳn selectReferenceImagesForScene
@@ -1494,16 +1510,16 @@ type JobCharacterRefRow = {
 function selectReferenceImagesForMultiScene(
   characterPositions: number[],
   jobCharacters: JobCharacterRefRow[]
-): { url: string; label: string; itemUrl: string | null }[] {
+): { url: string; label: string; itemUrls: string[] }[] {
   return characterPositions
     .map((pos) => {
       const jc = jobCharacters.find((c) => c.position === pos);
       if (!jc) return null;
       const url = jc.character_angle_urls?.front || jc.character_sheet_url || "";
       if (!url) return null;
-      return { url, label: jc.label || `Nhân vật ${pos + 1}`, itemUrl: jc.item_reference_url || null };
+      return { url, label: jc.label || `Nhân vật ${pos + 1}`, itemUrls: jc.item_reference_urls ?? [] };
     })
-    .filter((r): r is { url: string; label: string; itemUrl: string | null } => !!r);
+    .filter((r): r is { url: string; label: string; itemUrls: string[] } => !!r);
 }
 
 type MultiCharacterSceneRefRow = {
@@ -1528,17 +1544,20 @@ async function submitMultiCharacterSceneImageForRow(
   propagateToSceneId?: number
 ): Promise<string> {
   const refs = selectReferenceImagesForMultiScene(row.character_positions ?? [], jobCharacters);
-  // Ảnh Vật phẩm riêng của từng nhân vật (tuỳ chọn) — nối vào SAU toàn bộ ảnh mặt/thân, TRƯỚC ảnh
-  // Địa điểm. Chỉ những nhân vật CÓ mặt trong cảnh này (đã lọc qua "refs") và CÓ upload vật phẩm mới
-  // được nối thêm — không phải cứ có upload là luôn gửi cho mọi cảnh.
+  // Ảnh Vật phẩm riêng của từng nhân vật (tuỳ chọn, mỗi người tối đa MAX_ITEM_REFERENCES món) — nối
+  // vào SAU toàn bộ ảnh mặt/thân, TRƯỚC ảnh Địa điểm. Chỉ những nhân vật CÓ mặt trong cảnh này (đã lọc
+  // qua "refs") và CÓ upload vật phẩm mới được nối thêm — không phải cứ có upload là luôn gửi cho mọi
+  // cảnh. Mỗi vật phẩm là 1 phần tử riêng (không gộp theo người) để còn viết câu chỉ dẫn riêng từng ảnh.
   const supportsMultiImage = imageEntry?.multi_image ?? false;
-  const itemRefs = supportsMultiImage ? refs.filter((r) => !!r.itemUrl) : [];
+  const itemRefs = supportsMultiImage
+    ? refs.flatMap((r) => r.itemUrls.map((url) => ({ label: r.label, url })))
+    : [];
   // Ảnh Bối cảnh/Địa điểm (tuỳ chọn, dùng chung cho cả job) — nối THÊM vào cuối cùng, sau ảnh vật
   // phẩm. Chỉ gửi khi model thật sự hỗ trợ đa ảnh, không thì im lặng bỏ qua.
   const hasLocation = !!job.location_reference_url && supportsMultiImage;
   const referenceImages = [
     ...refs.map((r) => r.url),
-    ...itemRefs.map((r) => r.itemUrl as string),
+    ...itemRefs.map((r) => r.url),
     ...(hasLocation ? [job.location_reference_url as string] : []),
   ];
   let scenePrompt = buildContinuityPrefix(row.location, previousEndPose) + (row.scene_description ?? "");
@@ -1552,7 +1571,7 @@ async function submitMultiCharacterSceneImageForRow(
     const idx = refs.length + i + 1;
     // Mirror đúng câu chỉ dẫn mạnh hơn đã sửa cho luồng 1 nhân vật (submitSceneImageForRow) — cùng
     // nguyên nhân lỗi (vật phẩm ra sai màu/kiểu so với ảnh thật khách tải lên).
-    scenePrompt += ` Reference image #${idx} is a REAL photo of ${r.label}'s own physical item — this is not a generic example, it is the customer's actual item. Whenever the scene description mentions ${r.label} wearing, holding, or using such an item, you MUST copy this exact real item's appearance precisely: same color, same shape/silhouette, same pattern/design details, same material/texture — exactly as shown in reference image #${idx}. Do NOT substitute a different color, a different style, a generic or similar-looking version, or any item that merely resembles it.`;
+    scenePrompt += ` Reference image #${idx} is a REAL photo of one of ${r.label}'s own physical items — this is not a generic example, it is the customer's actual item. Whenever the scene description mentions ${r.label} wearing, holding, or using such an item, you MUST copy this exact real item's appearance precisely: same color, same shape/silhouette, same pattern/design details, same material/texture — exactly as shown in reference image #${idx}. Do NOT substitute a different color, a different style, a generic or similar-looking version, or any item that merely resembles it.`;
   });
   if (hasLocation) {
     scenePrompt += ` The LAST reference image shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
@@ -1818,10 +1837,11 @@ export async function submitStoryVideoJob(
   // Frame-chaining (chỉ luồng 1 nhân vật ở v1, xem applyFrameChainVideoResult) — bỏ qua hoàn toàn nếu
   // job rơi vào nhánh nhiều nhân vật bên dưới.
   frameChainMode?: boolean,
-  // Ảnh Vật phẩm riêng (tuỳ chọn) của nhân vật #1 — chỉ dùng ở nhánh 1 nhân vật bên dưới. Nhánh nhiều
-  // nhân vật KHÔNG đọc tham số này — mỗi nhân vật (kể cả #1) tự có itemReferenceUrl riêng trong mảng
-  // "characters" (xem MultiCharacterInput), truyền thẳng vào submitMultiCharacterStoryVideoJob.
-  itemReferenceUrl?: string,
+  // Ảnh Vật phẩm riêng (tuỳ chọn, tối đa MAX_ITEM_REFERENCES) của nhân vật #1 — chỉ dùng ở nhánh 1
+  // nhân vật bên dưới. Nhánh nhiều nhân vật KHÔNG đọc tham số này — mỗi nhân vật (kể cả #1) tự có
+  // itemReferenceUrls riêng trong mảng "characters" (xem MultiCharacterInput), truyền thẳng vào
+  // submitMultiCharacterStoryVideoJob.
+  itemReferenceUrls?: string[],
   // Bước "Tạo kịch bản" (xem runSceneStage) — CHỈ áp dụng nhánh 1 nhân vật, AI tự vẽ ảnh bên dưới. Khi
   // có, số cảnh THẬT SỰ dùng luôn lấy từ preplannedActions.length (bỏ qua numScenes client gửi lên cho
   // đúng nhánh này) — Agent đã tự quyết định số cảnh lúc lập kịch bản, không phải khách tự chọn.
@@ -1902,7 +1922,7 @@ export async function submitStoryVideoJob(
       video_provider_cost_vnd_per_scene: videoProviderCostVnd,
       genre_key: resolvedGenreKey,
       location_reference_url: locationReferenceUrl ?? null,
-      item_reference_url: itemReferenceUrl ?? null,
+      item_reference_urls: normalizeItemReferenceUrls(itemReferenceUrls),
       continuous_motion: continuousMotion === true,
       frame_chain_mode: frameChainMode === true,
       // Lưu lại để continueStoryVideoToSceneStage (chạy sau, khi Character phải tạo mới qua webhook)
@@ -1930,7 +1950,7 @@ export async function submitStoryVideoJob(
     character_angle_urls: null,
     genre_key: resolvedGenreKey,
     location_reference_url: locationReferenceUrl ?? null,
-    item_reference_url: itemReferenceUrl ?? null,
+    item_reference_urls: normalizeItemReferenceUrls(itemReferenceUrls),
     continuous_motion: continuousMotion === true,
     frame_chain_mode: frameChainMode === true,
   };
@@ -2026,7 +2046,7 @@ type ResolvedMultiCharacter = {
   initialSheetUrl: string | null;
   initialAngleUrls: CharacterAngleUrls | null;
   characterSource: "reused" | "uploaded_sheet" | "skipped" | "generated";
-  itemReferenceUrl: string | null;
+  itemReferenceUrls: string[] | null;
 };
 
 // Nhánh "nhiều nhân vật cùng khung hình" (Bước 1) — chỉ dừng ở "character_ready" khi xong, KHÔNG tự
@@ -2081,7 +2101,7 @@ async function submitMultiCharacterStoryVideoJob(
           initialSheetUrl: saved.image_url,
           initialAngleUrls: (saved.angle_urls as CharacterAngleUrls | null) ?? null,
           characterSource: "reused",
-          itemReferenceUrl: c.itemReferenceUrl ?? null,
+          itemReferenceUrls: normalizeItemReferenceUrls(c.itemReferenceUrls),
         };
       }
       const imageUrls = c.imageUrls ?? [];
@@ -2098,7 +2118,7 @@ async function submitMultiCharacterStoryVideoJob(
           initialSheetUrl: imageUrls[0],
           initialAngleUrls: null,
           characterSource: skipEntirely ? "skipped" : "uploaded_sheet",
-          itemReferenceUrl: c.itemReferenceUrl ?? null,
+          itemReferenceUrls: normalizeItemReferenceUrls(c.itemReferenceUrls),
         };
       }
       return {
@@ -2108,7 +2128,7 @@ async function submitMultiCharacterStoryVideoJob(
         initialSheetUrl: null,
         initialAngleUrls: null,
         characterSource: "generated",
-        itemReferenceUrl: c.itemReferenceUrl ?? null,
+        itemReferenceUrls: normalizeItemReferenceUrls(c.itemReferenceUrls),
       };
     })
   );
@@ -2153,7 +2173,7 @@ async function submitMultiCharacterStoryVideoJob(
         character_sheet_url: r.initialSheetUrl,
         character_angle_urls: r.initialAngleUrls,
         character_source: r.characterSource,
-        item_reference_url: r.itemReferenceUrl,
+        item_reference_urls: r.itemReferenceUrls,
       }))
     )
     .select("id, position")
@@ -2357,7 +2377,7 @@ export async function continueStoryVideoToSceneStage(
   // character_sheet_url job-level (job này không dùng cột đó — xem story_video_job_characters).
   const { data: jobCharacters } = await supabase
     .from("story_video_job_characters")
-    .select("position, label, character_sheet_url, character_angle_urls, item_reference_url")
+    .select("position, label, character_sheet_url, character_angle_urls, item_reference_urls")
     .eq("job_id", jobId)
     .order("position", { ascending: true });
   if (jobCharacters && jobCharacters.length >= 2) {
@@ -2500,11 +2520,19 @@ async function generateSceneDescriptionFromImage(
   // sẵn, không bao giờ dùng plan.durationSeconds của lượt gọi này khi đã có số chốt từ trước).
   knownDurationSeconds?: number,
   pace?: "fast" | "normal" | "slow" | null,
-  rotationDegrees?: number | null
+  rotationDegrees?: number | null,
+  // Job có vật phẩm riêng (giày/túi xách...) — ảnh tĩnh đã có vật phẩm trong khung hình (nếu cảnh đó
+  // dùng tới), nhưng Agent viết chuyển động chỉ nhìn ảnh nên dễ bỏ qua, tả chuyển động chung chung
+  // không nhắc tới vật phẩm dù đang cầm/đeo nó rõ trong ảnh. Câu nhắc này không bắt buộc Agent phải bịa
+  // thêm hành động — chỉ nhắc ưu tiên mô tả ĐÚNG tương tác thật đang thấy trong ảnh khi có liên quan.
+  hasItemReference?: boolean
 ): Promise<SceneMotionPlan> {
   let systemPrompt = genreStyleGuide?.trim()
     ? `${SCENE_PROMPT_FROM_IMAGE_SYSTEM}\n\nGhi chú thêm về phong cách/nhịp điệu chuyển động cho đúng thể loại: ${genreStyleGuide.trim()}`
     : SCENE_PROMPT_FROM_IMAGE_SYSTEM;
+  if (hasItemReference) {
+    systemPrompt += `\n\nThe character may be wearing, holding, or carrying one of their own real physical items in this image. If the image clearly shows them interacting with such an item (wearing it, holding it, using it), describe that interaction naturally as part of the motion — do not ignore a visible item interaction in favor of a generic description. Only mention the item if it is actually visible in the image; do not invent one.`;
+  }
   // Skill "motion-planner" — admin ghi thêm ghi chú qua /admin (vd luôn nhấn mạnh chuyển động camera).
   if (skillOverride?.trim()) systemPrompt += `\n\nGhi chú thêm từ admin: ${skillOverride.trim()}`;
   const turnHint = describeCameraTurn(cameraTurn?.previousCameraView, cameraTurn?.currentCameraView);
@@ -2700,7 +2728,7 @@ export async function regenerateSceneImage(userId: string, sceneId: number, idem
     if (sceneData.character_positions && sceneData.character_positions.length > 0) {
       const { data: jobCharacters } = await supabase
         .from("story_video_job_characters")
-        .select("position, label, character_sheet_url, character_angle_urls, item_reference_url")
+        .select("position, label, character_sheet_url, character_angle_urls, item_reference_urls")
         .eq("job_id", job.id)
         .order("position", { ascending: true });
       requestId = await submitMultiCharacterSceneImageForRow(
@@ -2773,7 +2801,7 @@ export async function regenerateContinuousMotionSceneImage(
     if (targetScene.character_positions && targetScene.character_positions.length > 0) {
       const { data: jobCharacters } = await supabase
         .from("story_video_job_characters")
-        .select("position, label, character_sheet_url, character_angle_urls, item_reference_url")
+        .select("position, label, character_sheet_url, character_angle_urls, item_reference_urls")
         .eq("job_id", job.id)
         .order("position", { ascending: true });
       requestId = await submitMultiCharacterSceneImageForRow(
@@ -3345,11 +3373,12 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
     const { data: job } = await supabase
       .from("story_video_jobs")
       .select(
-        "user_id, mini_app_id, video_model, aspect_ratio, video_duration_key, story_description, genre_key, continuous_motion, character_sheet_url, character_angle_urls"
+        "user_id, mini_app_id, video_model, aspect_ratio, video_duration_key, story_description, genre_key, continuous_motion, character_sheet_url, character_angle_urls, item_reference_urls"
       )
       .eq("id", jobId)
       .single();
     if (!job?.video_model) throw new Error("Không tìm thấy model video của job");
+    const hasItemReference = (job.item_reference_urls?.length ?? 0) > 0;
 
     const miniApp = await getMiniAppModelConfig(job.mini_app_id);
     const genreStyleGuide = resolveGenreStyleGuide(job.genre_key, miniApp.model_config.genre_style_guides);
@@ -3405,7 +3434,8 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
               { previousCameraView: previousScene?.camera_view, currentCameraView: scene.camera_view },
               naturalDurationSeconds ?? undefined,
               scene.pace as "fast" | "normal" | "slow" | null,
-              scene.rotation_degrees
+              scene.rotation_degrees,
+              hasItemReference
             );
             motionPrompt = plan.motionPrompt;
             // Motion Timing Controller: tái dùng đúng lượt gọi AI vừa viết motion_prompt để chọn luôn
@@ -3697,7 +3727,7 @@ async function checkFrameChainIdentity(
     | "character_sheet_url"
     | "character_angle_urls"
     | "location_reference_url"
-    | "item_reference_url"
+    | "item_reference_urls"
   >
 ): Promise<boolean> {
   const supabase = getSupabaseAdmin();
@@ -3784,7 +3814,7 @@ async function applyFrameChainImageResult(jobId: number, sceneId: number) {
   const { data: job } = await supabase
     .from("story_video_jobs")
     .select(
-      "id, user_id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url, item_reference_url, story_description, genre_key, video_provider_cost_vnd_per_scene"
+      "id, user_id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url, item_reference_urls, story_description, genre_key, video_provider_cost_vnd_per_scene"
     )
     .eq("id", jobId)
     .single();
@@ -3818,7 +3848,8 @@ async function applyFrameChainImageResult(jobId: number, sceneId: number) {
         undefined,
         scene.natural_duration_seconds ?? undefined,
         scene.pace as "fast" | "normal" | "slow" | null,
-        scene.rotation_degrees
+        scene.rotation_degrees,
+        (job.item_reference_urls?.length ?? 0) > 0
       );
       // Bước "Tạo kịch bản" có thể đã khoá sẵn motion_duration_key + trừ đúng giá thật lúc runSceneStage
       // — KHÔNG ước lượng/trừ phụ phí lại ở đây nữa (resolveFrameChainDurationKey có thể trừ thêm tiền,
@@ -3879,7 +3910,7 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
     const { data: job } = await supabase
       .from("story_video_jobs")
       .select(
-        "id, user_id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url, item_reference_url, story_description, genre_key, video_provider_cost_vnd_per_scene"
+        "id, user_id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url, item_reference_urls, story_description, genre_key, video_provider_cost_vnd_per_scene"
       )
       .eq("id", jobId)
       .single();
@@ -3915,7 +3946,8 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
           { previousCameraView: scene.camera_view, currentCameraView: nextSceneWithImage.camera_view },
           nextSceneWithImage.natural_duration_seconds ?? undefined,
           nextSceneWithImage.pace as "fast" | "normal" | "slow" | null,
-          nextSceneWithImage.rotation_degrees
+          nextSceneWithImage.rotation_degrees,
+          (job.item_reference_urls?.length ?? 0) > 0
         );
         // Bước "Tạo kịch bản" có thể đã khoá sẵn motion_duration_key + trừ đúng giá thật lúc runSceneStage
         // — KHÔNG ước lượng/trừ phụ phí lại ở đây (xem chú thích tương tự trong applyFrameChainImageResult).

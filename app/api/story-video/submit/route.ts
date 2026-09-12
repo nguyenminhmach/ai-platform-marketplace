@@ -7,6 +7,7 @@ import {
   MIN_CHARACTER_IMAGES,
   MAX_CHARACTER_IMAGES,
   MAX_STORY_CHARACTERS,
+  MAX_ITEM_REFERENCES,
   REQUIRES_CONTINUOUS_MOTION_VIDEO_KEYS,
   type MultiCharacterInput,
   type ScriptSceneResult,
@@ -15,6 +16,13 @@ import { InsufficientCreditError } from "@/lib/credit-system";
 import { getAuthenticatedUserId } from "@/lib/auth-server";
 
 const STORY_MAX_LENGTH = 2000;
+
+// Không tin số lượng/nội dung client tự gửi — lọc chuỗi hợp lệ + cắt về đúng cận trên cho an toàn.
+function parseItemReferenceUrls(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const filtered = raw.filter((u): u is string => typeof u === "string" && u.trim().length > 0).slice(0, MAX_ITEM_REFERENCES);
+  return filtered.length > 0 ? filtered : undefined;
+}
 
 // Bước chia phân cảnh (LLM) + submit N job ảnh song song đều chạy trong request này — cần thời gian
 // chờ dài hơn mặc định.
@@ -38,7 +46,7 @@ export async function POST(req: Request) {
     genreKey,
     characters,
     locationReferenceUrl,
-    itemReferenceUrl,
+    itemReferenceUrls,
     continuousMotion,
     frameChainMode,
     preplannedActions,
@@ -84,7 +92,7 @@ export async function POST(req: Request) {
       reuseCharacterId: typeof c.reuseCharacterId === "number" ? c.reuseCharacterId : undefined,
       skipCharacterCreation: c.skipCharacterCreation === true,
       label: typeof c.label === "string" ? c.label : undefined,
-      itemReferenceUrl: typeof c.itemReferenceUrl === "string" && c.itemReferenceUrl ? c.itemReferenceUrl : undefined,
+      itemReferenceUrls: parseItemReferenceUrls(c.itemReferenceUrls),
     }));
   }
 
@@ -142,7 +150,7 @@ export async function POST(req: Request) {
         ? false
         : continuousMotion === true || (typeof videoModelKey === "string" && REQUIRES_CONTINUOUS_MOTION_VIDEO_KEYS.has(videoModelKey)),
       !isMultiCharacter && frameChainMode === true,
-      typeof itemReferenceUrl === "string" && itemReferenceUrl ? itemReferenceUrl : undefined,
+      parseItemReferenceUrls(itemReferenceUrls),
       parsedPreplannedActions
     );
     return Response.json({ success: true, jobId: result.jobId, newBalance: result.newBalance });
