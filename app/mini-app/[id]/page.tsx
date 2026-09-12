@@ -183,15 +183,19 @@ export default function MiniAppDetailPage() {
   // Bước "Tạo kịch bản" — thay thế ô chọn "số cảnh" + gợi ý AI cũ cho ĐÚNG luồng mặc định (1 nhân vật,
   // AI tự vẽ ảnh, không own-images). Agent tự liệt kê hành động + giây riêng từng cái, code nhóm thành
   // cảnh (mặc định 1 hành động = 1 cảnh) — xem lib/story-video.ts: generateStoryScript/planStoryVideoScenes.
+  // Field chung cho cả 2 luồng (1 nhân vật / nhiều nhân vật) — "camera_view" chỉ có ở luồng 1 nhân vật,
+  // "characters" chỉ có ở luồng nhiều nhân vật (ai xuất hiện trong cảnh); panel xem trước chỉ đọc field
+  // chung (description/duration_key) nên dùng chung 1 type, không cần tách 2 state riêng.
   type StoryScriptAction = {
     description: string;
-    camera_view: string;
     location: string;
     end_pose: string;
     duration_seconds: number;
+    camera_view?: string;
     outfit_override?: string;
     face_view?: string;
-    dialogue?: string;
+    dialogue?: string | { speaker: number; line: string } | null;
+    characters?: number[];
   };
   type StoryScriptScene = StoryScriptAction & { duration_key: string | null; provider_cost_vnd: number };
   const [storyScriptActions, setStoryScriptActions] = useState<StoryScriptAction[] | null>(null);
@@ -259,12 +263,11 @@ export default function MiniAppDetailPage() {
   // MỌI model video thường (không cần loại FLFV riêng). Loại trừ lẫn nhau với continuous motion — v1
   // chỉ hỗ trợ luồng 1 nhân vật, chạy TUẦN TỰ từng cảnh nên chậm hơn nhiều so với luồng song song mặc định.
   const [storyFrameChainMode, setStoryFrameChainMode] = useState(false);
-  // Bước "Tạo kịch bản" (xem lib/story-video.ts: planStoryVideoScenes) — hỗ trợ luồng 1 nhân vật, AI tự
-  // vẽ ảnh, dùng được CẢ khi bật frame-chain (đã sửa applyFrameChainImageResult/applyFrameChainVideoResult
-  // để không ước lượng/trừ phụ phí lại khi motion_duration_key đã khoá sẵn từ bước kịch bản). KHÔNG hỗ
-  // trợ own-images (không cần), nhiều nhân vật (pipeline chia cảnh riêng), chuyển động liên tục (cần
-  // thêm field end_description riêng mà bước kịch bản chưa tạo ra).
-  const storyUsesScriptFlow = storyExtraCharacters.length === 0 && !storyUseOwnSceneImages && !storyContinuousMotion;
+  // Bước "Tạo kịch bản" (xem lib/story-video.ts: planStoryVideoScenes/planStoryVideoScenesMulti) — hỗ
+  // trợ CẢ luồng 1 nhân vật lẫn nhiều nhân vật (generateStoryScript/generateStoryScriptMulti), dùng
+  // được cả khi bật frame-chain (chỉ luồng 1 nhân vật có checkbox này). KHÔNG hỗ trợ own-images (không
+  // cần), chuyển động liên tục (cần thêm field end_description riêng mà bước kịch bản chưa tạo ra).
+  const storyUsesScriptFlow = !storyUseOwnSceneImages && !storyContinuousMotion;
   // "Model chat" — LLM thực thi bước chia cảnh (tách biệt với "Agent" = persona/hướng dẫn) — đúng 2
   // lựa chọn admin đang dùng cho app tự tạo dạng text (xem MODEL_OPTIONS trong app/admin/page.tsx).
   const STORY_MODEL_CHAT_OPTIONS = [
@@ -375,6 +378,12 @@ export default function MiniAppDetailPage() {
     setStoryScriptLoading(true);
     setStoryScriptError(null);
     try {
+      // Nhiều nhân vật -> gửi kèm tên từng người (fallback "Nhân vật N" nếu bỏ trống, khớp đúng cách
+      // backend tự đặt tên khi tạo Character) để route chuyển sang generateStoryScriptMulti.
+      const hasMultipleCharacters = storyExtraCharacters.length > 0;
+      const characterLabels = hasMultipleCharacters
+        ? [storyPrimaryCharacterLabel.trim() || "Nhân vật 1", ...storyExtraCharacters.map((c, i) => c.label.trim() || `Nhân vật ${i + 2}`)]
+        : undefined;
       const res = await fetch("/api/story-video/plan-script", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -383,6 +392,7 @@ export default function MiniAppDetailPage() {
           miniAppId: app!.id,
           videoModelKey: storyVideoModelKey,
           modelChatKey: storyModelChatKey,
+          characterLabels,
         }),
       });
       const data = await res.json();
@@ -1682,7 +1692,8 @@ export default function MiniAppDetailPage() {
           itemReferenceUrls: primaryItemReferenceUrls,
           continuousMotion: storyContinuousMotion,
           frameChainMode: storyFrameChainMode,
-          preplannedActions: storyUsesScriptFlow ? storyScriptActions : undefined,
+          preplannedActions: storyUsesScriptFlow && !hasMultipleCharacters ? storyScriptActions : undefined,
+          preplannedActionsMulti: storyUsesScriptFlow && hasMultipleCharacters ? storyScriptActions : undefined,
         }),
       });
       const data = await res.json();

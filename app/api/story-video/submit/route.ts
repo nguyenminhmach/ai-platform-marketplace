@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import {
   submitStoryVideoJob,
   validateScriptSceneResult,
+  validateScriptSceneResultMulti,
   MIN_SCENES,
   MAX_SCENES,
   MIN_CHARACTER_IMAGES,
@@ -11,6 +12,7 @@ import {
   REQUIRES_CONTINUOUS_MOTION_VIDEO_KEYS,
   type MultiCharacterInput,
   type ScriptSceneResult,
+  type ScriptSceneResultMulti,
 } from "@/lib/story-video";
 import { InsufficientCreditError } from "@/lib/credit-system";
 import { getAuthenticatedUserId } from "@/lib/auth-server";
@@ -50,6 +52,7 @@ export async function POST(req: Request) {
     continuousMotion,
     frameChainMode,
     preplannedActions,
+    preplannedActionsMulti,
   } = await req.json();
 
   const userId = await getAuthenticatedUserId();
@@ -123,6 +126,20 @@ export async function POST(req: Request) {
       );
     }
   }
+  // Bước "Tạo kịch bản" bản NHIỀU NHÂN VẬT — mirror khối trên, dùng đúng nhãn nhân vật (fallback "Nhân
+  // vật N") đã tính lúc parse "characters" để validate mảng "characters" chỉ số trong từng hành động.
+  let parsedPreplannedActionsMulti: ScriptSceneResultMulti[] | undefined;
+  if (isMultiCharacter && preplannedActionsMulti !== undefined) {
+    const characterLabels = parsedCharacters!.map((c, i) => c.label?.trim() || `Nhân vật ${i + 1}`);
+    try {
+      parsedPreplannedActionsMulti = validateScriptSceneResultMulti(preplannedActionsMulti, storyDescription, characterLabels);
+    } catch (err) {
+      return Response.json(
+        { error: `Kịch bản không hợp lệ, vui lòng bấm "Tạo kịch bản" lại: ${err instanceof Error ? err.message : String(err)}` },
+        { status: 400 }
+      );
+    }
+  }
 
   try {
     const result = await submitStoryVideoJob(
@@ -151,7 +168,8 @@ export async function POST(req: Request) {
         : continuousMotion === true || (typeof videoModelKey === "string" && REQUIRES_CONTINUOUS_MOTION_VIDEO_KEYS.has(videoModelKey)),
       !isMultiCharacter && frameChainMode === true,
       parseItemReferenceUrls(itemReferenceUrls),
-      parsedPreplannedActions
+      parsedPreplannedActions,
+      parsedPreplannedActionsMulti
     );
     return Response.json({ success: true, jobId: result.jobId, newBalance: result.newBalance });
   } catch (err) {

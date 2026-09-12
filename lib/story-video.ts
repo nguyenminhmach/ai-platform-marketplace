@@ -924,6 +924,154 @@ export async function generateStoryScript(
   }
 }
 
+// Bước "Tạo kịch bản" cho NHIỀU NHÂN VẬT — mirror generateStoryScript() ở trên (Agent tự quyết định số
+// cảnh theo số hành động thật, tự ước lượng duration_seconds/pace/rotation_degrees) nhưng mỗi hành động
+// còn cần thêm khoá "characters" (ai có mặt) — mirror buildMultiSceneSplitPrompt() cho phần đó. Không hỗ
+// trợ end_description/end_characters (chuyển động liên tục) — giống hệt luồng 1 nhân vật, storyUsesScriptFlow
+// loại trừ continuousMotion nên trường hợp đó không bao giờ tới đây.
+export type ScriptSceneResultMulti = {
+  description: string;
+  characters: number[];
+  dialogue?: { speaker: number; line: string } | null;
+  location: string;
+  end_pose: string;
+  duration_seconds: number;
+  pace?: "fast" | "normal" | "slow";
+  rotation_degrees?: number;
+};
+
+function buildStoryScriptPromptMulti(characterLabels: string[]): string {
+  const list = characterLabels.map((label, i) => `${i}: ${label}`).join(", ");
+  return `Bạn là đạo diễn dựng phân cảnh kiêm lên lịch trình quay cho 1 video có NHIỀU nhân vật thật cùng xuất hiện. Người dùng đưa 1 ý tưởng truyện/kịch bản ngắn.
+Danh sách nhân vật trong video này (đánh số bắt đầu từ 0): ${list}.
+
+Nhiệm vụ 1 — Tự quyết định số phân cảnh: KHÔNG có số cảnh cố định cho trước — đếm số hành động/khoảnh khắc thay đổi tư thế LỚN của (các) nhân vật (ngồi xuống, đứng dậy, quay người, bắt đầu đi, dừng lại, cầm/đặt đồ vật, đổi biểu cảm rõ rệt, có người bước vào/ra khung hình...) và tạo ĐÚNG 1 phân cảnh cho MỖI hành động lớn như vậy — không gộp 2 hành động lớn khác nhau vào chung 1 cảnh, không tách 1 hành động ra nhiều cảnh. Tối thiểu 1 cảnh, tối đa 8 cảnh — nếu truyện có nhiều hơn 8 hành động lớn, gộp bớt các hành động ít quan trọng nhất lại cho vừa 8.
+Với MỖI cảnh, xác định thêm khoá "characters": 1 mảng các SỐ (đúng chỉ số trong danh sách nhân vật ở trên) — liệt kê TẤT CẢ nhân vật thực sự xuất hiện trong khung hình của cảnh đó, có thể 1 người hoặc nhiều người cùng lúc. Không tự thêm số ngoài danh sách, không tự bỏ sót người rõ ràng có mặt theo mô tả.
+Khi viết "description" (tiếng Anh): mô tả rõ ai đang làm gì, có thể thêm chi tiết điện ảnh (ánh sáng, khung hình, không khí) phù hợp bối cảnh gốc, nhưng KHÔNG bịa thêm tình tiết/hành động/địa điểm không có trong ý tưởng gốc.
+Rào chắn giữ đúng danh tính (bắt buộc): không tự đổi giới tính/độ tuổi/kiểu tóc của bất kỳ nhân vật nào đã liệt kê ở trên; không tự thêm nhân vật phụ mới ngoài danh sách; nếu ý tưởng gốc mô tả 1 địa điểm liên tục thì không tự đổi bối cảnh giữa các cảnh.
+Trang phục — TUYỆT ĐỐI KHÔNG tự mô tả cụ thể màu sắc/kiểu dáng/chất liệu trang phục của bất kỳ ai trong "description" (bạn không nhìn thấy ảnh nhân vật thật — tự bịa sẽ mâu thuẫn với ảnh tham chiếu thật). Nếu cần nhắc trang phục để giữ liên tục, chỉ viết chung chung "wearing the same outfit as before".
+Trạng thái liên tục giữa các cảnh: MỖI cảnh được gửi cho model tạo ảnh RIÊNG BIỆT, độc lập — mỗi "description" phải TỰ ĐẦY ĐỦ ngữ cảnh (self-contained), nhắc lại rõ địa điểm/bối cảnh nếu tiếp nối cảnh trước.
+Tư thế/hành động nối tiếp: "description" của cảnh này (trừ cảnh đầu tiên) PHẢI bắt đầu đúng từ tư thế/hành động mà "end_pose" của cảnh NGAY TRƯỚC nó vừa mô tả — viết liền thành 1 câu tự nhiên (thì hiện tại, 1 khoảnh khắc duy nhất), không kể lại 2 mốc thời gian nối nhau.
+Bối cảnh vật lý (bắt buộc, MỌI cảnh): thêm khoá "location" (chuỗi tiếng Anh NGẮN GỌN) mô tả nơi + ánh sáng/thời điểm trong ngày. Nếu nhiều cảnh liên tiếp cùng 1 chỗ, "location" phải viết Y HỆT NHAU, ĐÚNG TỪNG CHỮ.
+Trạng thái kết thúc cảnh (bắt buộc, MỌI cảnh): thêm khoá "end_pose" (chuỗi tiếng Anh NGẮN GỌN) mô tả tư thế/hành động lúc KẾT THÚC cảnh — dùng làm điểm nối sang cảnh sau.
+Lời thoại (chỉ khi ý tưởng gốc CÓ trích dẫn rõ ràng 1 nhân vật đang nói): thêm khoá "dialogue" là 1 object {"speaker": số (đúng chỉ số nhân vật đang nói), "line": chuỗi tiếng Việt giữ NGUYÊN VĂN, KHÔNG dịch, dưới 15 từ}. CHỈ được thêm khi "characters" của cảnh đó có ĐÚNG 1 phần tử (lý do kỹ thuật: lồng tiếng chỉ khớp môi được video có 1 người) — cảnh có từ 2 người trở lên LUÔN bỏ hẳn khoá "dialogue" dù truyện gốc có viết lời ở đó.
+
+Nhiệm vụ 2 — Ước lượng thời lượng mỗi cảnh: thêm khoá "duration_seconds" (số nguyên, MỌI cảnh, bắt buộc) — số giây chuyển động cảnh này cần để trông tự nhiên, mượt mà. Dùng bảng tham khảo sau làm gốc:
+- hành động nhỏ (liếc mắt, mỉm cười nhẹ, nghiêng đầu): 1-2s
+- cử chỉ (gật đầu, vẫy tay, chỉ tay, nhặt vật nhỏ): 2-3s
+- chuyển động thân người (đứng dậy, ngồi xuống): 3-4s
+- di chuyển (đi vài bước): 4-6s
+- xoay người theo góc: xoay nhẹ (<45°) 2-3s; xoay vừa (45-90°) 3-5s; xoay nhiều/quay hẳn lưng (90-180°) 5-7s; xoay trọn 1 vòng (360°) 6-8s
+- hành động nhiều bước gộp lại: 6-8s
+Dù số giây ước lượng cho 1 hành động cao — VẪN PHẢI giữ nguyên là 1 cảnh DUY NHẤT, TUYỆT ĐỐI KHÔNG tự chia 1 chuyển động xoay/di chuyển liên tục thành "nửa đầu"/"nửa sau" ở 2 cảnh khác nhau.
+
+Nhiệm vụ 3 — Nhịp độ chuyển động: thêm khoá "pace" ("fast"/"normal"/"slow") cho MỌI cảnh, đọc ra từ CHÍNH TỪ NGỮ khách dùng trong ý tưởng gốc. "vội vã"/"hối hả"/"gấp gáp"/"nhanh chóng"/"chạy" → "fast". "từ tốn"/"chậm rãi"/"khoan thai"/"êm đềm" → "slow". Không có từ gợi ý → "normal".
+
+Nhiệm vụ 4 — Số độ xoay thật (CHỈ khi cảnh có xoay người/quay người/quay đầu): thêm khoá "rotation_degrees" (số nguyên 0-360) — số độ xoay THẬT từ tư thế bắt đầu tới kết thúc của ĐÚNG cảnh này, ĐỘC LẬP với việc chọn góc camera. Cảnh không có xoay thì bỏ hẳn khoá này.
+
+Chỉ trả về DUY NHẤT 1 mảng JSON hợp lệ, mỗi phần tử có khoá "description", "characters" (mảng số, bắt buộc), "dialogue" (tuỳ chọn), "location" (bắt buộc), "end_pose" (bắt buộc), "duration_seconds" (bắt buộc), "pace" (bắt buộc), "rotation_degrees" (tuỳ chọn) — không kèm markdown fence, không giải thích, không đánh số, không có dòng chú thích nào trong JSON.
+Ví dụ format: [{"description": "${characterLabels[0]} stands alone by the entrance, waiting nervously, morning light", "characters": [0], "location": "a wedding venue entrance, morning", "end_pose": "she is glancing anxiously toward the road", "duration_seconds": 2, "pace": "normal"}${
+    characterLabels.length >= 2
+      ? `, {"description": "${characterLabels[0]} and ${characterLabels[1]} stand together, holding hands, smiling warmly", "characters": [0, 1], "location": "a wedding venue entrance, morning", "end_pose": "they are smiling at each other, hands still held", "duration_seconds": 3, "pace": "normal"}`
+      : ""
+  }]`;
+}
+
+// Dùng chung cho 2 nơi: (1) parse JSON thô từ LLM, (2) validate lại mảng "actions" client gửi lên lúc
+// submit thật — mirror validateScriptSceneResult() (luồng 1 nhân vật) nhưng có thêm "characters"[] và
+// object "dialogue" {speaker, line} thay vì chuỗi phẳng.
+export function validateScriptSceneResultMulti(
+  parsed: unknown,
+  storyDescription: string,
+  characterLabels: string[]
+): ScriptSceneResultMulti[] {
+  if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("Danh sách hành động không hợp lệ");
+  if (parsed.length > MAX_SCENES) throw new Error(`Quá nhiều hành động (${parsed.length}), vượt giới hạn ${MAX_SCENES} cảnh`);
+  const maxIndex = characterLabels.length - 1;
+  return parsed.map((s: Record<string, unknown>) => {
+    if (typeof s.description !== "string" || !s.description.trim()) throw new Error("Thiếu description ở 1 hành động");
+    if (
+      !Array.isArray(s.characters) ||
+      s.characters.length === 0 ||
+      !s.characters.every((c) => typeof c === "number" && Number.isInteger(c) && c >= 0 && c <= maxIndex)
+    ) {
+      throw new Error("characters không hợp lệ ở 1 hành động");
+    }
+    if (typeof s.location !== "string" || !s.location.trim()) throw new Error("Thiếu location ở 1 hành động");
+    if (typeof s.end_pose !== "string" || !s.end_pose.trim()) throw new Error("Thiếu end_pose ở 1 hành động");
+    const durationSeconds = Number(s.duration_seconds);
+    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) throw new Error("duration_seconds không hợp lệ ở 1 hành động");
+    const characters = s.characters as number[];
+    // Phòng thủ phía code: chỉ giữ dialogue khi ĐÚNG 1 người trong cảnh + câu thoại khớp nguyên văn truyện
+    // gốc (chặn AI dịch/diễn giải sang tiếng Anh) — cùng quy tắc đã áp dụng cho splitStoryIntoScenesMulti.
+    const rawDialogue = s.dialogue as { speaker?: unknown; line?: unknown } | null | undefined;
+    const dialogue =
+      characters.length === 1 &&
+      rawDialogue &&
+      typeof rawDialogue.speaker === "number" &&
+      typeof rawDialogue.line === "string" &&
+      rawDialogue.line.trim() &&
+      isVerbatimQuoteInStory(rawDialogue.line, storyDescription)
+        ? { speaker: rawDialogue.speaker, line: rawDialogue.line.trim() }
+        : null;
+    const pace = s.pace === "fast" || s.pace === "slow" || s.pace === "normal" ? s.pace : "normal";
+    const rotationDegreesRaw = Number(s.rotation_degrees);
+    const rotationDegrees =
+      Number.isFinite(rotationDegreesRaw) && rotationDegreesRaw > 0 && rotationDegreesRaw <= 360
+        ? Math.round(rotationDegreesRaw)
+        : undefined;
+    return {
+      description: s.description.trim(),
+      characters,
+      dialogue,
+      location: s.location.trim(),
+      end_pose: s.end_pose.trim(),
+      duration_seconds: Math.round(durationSeconds),
+      pace,
+      rotation_degrees: rotationDegrees,
+    };
+  });
+}
+
+function parseScriptSceneResultMulti(output: string, storyDescription: string, characterLabels: string[]): ScriptSceneResultMulti[] {
+  const cleaned = output.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  const parsed = JSON.parse(cleaned);
+  try {
+    return validateScriptSceneResultMulti(parsed, storyDescription, characterLabels);
+  } catch (err) {
+    throw new Error(`AI không trả về danh sách cảnh hợp lệ: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+// Gọi Agent 1 lần (thử lại đúng 1 lần nếu sai định dạng) cho luồng NHIỀU NHÂN VẬT — mirror
+// generateStoryScript() ở trên, xem planStoryVideoScenesMulti() để nhóm cảnh + tính giá thật.
+export async function generateStoryScriptMulti(
+  storyDescription: string,
+  characterLabels: string[],
+  modelChatKey?: string,
+  miniAppId?: string
+): Promise<ScriptSceneResultMulti[]> {
+  const chatModel = modelChatKey && ALLOWED_CHAT_MODELS.includes(modelChatKey) ? modelChatKey : ALLOWED_CHAT_MODELS[0];
+  let systemPrompt = buildStoryScriptPromptMulti(characterLabels);
+  if (miniAppId) {
+    const miniApp = await getMiniAppModelConfig(miniAppId);
+    const override = miniApp.model_config.prompt_helper_instructions;
+    if (override?.trim()) systemPrompt += `\n\nGhi chú thêm từ admin: ${override.trim()}`;
+  }
+  const { output } = await callOpenRouter(chatModel, 2000, systemPrompt, storyDescription);
+  try {
+    return parseScriptSceneResultMulti(output, storyDescription, characterLabels);
+  } catch (err) {
+    const { output: retryOutput } = await callOpenRouter(
+      chatModel,
+      2000,
+      systemPrompt,
+      `${storyDescription}\n\n(Lưu ý: lần trước bạn trả sai định dạng: ${err instanceof Error ? err.message : String(err)}. Chỉ trả về mảng JSON hợp lệ đúng theo hướng dẫn.)`
+    );
+    return parseScriptSceneResultMulti(retryOutput, storyDescription, characterLabels);
+  }
+}
+
 export type PlannedScene = ScriptSceneResult & {
   // Nhóm hành động nào bị gộp chung cảnh này (chỉ có >1 phần tử khi khách chỉnh N thấp hơn số hành
   // động thật và việc gộp không vượt mức giây tối đa model hỗ trợ — xem planStoryVideoScenes).
@@ -1009,6 +1157,35 @@ export function planStoryVideoScenes(
     };
   });
 
+  return { scenes, totalNaturalSeconds, totalVideoProviderCostVnd };
+}
+
+export type PlannedSceneMulti = ScriptSceneResultMulti & {
+  duration_key: string | null;
+  provider_cost_vnd: number;
+};
+
+export type StoryVideoPlanMulti = {
+  scenes: PlannedSceneMulti[];
+  totalNaturalSeconds: number;
+  totalVideoProviderCostVnd: number;
+};
+
+// Mirror planStoryVideoScenes() cho NHIỀU NHÂN VẬT — code thuần, không gọi LLM. KHÔNG hỗ trợ gộp cảnh
+// (requestedSceneCount): gộp 2 hành động có tập "characters" khác nhau thành 1 cảnh không có nghĩa rõ
+// ràng (cảnh đó nên gửi ảnh tham chiếu của ai?) — luôn đúng 1 hành động = 1 cảnh, giống đúng quyết định
+// đã chốt cho luồng 1 nhân vật ở v1 (gộp để dành v2 sau, xem planStoryVideoScenes).
+export function planStoryVideoScenesMulti(actions: ScriptSceneResultMulti[], videoEntry: VideoModelEntry): StoryVideoPlanMulti {
+  const durationMap = videoEntry.duration_price_vnd;
+  let totalNaturalSeconds = 0;
+  let totalVideoProviderCostVnd = 0;
+  const scenes: PlannedSceneMulti[] = actions.map((action) => {
+    totalNaturalSeconds += action.duration_seconds;
+    const durationKey = durationMap ? (resolveNearestDurationKey(durationMap, action.duration_seconds) ?? null) : null;
+    const providerCostVnd = durationKey !== null ? (durationMap?.[durationKey] ?? videoEntry.provider_cost_vnd) : videoEntry.provider_cost_vnd;
+    totalVideoProviderCostVnd += providerCostVnd;
+    return { ...action, duration_key: durationKey, provider_cost_vnd: providerCostVnd };
+  });
   return { scenes, totalNaturalSeconds, totalVideoProviderCostVnd };
 }
 
@@ -1845,7 +2022,11 @@ export async function submitStoryVideoJob(
   // Bước "Tạo kịch bản" (xem runSceneStage) — CHỈ áp dụng nhánh 1 nhân vật, AI tự vẽ ảnh bên dưới. Khi
   // có, số cảnh THẬT SỰ dùng luôn lấy từ preplannedActions.length (bỏ qua numScenes client gửi lên cho
   // đúng nhánh này) — Agent đã tự quyết định số cảnh lúc lập kịch bản, không phải khách tự chọn.
-  preplannedActions?: ScriptSceneResult[]
+  preplannedActions?: ScriptSceneResult[],
+  // Bước "Tạo kịch bản" bản NHIỀU NHÂN VẬT (xem runMultiCharacterSceneStage) — mirror preplannedActions
+  // ở trên nhưng cho nhánh characters.length>=2. Tách riêng tham số vì 2 nhánh dùng 2 kiểu dữ liệu khác
+  // nhau (ScriptSceneResult vs ScriptSceneResultMulti, có thêm "characters" per action).
+  preplannedActionsMulti?: ScriptSceneResultMulti[]
 ): Promise<{ jobId: number; newBalance: number }> {
   const resolvedNumScenes = preplannedActions ? preplannedActions.length : numScenes;
   if (resolvedNumScenes < MIN_SCENES || resolvedNumScenes > MAX_SCENES) {
@@ -1860,6 +2041,9 @@ export async function submitStoryVideoJob(
   // chạy nguyên luồng cũ phía dưới, không có rủi ro regression.
   if (characters && characters.length >= 2) {
     if (characters.length > MAX_STORY_CHARACTERS) throw new Error(`Tối đa ${MAX_STORY_CHARACTERS} nhân vật`);
+    if (preplannedActionsMulti && (preplannedActionsMulti.length < MIN_SCENES || preplannedActionsMulti.length > MAX_SCENES)) {
+      throw new Error(`Cần từ ${MIN_SCENES} đến ${MAX_SCENES} phân cảnh`);
+    }
     return submitMultiCharacterStoryVideoJob(
       userId,
       miniAppId,
@@ -1875,7 +2059,8 @@ export async function submitStoryVideoJob(
       idempotencyKey,
       resolvedGenreKey,
       locationReferenceUrl,
-      continuousMotion
+      continuousMotion,
+      preplannedActionsMulti
     );
   }
 
@@ -2068,12 +2253,18 @@ async function submitMultiCharacterStoryVideoJob(
   idempotencyKey: string,
   resolvedGenreKey: string | null,
   locationReferenceUrl?: string,
-  continuousMotion?: boolean
+  continuousMotion?: boolean,
+  // Bước "Tạo kịch bản" (xem runMultiCharacterSceneStage) — khi có, số cảnh THẬT SỰ dùng lấy từ
+  // preplannedActions.length (bỏ qua numScenes client gửi) — mirror đúng resolvedNumScenes của
+  // submitStoryVideoJob (luồng 1 nhân vật). CHỈ áp dụng khi KHÔNG continuousMotion (giống luồng 1
+  // nhân vật, xem storyUsesScriptFlow ở frontend).
+  preplannedActions?: ScriptSceneResultMulti[]
 ): Promise<{ jobId: number; newBalance: number }> {
   const supabase = getSupabaseAdmin();
+  const resolvedNumScenes = preplannedActions ? preplannedActions.length : numScenes;
 
   const { imageEntry, videoEntry, imageProviderCostVnd, videoProviderCostVnd, resolvedResolutionKey, resolvedDurationKey } =
-    await resolveCosts(miniAppId, numScenes, imageModelKey, videoModelKey, resolutionKey, durationKey);
+    await resolveCosts(miniAppId, resolvedNumScenes, imageModelKey, videoModelKey, resolutionKey, durationKey);
   // Đã kiểm chứng qua test thật: chỉ model hỗ trợ nhiều ảnh tham chiếu (multi_image) mới ghép được
   // nhiều người thật vào 1 cảnh — model như Flux Kontext chỉ nhận 1 ảnh nên chặn sớm ở đây, không để
   // khách tốn credit rồi mới thấy ảnh sai.
@@ -2143,7 +2334,7 @@ async function submitMultiCharacterStoryVideoJob(
       mini_app_id: miniAppId,
       status: generateCount > 0 ? "generating_character" : "character_ready",
       story_description: storyDescription,
-      num_scenes: numScenes,
+      num_scenes: resolvedNumScenes,
       character_image_urls: [], // job nhiều nhân vật không dùng cột job-level này (xem story_video_job_characters)
       image_model: imageEntry.model,
       video_model: videoEntry.model,
@@ -2156,6 +2347,9 @@ async function submitMultiCharacterStoryVideoJob(
       genre_key: resolvedGenreKey,
       location_reference_url: locationReferenceUrl ?? null,
       continuous_motion: continuousMotion === true,
+      // Lưu lại để continueStoryVideoToSceneStage (chạy sau, khi Character phải tạo mới qua webhook)
+      // vẫn dùng đúng kịch bản đã xác nhận/hiện giá cho khách, không chia cảnh lại bằng LLM cũ.
+      preplanned_actions: preplannedActions ?? null,
     })
     .select("id")
     .single();
@@ -2224,7 +2418,13 @@ async function runMultiCharacterSceneStage(
   jobCharacters: JobCharacterRefRow[],
   finalStoryDescription: string,
   modelChatKey: string | undefined,
-  idempotencyKey: string
+  idempotencyKey: string,
+  // Bước "Tạo kịch bản" bản nhiều nhân vật (xem generateStoryScriptMulti/plan-script route) — mirror
+  // đúng tham số cùng tên của runSceneStage (luồng 1 nhân vật): khi có, bỏ qua hẳn
+  // extractStoryEssentials/splitStoryIntoScenesMulti/validateSceneSplit, tự chạy lại
+  // planStoryVideoScenesMulti() (hàm thuần, không LLM) để tính đúng giá đã hiện cho khách. Chỉ áp dụng
+  // khi KHÔNG continuous_motion (giống luồng 1 nhân vật) — frontend đã loại trừ tổ hợp này.
+  preplannedActions?: ScriptSceneResultMulti[]
 ): Promise<{ newBalance: number }> {
   const supabase = getSupabaseAdmin();
   if (!job.image_provider_cost_vnd_per_scene || !job.video_provider_cost_vnd_per_scene) {
@@ -2236,7 +2436,21 @@ async function runMultiCharacterSceneStage(
   // nhân vật đã áp dụng công thức này, đây là mirror cho nhiều nhân vật).
   const imageCallCount = job.continuous_motion ? job.num_scenes + 1 : job.num_scenes;
   const imageCost = computeDynamicCreditCost(job.image_provider_cost_vnd_per_scene * imageCallCount, marginPercent, vndPerCredit);
-  const videoCost = computeDynamicCreditCost(job.video_provider_cost_vnd_per_scene * job.num_scenes, marginPercent, vndPerCredit);
+
+  // Mỗi cảnh từ bước kịch bản có thể có duration_key khác nhau — giá video không còn 1 mức phẳng nhân
+  // đều số cảnh, phải dùng đúng tổng giá thật planStoryVideoScenesMulti đã tính (mirror runSceneStage).
+  let plannedScenes: PlannedSceneMulti[] | undefined;
+  let videoCost: number;
+  if (preplannedActions) {
+    const miniAppForPlan = await getMiniAppModelConfig(job.mini_app_id);
+    const videoEntryForPlan = miniAppForPlan.model_config.video_models.find((m) => m.model === job.video_model);
+    if (!videoEntryForPlan) throw new Error("Không tìm thấy model video của job");
+    const plan = planStoryVideoScenesMulti(preplannedActions, videoEntryForPlan);
+    plannedScenes = plan.scenes;
+    videoCost = computeDynamicCreditCost(plan.totalVideoProviderCostVnd, marginPercent, vndPerCredit);
+  } else {
+    videoCost = computeDynamicCreditCost(job.video_provider_cost_vnd_per_scene * job.num_scenes, marginPercent, vndPerCredit);
+  }
 
   const deduction = await deductCredit(userId, job.auto_video ? imageCost + videoCost : imageCost, job.mini_app_id, idempotencyKey);
   if (!deduction.success) throw new InsufficientCreditError();
@@ -2256,33 +2470,39 @@ async function runMultiCharacterSceneStage(
       .filter((s): s is string => !!s?.trim())
       .join("\n\n");
     const characterLabels = jobCharacters.map((c) => c.label || `Nhân vật ${c.position + 1}`);
-    // Skill "story-extractor" — chỉ dùng nội bộ cho chia cảnh, không ghi đè story_description đã lưu.
-    const extractedStory = await extractStoryEssentials(finalStoryDescription, job.mini_app_id, modelChatKey);
-    let scenes = await splitStoryIntoScenesMulti(
-      extractedStory,
-      job.num_scenes,
-      characterLabels,
-      combinedInstructions || undefined,
-      modelChatKey,
-      job.continuous_motion,
-      miniApp.model_config.allow_scene_padding
-    );
-    // Skill "story-validator" — thử chia lại ĐÚNG 1 lần nếu lỗi, không chặn cứng job nếu vẫn lỗi.
-    const validation = await validateSceneSplit(finalStoryDescription, scenes, job.mini_app_id, modelChatKey);
-    if (!validation.ok) {
-      console.error(`[story-video] story-validator báo lỗi job #${job.id}, thử chia lại 1 lần: ${validation.issue}`);
-      const retryInstructions = [combinedInstructions, `Lần chia trước bị lỗi: ${validation.issue}. Sửa lại cho đúng.`]
-        .filter((s): s is string => !!s?.trim())
-        .join("\n\n");
+
+    let scenes: MultiSceneSplitResult[];
+    if (plannedScenes) {
+      scenes = plannedScenes;
+    } else {
+      // Skill "story-extractor" — chỉ dùng nội bộ cho chia cảnh, không ghi đè story_description đã lưu.
+      const extractedStory = await extractStoryEssentials(finalStoryDescription, job.mini_app_id, modelChatKey);
       scenes = await splitStoryIntoScenesMulti(
         extractedStory,
         job.num_scenes,
         characterLabels,
-        retryInstructions,
+        combinedInstructions || undefined,
         modelChatKey,
         job.continuous_motion,
         miniApp.model_config.allow_scene_padding
       );
+      // Skill "story-validator" — thử chia lại ĐÚNG 1 lần nếu lỗi, không chặn cứng job nếu vẫn lỗi.
+      const validation = await validateSceneSplit(finalStoryDescription, scenes, job.mini_app_id, modelChatKey);
+      if (!validation.ok) {
+        console.error(`[story-video] story-validator báo lỗi job #${job.id}, thử chia lại 1 lần: ${validation.issue}`);
+        const retryInstructions = [combinedInstructions, `Lần chia trước bị lỗi: ${validation.issue}. Sửa lại cho đúng.`]
+          .filter((s): s is string => !!s?.trim())
+          .join("\n\n");
+        scenes = await splitStoryIntoScenesMulti(
+          extractedStory,
+          job.num_scenes,
+          characterLabels,
+          retryInstructions,
+          modelChatKey,
+          job.continuous_motion,
+          miniApp.model_config.allow_scene_padding
+        );
+      }
     }
 
     const { data: sceneRows, error: sceneError } = await supabase
@@ -2298,6 +2518,10 @@ async function runMultiCharacterSceneStage(
           dialogue_speaker_position: scene.dialogue ? scene.dialogue.speaker : null,
           location: scene.location,
           end_pose: scene.end_pose,
+          motion_duration_key: plannedScenes ? plannedScenes[index].duration_key : null,
+          natural_duration_seconds: plannedScenes ? plannedScenes[index].duration_seconds : null,
+          pace: plannedScenes ? plannedScenes[index].pace ?? null : null,
+          rotation_degrees: plannedScenes ? plannedScenes[index].rotation_degrees ?? null : null,
         }))
       )
       .select("id, position, scene_description, character_positions, location");
@@ -2381,7 +2605,15 @@ export async function continueStoryVideoToSceneStage(
     .eq("job_id", jobId)
     .order("position", { ascending: true });
   if (jobCharacters && jobCharacters.length >= 2) {
-    return runMultiCharacterSceneStage(userId, job, jobCharacters as JobCharacterRefRow[], finalStoryDescription, modelChatKey, idempotencyKey);
+    return runMultiCharacterSceneStage(
+      userId,
+      job,
+      jobCharacters as JobCharacterRefRow[],
+      finalStoryDescription,
+      modelChatKey,
+      idempotencyKey,
+      (job.preplanned_actions as unknown as ScriptSceneResultMulti[] | null) ?? undefined
+    );
   }
 
   if (!job.character_sheet_url) throw new Error("Thiếu ảnh Character của job");
