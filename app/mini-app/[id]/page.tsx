@@ -3036,7 +3036,239 @@ export default function MiniAppDetailPage() {
                 </label>
               </div>
 
-              {/* Hàng 2: Agent xử lý (Thể loại dạng thẻ) + Model chat */}
+              {/* Hàng 2: Model tạo ảnh phân cảnh + Model tạo video (2 cột) — đặt ngay dưới Ý tưởng
+                  truyện/Tạo kịch bản theo yêu cầu, để chọn model trước khi cuộn xuống các khối còn lại. */}
+              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
+                      <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">Model tạo ảnh phân cảnh</p>
+                      {storyExtraCharacters.length > 0 && (
+                        <p className="mb-2 text-sm text-zinc-400 dark:text-zinc-500">
+                          Đang có nhiều nhân vật — chỉ hiện model hỗ trợ nhiều ảnh tham chiếu (ghép nhiều người vào 1 cảnh).
+                        </p>
+                      )}
+                      {storyExtraCharacters.length === 0 && storyPrimaryItemReferences.length > 0 && (
+                        <p className="mb-2 text-sm text-zinc-400 dark:text-zinc-500">
+                          Đang có ảnh vật phẩm — chỉ hiện model hỗ trợ nhiều ảnh tham chiếu (nếu không, vật phẩm sẽ bị bỏ qua).
+                        </p>
+                      )}
+                      {(() => {
+                        const availableImageModels =
+                          storyExtraCharacters.length > 0 || storyPrimaryItemReferences.length > 0
+                            ? storyImageModels.filter((m) => m.multi_image)
+                            : storyImageModels;
+                        const selected = availableImageModels.find((m) => m.key === storyImageModelKey);
+                        return (
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">Model</label>
+                              <select
+                                value={storyImageModelKey ?? ""}
+                                onChange={(e) => {
+                                  setStoryImageModelKey(e.target.value);
+                                  const m = availableImageModels.find((x) => x.key === e.target.value);
+                                  setStoryResolutionKey(m?.resolution_price_vnd ? Object.keys(m.resolution_price_vnd)[0] : null);
+                                  if (m?.aspect_ratios && !m.aspect_ratios.includes(storyAspectRatio)) setStoryAspectRatio(m.aspect_ratios[0]);
+                                }}
+                                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                              >
+                                {Array.from(new Set(availableImageModels.map((m) => m.provider))).map((provider) => (
+                                  <optgroup key={provider} label={provider}>
+                                    {availableImageModels
+                                      .filter((m) => m.provider === provider)
+                                      .map((m) => (
+                                        <option key={m.key} value={m.key}>
+                                          {m.label} — {m.provider_cost_vnd}đ/cảnh
+                                        </option>
+                                      ))}
+                                  </optgroup>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">Tỉ lệ</label>
+                              <select
+                                value={storyAspectRatio}
+                                onChange={(e) => setStoryAspectRatio(e.target.value)}
+                                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                              >
+                                {(selected?.aspect_ratios ?? ["9:16", "16:9", "1:1"]).map((r) => (
+                                  <option key={r} value={r}>
+                                    {r}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            {selected?.resolution_price_vnd && (
+                              <div>
+                                <label className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">Độ phân giải</label>
+                                <select
+                                  value={storyResolutionKey ?? ""}
+                                  onChange={(e) => setStoryResolutionKey(e.target.value)}
+                                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                                >
+                                  {Object.entries(selected.resolution_price_vnd).map(([k, v]) => (
+                                    <option key={k} value={k}>
+                                      {k} — {v}đ
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                      <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+                        {storyUseOwnSceneImages ? (
+                          "Không tốn credit ảnh — dùng ảnh khách đã tải lên"
+                        ) : (
+                          <>
+                            Đơn giá đã chọn: <strong className="text-zinc-900 dark:text-zinc-50">{storyImageCost ?? "?"} credit</strong>
+                          </>
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
+                      <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">🎬 Video phân cảnh</p>
+                      {(() => {
+                        const selected = storyVideoModels.find((m) => m.key === storyVideoModelKey);
+                        return (
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">Model</label>
+                              <select
+                                value={storyVideoModelKey ?? ""}
+                                onChange={(e) => {
+                                  setStoryVideoModelKey(e.target.value);
+                                  const m = storyVideoModels.find((x) => x.key === e.target.value);
+                                  setStoryDurationKey(m?.duration_price_vnd ? Object.keys(m.duration_price_vnd)[0] : null);
+                                  // "veo31-lite-flf" bắt buộc cả ảnh đầu lẫn ảnh cuối (API Fal.ai không cho tuỳ chọn như
+                                  // Kling O1) - tự bật chuyển động liên tục, không chờ khách tick tay.
+                                  if (e.target.value === "veo31-lite-flf") setStoryContinuousMotion(true);
+                                }}
+                                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                              >
+                                {/* "veo31-lite-flf" bắt buộc CẢ ảnh đầu lẫn ảnh cuối (last_frame_url — Fal.ai không cho
+                                    tuỳ chọn như Kling O1's end_image_url, thiếu là lỗi 422 ngay). Luồng "khách tự tải
+                                    ảnh phân cảnh" (chỉ 1 ảnh/cảnh) VÀ frame-chain (chỉ 1 ảnh đầu thật/cảnh, không có
+                                    ảnh cuối) đều không có cơ chế tạo ảnh cuối cho model này — ẩn khỏi danh sách khi
+                                    đang bật 1 trong 2 chế độ đó. Kling O1 FLFV KHÔNG cần loại trừ tương tự — ảnh cuối
+                                    của nó tuỳ chọn thật (thiếu thì tự chạy như model 1 ảnh bình thường, không lỗi). */}
+                                {Array.from(
+                                  new Set(
+                                    storyVideoModels
+                                      .filter((m) => !((storyUseOwnSceneImages || storyFrameChainMode) && m.key === "veo31-lite-flf"))
+                                      .map((m) => m.provider)
+                                  )
+                                ).map((provider) => (
+                                  <optgroup key={provider} label={provider}>
+                                    {storyVideoModels
+                                      .filter(
+                                        (m) => m.provider === provider && !((storyUseOwnSceneImages || storyFrameChainMode) && m.key === "veo31-lite-flf")
+                                      )
+                                      .map((m) => (
+                                        <option key={m.key} value={m.key}>
+                                          {m.label} — {m.provider_cost_vnd}đ/cảnh
+                                        </option>
+                                      ))}
+                                  </optgroup>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">Tỉ lệ</label>
+                              <select
+                                value={storyAspectRatio}
+                                onChange={(e) => setStoryAspectRatio(e.target.value)}
+                                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                              >
+                                {(selected?.aspect_ratios ?? ["9:16", "16:9", "1:1"]).map((r) => (
+                                  <option key={r} value={r}>
+                                    {r}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            {/* Luồng mặc định (1 nhân vật, AI tự vẽ ảnh) đã dùng bước "Tạo kịch bản" ở
+                                Hàng 1 để khoá thời lượng riêng từng cảnh — ẩn dropdown phẳng này để tránh
+                                hiểu nhầm (nó không còn ảnh hưởng gì tới mức thực tế dùng ở luồng đó). Vẫn
+                                giữ nguyên cho own-images/nhiều nhân vật (chưa nối kiến trúc kịch bản mới). */}
+                            {selected?.duration_price_vnd && !storyUsesScriptFlow && (
+                              <div>
+                                <label className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">Thời lượng</label>
+                                <select
+                                  value={storyDurationKey ?? ""}
+                                  onChange={(e) => setStoryDurationKey(e.target.value)}
+                                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                                >
+                                  {Object.entries(selected.duration_price_vnd).map(([k, v]) => (
+                                    <option key={k} value={k}>
+                                      {k}s — {v}đ
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                      <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+                        Đơn giá đã chọn: <strong className="text-zinc-900 dark:text-zinc-50">{storyVideoCost ?? "?"} credit</strong>
+                      </p>
+                      {(storyVideoModelKey === "kling-o1-flfv" || storyVideoModelKey === "veo31-lite-flf") && (
+                        <label className="mt-3 flex items-start gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+                          <input
+                            type="checkbox"
+                            checked={storyContinuousMotion}
+                            disabled={storyVideoModelKey === "veo31-lite-flf"}
+                            onChange={(e) => {
+                              setStoryContinuousMotion(e.target.checked);
+                              if (e.target.checked) setStoryFrameChainMode(false);
+                            }}
+                            className="mt-0.5"
+                          />
+                          <span>
+                            🎬 Chuyển động liên tục giữa các cảnh — mỗi cảnh nối liền mạch sang cảnh sau (thêm ~1 ảnh cho cả video, không
+                            phải nhân đôi).
+                            {storyVideoModelKey === "veo31-lite-flf" && " Model này bắt buộc bật, không tắt được."}
+                          </span>
+                        </label>
+                      )}
+                      {storyExtraCharacters.length === 0 && !storyUseOwnSceneImages && (
+                        <label className="mt-3 flex items-start gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+                          <input
+                            type="checkbox"
+                            checked={storyFrameChainMode}
+                            onChange={(e) => {
+                              setStoryFrameChainMode(e.target.checked);
+                              if (e.target.checked) {
+                                setStoryContinuousMotion(false);
+                                // "veo31-lite-flf" bắt buộc CẢ ảnh đầu lẫn ảnh cuối (Fal.ai từ chối thiếu field,
+                                // lỗi 422) — frame-chain chỉ có đúng 1 ảnh đầu thật/cảnh, không có ảnh cuối, không
+                                // tương thích. Đổi sang model khác nếu đang chọn dở, tránh submit với model không
+                                // tương thích (đúng cơ chế đã có cho toggle "khách tự tải ảnh phân cảnh" ở trên).
+                                // Kling O1 FLFV KHÔNG cần loại trừ — ảnh cuối của nó tuỳ chọn thật, thiếu thì tự
+                                // chạy như model 1 ảnh bình thường, không lỗi.
+                                if (storyVideoModelKey === "veo31-lite-flf") {
+                                  const fallback = storyVideoModels.find((m) => m.key !== "veo31-lite-flf");
+                                  setStoryVideoModelKey(fallback?.key ?? null);
+                                  setStoryDurationKey(fallback?.duration_price_vnd ? Object.keys(fallback.duration_price_vnd)[0] : null);
+                                }
+                              }
+                            }}
+                            className="mt-0.5"
+                          />
+                          <span>
+                            🧵 Dẫn trạng thái qua khung hình thật — mỗi cảnh nối tiếp bằng đúng khung hình cuối THẬT của video cảnh
+                            trước (không phải ảnh AI đoán trước), liền mạch chính xác hơn nhưng phải tạo TUẦN TỰ nên chậm hơn nhiều
+                            (không chạy song song các cảnh).
+                          </span>
+                        </label>
+                      )}
+                    </div>
+              </div>
+
+              {/* Hàng 3: Agent xử lý (Thể loại dạng thẻ) + Model chat */}
               <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
                   <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">🤖 Agent xử lý</p>
@@ -3093,7 +3325,7 @@ export default function MiniAppDetailPage() {
                 </div>
               </div>
 
-              {/* Hàng 3: Ảnh nhân vật (full width) */}
+              {/* Hàng 4: Ảnh nhân vật (full width) */}
               <div ref={storyCharacterCardRef} className="mt-4 rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
                       <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">📷 Ảnh nhân vật</p>
 
@@ -3509,7 +3741,7 @@ export default function MiniAppDetailPage() {
                       </div>
                     </div>
 
-              {/* Hàng 4: Bối cảnh/Địa điểm thật (tuỳ chọn) — full width, độc lập với Ảnh nhân vật */}
+              {/* Hàng 5: Bối cảnh/Địa điểm thật (tuỳ chọn) — full width, độc lập với Ảnh nhân vật */}
               <div className="mt-4 rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
                 <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">📍 Bối cảnh/Địa điểm (tuỳ chọn)</p>
                 <p className="mb-3 text-sm text-zinc-400 dark:text-zinc-500">
@@ -3556,237 +3788,6 @@ export default function MiniAppDetailPage() {
                     </label>
                   )}
                 </div>
-              </div>
-
-              {/* Hàng 5: Model tạo ảnh phân cảnh + Model tạo video (2 cột) */}
-              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
-                      <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">Model tạo ảnh phân cảnh</p>
-                      {storyExtraCharacters.length > 0 && (
-                        <p className="mb-2 text-sm text-zinc-400 dark:text-zinc-500">
-                          Đang có nhiều nhân vật — chỉ hiện model hỗ trợ nhiều ảnh tham chiếu (ghép nhiều người vào 1 cảnh).
-                        </p>
-                      )}
-                      {storyExtraCharacters.length === 0 && storyPrimaryItemReferences.length > 0 && (
-                        <p className="mb-2 text-sm text-zinc-400 dark:text-zinc-500">
-                          Đang có ảnh vật phẩm — chỉ hiện model hỗ trợ nhiều ảnh tham chiếu (nếu không, vật phẩm sẽ bị bỏ qua).
-                        </p>
-                      )}
-                      {(() => {
-                        const availableImageModels =
-                          storyExtraCharacters.length > 0 || storyPrimaryItemReferences.length > 0
-                            ? storyImageModels.filter((m) => m.multi_image)
-                            : storyImageModels;
-                        const selected = availableImageModels.find((m) => m.key === storyImageModelKey);
-                        return (
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <label className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">Model</label>
-                              <select
-                                value={storyImageModelKey ?? ""}
-                                onChange={(e) => {
-                                  setStoryImageModelKey(e.target.value);
-                                  const m = availableImageModels.find((x) => x.key === e.target.value);
-                                  setStoryResolutionKey(m?.resolution_price_vnd ? Object.keys(m.resolution_price_vnd)[0] : null);
-                                  if (m?.aspect_ratios && !m.aspect_ratios.includes(storyAspectRatio)) setStoryAspectRatio(m.aspect_ratios[0]);
-                                }}
-                                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-                              >
-                                {Array.from(new Set(availableImageModels.map((m) => m.provider))).map((provider) => (
-                                  <optgroup key={provider} label={provider}>
-                                    {availableImageModels
-                                      .filter((m) => m.provider === provider)
-                                      .map((m) => (
-                                        <option key={m.key} value={m.key}>
-                                          {m.label} — {m.provider_cost_vnd}đ/cảnh
-                                        </option>
-                                      ))}
-                                  </optgroup>
-                                ))}
-                              </select>
-                            </div>
-                            <div>
-                              <label className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">Tỉ lệ</label>
-                              <select
-                                value={storyAspectRatio}
-                                onChange={(e) => setStoryAspectRatio(e.target.value)}
-                                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-                              >
-                                {(selected?.aspect_ratios ?? ["9:16", "16:9", "1:1"]).map((r) => (
-                                  <option key={r} value={r}>
-                                    {r}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            {selected?.resolution_price_vnd && (
-                              <div>
-                                <label className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">Độ phân giải</label>
-                                <select
-                                  value={storyResolutionKey ?? ""}
-                                  onChange={(e) => setStoryResolutionKey(e.target.value)}
-                                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-                                >
-                                  {Object.entries(selected.resolution_price_vnd).map(([k, v]) => (
-                                    <option key={k} value={k}>
-                                      {k} — {v}đ
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
-                      <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-                        {storyUseOwnSceneImages ? (
-                          "Không tốn credit ảnh — dùng ảnh khách đã tải lên"
-                        ) : (
-                          <>
-                            Đơn giá đã chọn: <strong className="text-zinc-900 dark:text-zinc-50">{storyImageCost ?? "?"} credit</strong>
-                          </>
-                        )}
-                      </p>
-                    </div>
-
-                    <div className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
-                      <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">🎬 Video phân cảnh</p>
-                      {(() => {
-                        const selected = storyVideoModels.find((m) => m.key === storyVideoModelKey);
-                        return (
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <label className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">Model</label>
-                              <select
-                                value={storyVideoModelKey ?? ""}
-                                onChange={(e) => {
-                                  setStoryVideoModelKey(e.target.value);
-                                  const m = storyVideoModels.find((x) => x.key === e.target.value);
-                                  setStoryDurationKey(m?.duration_price_vnd ? Object.keys(m.duration_price_vnd)[0] : null);
-                                  // "veo31-lite-flf" bắt buộc cả ảnh đầu lẫn ảnh cuối (API Fal.ai không cho tuỳ chọn như
-                                  // Kling O1) - tự bật chuyển động liên tục, không chờ khách tick tay.
-                                  if (e.target.value === "veo31-lite-flf") setStoryContinuousMotion(true);
-                                }}
-                                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-                              >
-                                {/* "veo31-lite-flf" bắt buộc CẢ ảnh đầu lẫn ảnh cuối (last_frame_url — Fal.ai không cho
-                                    tuỳ chọn như Kling O1's end_image_url, thiếu là lỗi 422 ngay). Luồng "khách tự tải
-                                    ảnh phân cảnh" (chỉ 1 ảnh/cảnh) VÀ frame-chain (chỉ 1 ảnh đầu thật/cảnh, không có
-                                    ảnh cuối) đều không có cơ chế tạo ảnh cuối cho model này — ẩn khỏi danh sách khi
-                                    đang bật 1 trong 2 chế độ đó. Kling O1 FLFV KHÔNG cần loại trừ tương tự — ảnh cuối
-                                    của nó tuỳ chọn thật (thiếu thì tự chạy như model 1 ảnh bình thường, không lỗi). */}
-                                {Array.from(
-                                  new Set(
-                                    storyVideoModels
-                                      .filter((m) => !((storyUseOwnSceneImages || storyFrameChainMode) && m.key === "veo31-lite-flf"))
-                                      .map((m) => m.provider)
-                                  )
-                                ).map((provider) => (
-                                  <optgroup key={provider} label={provider}>
-                                    {storyVideoModels
-                                      .filter(
-                                        (m) => m.provider === provider && !((storyUseOwnSceneImages || storyFrameChainMode) && m.key === "veo31-lite-flf")
-                                      )
-                                      .map((m) => (
-                                        <option key={m.key} value={m.key}>
-                                          {m.label} — {m.provider_cost_vnd}đ/cảnh
-                                        </option>
-                                      ))}
-                                  </optgroup>
-                                ))}
-                              </select>
-                            </div>
-                            <div>
-                              <label className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">Tỉ lệ</label>
-                              <select
-                                value={storyAspectRatio}
-                                onChange={(e) => setStoryAspectRatio(e.target.value)}
-                                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-                              >
-                                {(selected?.aspect_ratios ?? ["9:16", "16:9", "1:1"]).map((r) => (
-                                  <option key={r} value={r}>
-                                    {r}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            {/* Luồng mặc định (1 nhân vật, AI tự vẽ ảnh) đã dùng bước "Tạo kịch bản" ở
-                                Hàng 1 để khoá thời lượng riêng từng cảnh — ẩn dropdown phẳng này để tránh
-                                hiểu nhầm (nó không còn ảnh hưởng gì tới mức thực tế dùng ở luồng đó). Vẫn
-                                giữ nguyên cho own-images/nhiều nhân vật (chưa nối kiến trúc kịch bản mới). */}
-                            {selected?.duration_price_vnd && !storyUsesScriptFlow && (
-                              <div>
-                                <label className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">Thời lượng</label>
-                                <select
-                                  value={storyDurationKey ?? ""}
-                                  onChange={(e) => setStoryDurationKey(e.target.value)}
-                                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-                                >
-                                  {Object.entries(selected.duration_price_vnd).map(([k, v]) => (
-                                    <option key={k} value={k}>
-                                      {k}s — {v}đ
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
-                      <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-                        Đơn giá đã chọn: <strong className="text-zinc-900 dark:text-zinc-50">{storyVideoCost ?? "?"} credit</strong>
-                      </p>
-                      {(storyVideoModelKey === "kling-o1-flfv" || storyVideoModelKey === "veo31-lite-flf") && (
-                        <label className="mt-3 flex items-start gap-2 text-sm text-zinc-600 dark:text-zinc-400">
-                          <input
-                            type="checkbox"
-                            checked={storyContinuousMotion}
-                            disabled={storyVideoModelKey === "veo31-lite-flf"}
-                            onChange={(e) => {
-                              setStoryContinuousMotion(e.target.checked);
-                              if (e.target.checked) setStoryFrameChainMode(false);
-                            }}
-                            className="mt-0.5"
-                          />
-                          <span>
-                            🎬 Chuyển động liên tục giữa các cảnh — mỗi cảnh nối liền mạch sang cảnh sau (thêm ~1 ảnh cho cả video, không
-                            phải nhân đôi).
-                            {storyVideoModelKey === "veo31-lite-flf" && " Model này bắt buộc bật, không tắt được."}
-                          </span>
-                        </label>
-                      )}
-                      {storyExtraCharacters.length === 0 && !storyUseOwnSceneImages && (
-                        <label className="mt-3 flex items-start gap-2 text-sm text-zinc-600 dark:text-zinc-400">
-                          <input
-                            type="checkbox"
-                            checked={storyFrameChainMode}
-                            onChange={(e) => {
-                              setStoryFrameChainMode(e.target.checked);
-                              if (e.target.checked) {
-                                setStoryContinuousMotion(false);
-                                // "veo31-lite-flf" bắt buộc CẢ ảnh đầu lẫn ảnh cuối (Fal.ai từ chối thiếu field,
-                                // lỗi 422) — frame-chain chỉ có đúng 1 ảnh đầu thật/cảnh, không có ảnh cuối, không
-                                // tương thích. Đổi sang model khác nếu đang chọn dở, tránh submit với model không
-                                // tương thích (đúng cơ chế đã có cho toggle "khách tự tải ảnh phân cảnh" ở trên).
-                                // Kling O1 FLFV KHÔNG cần loại trừ — ảnh cuối của nó tuỳ chọn thật, thiếu thì tự
-                                // chạy như model 1 ảnh bình thường, không lỗi.
-                                if (storyVideoModelKey === "veo31-lite-flf") {
-                                  const fallback = storyVideoModels.find((m) => m.key !== "veo31-lite-flf");
-                                  setStoryVideoModelKey(fallback?.key ?? null);
-                                  setStoryDurationKey(fallback?.duration_price_vnd ? Object.keys(fallback.duration_price_vnd)[0] : null);
-                                }
-                              }
-                            }}
-                            className="mt-0.5"
-                          />
-                          <span>
-                            🧵 Dẫn trạng thái qua khung hình thật — mỗi cảnh nối tiếp bằng đúng khung hình cuối THẬT của video cảnh
-                            trước (không phải ảnh AI đoán trước), liền mạch chính xác hơn nhưng phải tạo TUẦN TỰ nên chậm hơn nhiều
-                            (không chạy song song các cảnh).
-                          </span>
-                        </label>
-                      )}
-                    </div>
               </div>
 
               {/* Hàng 6: Ảnh phân cảnh (full width) */}
