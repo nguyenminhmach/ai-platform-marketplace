@@ -3155,7 +3155,15 @@ export default function MiniAppDetailPage() {
                                   setStoryDurationKey(m?.duration_price_vnd ? Object.keys(m.duration_price_vnd)[0] : null);
                                   // "veo31-lite-flf" bắt buộc cả ảnh đầu lẫn ảnh cuối (API Fal.ai không cho tuỳ chọn như
                                   // Kling O1) - tự bật chuyển động liên tục, không chờ khách tick tay.
-                                  if (e.target.value === "veo31-lite-flf") setStoryContinuousMotion(true);
+                                  if (e.target.value === "veo31-lite-flf") {
+                                    setStoryContinuousMotion(true);
+                                  } else if (e.target.value !== "kling-o1-flfv") {
+                                    // Đổi sang model không hỗ trợ chuyển động liên tục — tắt lại nếu đang bật dở từ
+                                    // model trước đó (veo31-lite-flf hoặc tick tay ở kling-o1-flfv), tránh
+                                    // storyContinuousMotion bị kẹt true khiến "Tạo kịch bản" bị ẩn nhầm cho tới khi
+                                    // tải lại trang.
+                                    setStoryContinuousMotion(false);
+                                  }
                                 }}
                                 className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                               >
