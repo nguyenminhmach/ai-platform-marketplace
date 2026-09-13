@@ -1214,7 +1214,17 @@ const FRAME_CHAIN_TURN_INSTRUCTION =
 // thường trước khi so) — không khớp thì coi như bị dịch/diễn giải, null hoá để tránh gửi nhầm ngôn ngữ
 // vào TTS/lipsync (thà câm còn hơn đọc sai ngôn ngữ).
 function isVerbatimQuoteInStory(line: string, story: string): boolean {
-  const normalize = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+  // Bỏ qua khác biệt dấu tiếng Việt khi so khớp (vd khách gõ thiếu dấu "chi" thay vì "chị") — nếu không,
+  // Agent viết đúng chính tả có dấu sẽ bị coi là "không khớp nguyên văn" và bị null hoá oan, dù không hề
+  // dịch/bịa gì. Dịch sang tiếng Anh thật sự vẫn bị chặn bình thường vì chuỗi tiếng Anh không khớp được
+  // với tiếng Việt dù đã bỏ dấu.
+  const normalize = (s: string) =>
+    s
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .replace(/đ/gi, "d")
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, "");
   const normalizedLine = normalize(line);
   if (!normalizedLine) return false;
   return normalize(story).includes(normalizedLine);
