@@ -3266,7 +3266,7 @@ export default function MiniAppDetailPage() {
                           </span>
                         </label>
                       )}
-                      {storyExtraCharacters.length === 0 && !storyUseOwnSceneImages && (
+                      {!storyUseOwnSceneImages && (
                         <label className="mt-3 flex items-start gap-2 text-sm text-zinc-600 dark:text-zinc-400">
                           <input
                             type="checkbox"

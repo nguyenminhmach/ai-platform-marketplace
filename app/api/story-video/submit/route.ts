@@ -161,12 +161,13 @@ export async function POST(req: Request) {
       typeof genreKey === "string" ? genreKey : undefined,
       parsedCharacters,
       typeof locationReferenceUrl === "string" && locationReferenceUrl ? locationReferenceUrl : undefined,
-      // Frame-chaining (v1: chỉ 1 nhân vật) và chuyển động liên tục (FLFV) loại trừ nhau — 2 cơ chế
-      // nối cảnh khác nhau, không thể bật cùng lúc. frameChainMode ưu tiên nếu khách lỡ bật cả 2.
-      !isMultiCharacter && frameChainMode === true
+      // Frame-chaining và chuyển động liên tục (FLFV) loại trừ nhau — 2 cơ chế nối cảnh khác nhau,
+      // không thể bật cùng lúc. frameChainMode ưu tiên nếu khách lỡ bật cả 2. Áp dụng cho cả luồng 1
+      // lẫn nhiều nhân vật (submitMultiCharacterStoryVideoJob/runMultiCharacterSceneStage đã hỗ trợ).
+      frameChainMode === true
         ? false
         : continuousMotion === true || (typeof videoModelKey === "string" && REQUIRES_CONTINUOUS_MOTION_VIDEO_KEYS.has(videoModelKey)),
-      !isMultiCharacter && frameChainMode === true,
+      frameChainMode === true,
       parseItemReferenceUrls(itemReferenceUrls),
       parsedPreplannedActions,
       parsedPreplannedActionsMulti

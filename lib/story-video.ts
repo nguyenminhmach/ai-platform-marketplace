@@ -2070,6 +2070,7 @@ export async function submitStoryVideoJob(
       resolvedGenreKey,
       locationReferenceUrl,
       continuousMotion,
+      frameChainMode,
       preplannedActionsMulti
     );
   }
@@ -2264,6 +2265,11 @@ async function submitMultiCharacterStoryVideoJob(
   resolvedGenreKey: string | null,
   locationReferenceUrl?: string,
   continuousMotion?: boolean,
+  // Frame-chaining (dẫn trạng thái qua khung hình THẬT) — mirror đúng tham số cùng tên của
+  // submitStoryVideoJob (luồng 1 nhân vật). applyFrameChainImageResult/applyFrameChainVideoResult ở
+  // tầng dưới đã hoàn toàn generic theo scene/job (không phân biệt số nhân vật) nên không cần sửa gì
+  // thêm ngoài việc set cột này + nhánh submit ảnh tuần tự trong runMultiCharacterSceneStage.
+  frameChainMode?: boolean,
   // Bước "Tạo kịch bản" (xem runMultiCharacterSceneStage) — khi có, số cảnh THẬT SỰ dùng lấy từ
   // preplannedActions.length (bỏ qua numScenes client gửi) — mirror đúng resolvedNumScenes của
   // submitStoryVideoJob (luồng 1 nhân vật). CHỈ áp dụng khi KHÔNG continuousMotion (giống luồng 1
@@ -2357,6 +2363,7 @@ async function submitMultiCharacterStoryVideoJob(
       genre_key: resolvedGenreKey,
       location_reference_url: locationReferenceUrl ?? null,
       continuous_motion: continuousMotion === true,
+      frame_chain_mode: frameChainMode === true,
       // Lưu lại để continueStoryVideoToSceneStage (chạy sau, khi Character phải tạo mới qua webhook)
       // vẫn dùng đúng kịch bản đã xác nhận/hiện giá cho khách, không chia cảnh lại bằng LLM cũ.
       preplanned_actions: preplannedActions ?? null,
@@ -2537,7 +2544,17 @@ async function runMultiCharacterSceneStage(
       .select("id, position, scene_description, character_positions, location");
     if (sceneError || !sceneRows) throw new Error(sceneError?.message ?? "Không tạo được phân cảnh");
 
-    if (job.continuous_motion) {
+    if (job.frame_chain_mode) {
+      // Frame-chaining (dẫn trạng thái qua khung hình THẬT) — mirror đúng nhánh frame_chain_mode của
+      // runSceneStage (luồng 1 nhân vật): chỉ tạo ảnh cho cảnh đầu tiên ngay bây giờ, các cảnh sau tạo
+      // TUẦN TỰ dựa vào khung hình cuối THẬT trích từ video cảnh liền trước (xem
+      // applyFrameChainVideoResult — đã hoàn toàn generic theo scene/job, không cần sửa gì thêm ở đó).
+      const firstRow = sceneRows.find((r) => r.position === 0);
+      if (firstRow) {
+        const requestId = await submitMultiCharacterSceneImageForRow(job, firstRow, jobCharacters, imageEntry, false, "image");
+        await supabase.from("story_video_scenes").update({ image_fal_request_id: requestId }).eq("id", firstRow.id);
+      }
+    } else if (job.continuous_motion) {
       // Chuỗi N+1 ảnh, song song — mirror đúng nhánh continuous_motion của runSceneStage (luồng 1
       // nhân vật): cảnh đầu tiên nộp thêm 1 lượt ảnh ĐẦU, MỌI cảnh đều nộp 1 lượt ảnh CUỐI (dùng
       // end_description) — nối chuỗi (ảnh cuối cảnh N -> ảnh đầu cảnh N+1) xảy ra trong
