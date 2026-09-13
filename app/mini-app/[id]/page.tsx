@@ -3030,11 +3030,24 @@ export default function MiniAppDetailPage() {
                           {storyScriptScenes.length} cảnh · ~{storyScriptTotalSeconds}s · ~{storyScriptVideoCreditCost} credit video
                         </p>
                         <ul className="space-y-1 text-xs text-zinc-600 dark:text-zinc-400">
-                          {storyScriptScenes.map((s, i) => (
-                            <li key={i}>
-                              <strong>Cảnh {i + 1}</strong> {s.duration_key ? `(${s.duration_key}s)` : ""}: {s.description.length > 90 ? `${s.description.slice(0, 90)}…` : s.description}
-                            </li>
-                          ))}
+                          {storyScriptScenes.map((s, i) => {
+                            const characterLabels = [
+                              storyPrimaryCharacterLabel.trim() || "Nhân vật 1",
+                              ...storyExtraCharacters.map((c, ci) => c.label.trim() || `Nhân vật ${ci + 2}`),
+                            ];
+                            const dialogueLine =
+                              typeof s.dialogue === "string"
+                                ? s.dialogue
+                                : s.dialogue
+                                  ? `${characterLabels[s.dialogue.speaker] ?? "?"}: "${s.dialogue.line}"`
+                                  : null;
+                            return (
+                              <li key={i}>
+                                <strong>Cảnh {i + 1}</strong> {s.duration_key ? `(${s.duration_key}s)` : ""}: {s.description.length > 90 ? `${s.description.slice(0, 90)}…` : s.description}
+                                {dialogueLine && <div className="mt-0.5 text-emerald-600 dark:text-emerald-400">💬 {dialogueLine}</div>}
+                              </li>
+                            );
+                          })}
                         </ul>
                       </div>
                     )}
