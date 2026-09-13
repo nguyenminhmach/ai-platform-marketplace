@@ -4217,7 +4217,7 @@ export default function MiniAppDetailPage() {
                               <img src={scene.imageUrl} alt={`Cảnh ${index + 1}`} className="h-full w-full rounded-lg object-cover opacity-50" />
                               {!isRegeneratingThisVideo && !isEditingThisPrompt && (
                                 <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/40 px-2 text-center text-xs text-white">
-                                  Chưa có video (lỗi lúc tạo) — bấm 🔄 để sửa mô tả và tạo lại
+                                  Chưa có video — bấm "Viết mô tả chuyển động để tạo video" ở dưới, hoặc bấm 🔄 nếu đã tạo mà lỗi
                                 </div>
                               )}
                             </div>
