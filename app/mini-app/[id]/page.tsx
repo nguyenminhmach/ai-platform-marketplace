@@ -1580,82 +1580,72 @@ export default function MiniAppDetailPage() {
     setStorySavedCharacterMsg(null);
 
     let characterImageUrls: string[] = [];
-    if (!reuseId) {
-      setStoryStatusText("Đang tải ảnh lên...");
-      try {
-        // Ảnh đã có URL thật (vd job dở dang được khôi phục) thì dùng thẳng, chỉ upload ảnh base64 mới.
-        characterImageUrls = await Promise.all(images.map((img) => (img.startsWith("http") ? img : uploadOutfitSwapImage(img))));
-      } catch (err) {
-        setStoryError(err instanceof Error ? err.message : "Không tải được ảnh lên, thử lại");
-        setStoryRunning(false);
-        setStoryStatusText(null);
-        return;
-      }
-    }
-
-    // Vật phẩm riêng của nhân vật #1 (tuỳ chọn, tối đa STORY_MAX_ITEM_REFERENCES) — tải lên TRƯỚC khối
-    // nhiều nhân vật vì cả 2 nhánh bên dưới (1 nhân vật lẫn nhiều nhân vật) đều cần dùng lại đúng mảng
-    // URL này cho nhân vật #1.
     let primaryItemReferenceUrls: string[] = [];
-    if (storyPrimaryItemReferences.length > 0) {
-      try {
-        primaryItemReferenceUrls = await Promise.all(
-          storyPrimaryItemReferences.map((img) => (img.startsWith("http") ? img : uploadOutfitSwapImage(img)))
-        );
-      } catch (err) {
-        setStoryError(err instanceof Error ? err.message : "Không tải được ảnh vật phẩm lên, thử lại");
-        setStoryRunning(false);
-        setStoryStatusText(null);
-        return;
-      }
-    }
-
-    // Job nhiều nhân vật — tải thêm ảnh của từng nhân vật phụ (#2, #3, #4) lên, gộp cùng nhân vật #1
-    // thành mảng "characters" gửi server. Không đụng gì tới nhánh 1-nhân-vật ở dưới nếu không có ai thêm.
     let characters:
       | { imageUrls: string[]; reuseCharacterId?: number; skipCharacterCreation?: boolean; label?: string; itemReferenceUrls?: string[] }[]
       | undefined;
-    if (hasMultipleCharacters) {
-      setStoryStatusText("Đang tải ảnh nhân vật lên...");
-      try {
-        const extraUploaded = await Promise.all(
-          storyExtraCharacters.map(async (slot) => ({
-            imageUrls: slot.reuseId
-              ? []
-              : await Promise.all(slot.images.map((img) => (img.startsWith("http") ? img : uploadOutfitSwapImage(img)))),
-            reuseCharacterId: slot.reuseId ?? undefined,
-            label: slot.label.trim() || undefined,
-            itemReferenceUrls: await Promise.all(slot.itemImages.map((img) => (img.startsWith("http") ? img : uploadOutfitSwapImage(img)))),
-          }))
-        );
-        characters = [
-          {
-            imageUrls: reuseId ? [] : characterImageUrls,
-            reuseCharacterId: reuseId ?? undefined,
-            skipCharacterCreation: !reuseId && storySkipCharacterCreation,
-            label: storyPrimaryCharacterLabel.trim() || undefined,
-            itemReferenceUrls: primaryItemReferenceUrls,
-          },
-          ...extraUploaded,
-        ];
-      } catch (err) {
-        setStoryError(err instanceof Error ? err.message : "Không tải được ảnh nhân vật lên, thử lại");
-        setStoryRunning(false);
-        setStoryStatusText(null);
-        return;
-      }
-    }
-
-    // Ảnh Bối cảnh/Địa điểm (tuỳ chọn, dùng chung cho cả job) — tải lên nếu là ảnh mới (base64), dùng
-    // thẳng nếu đã là URL thật (job khôi phục dở dang).
     let locationReferenceUrl: string | undefined;
-    if (storyLocationReference) {
+    if (!reuseId || storyPrimaryItemReferences.length > 0 || hasMultipleCharacters || storyLocationReference) {
+      setStoryStatusText("Đang tải ảnh lên...");
       try {
-        locationReferenceUrl = storyLocationReference.startsWith("http")
-          ? storyLocationReference
-          : await uploadOutfitSwapImage(storyLocationReference);
+        // Gộp TẤT CẢ lượt tải ảnh (nhân vật #1, vật phẩm #1, từng nhân vật phụ, địa điểm) vào 1 lượt
+        // Promise.all duy nhất thay vì 4 khối await tuần tự như trước — mỗi khối trước đây chờ khối
+        // trước xong mới bắt đầu dù hoàn toàn độc lập với nhau, cộng dồn thời gian chờ (vd 4 khối x
+        // ~2-3s = 8-12s+), khiến khách cảm thấy "tải ảnh lâu". Giờ chạy song song, tổng thời gian chỉ
+        // còn bằng khối chậm nhất thay vì tổng cả 4 khối.
+        const [characterImageUrlsResult, primaryItemReferenceUrlsResult, extraUploaded, locationReferenceUrlResult] = await Promise.all([
+          // Ảnh đã có URL thật (vd job dở dang được khôi phục) thì dùng thẳng, chỉ upload ảnh base64 mới.
+          !reuseId
+            ? Promise.all(images.map((img) => (img.startsWith("http") ? img : uploadOutfitSwapImage(img))))
+            : Promise.resolve<string[]>([]),
+          storyPrimaryItemReferences.length > 0
+            ? Promise.all(storyPrimaryItemReferences.map((img) => (img.startsWith("http") ? img : uploadOutfitSwapImage(img))))
+            : Promise.resolve<string[]>([]),
+          // Job nhiều nhân vật — tải ảnh của từng nhân vật phụ (#2, #3, #4), gộp cùng nhân vật #1 thành
+          // mảng "characters" gửi server. Mỗi nhân vật tự tải ảnh + vật phẩm SONG SONG (không tuần tự).
+          hasMultipleCharacters
+            ? Promise.all(
+                storyExtraCharacters.map(async (slot) => {
+                  const [slotImages, slotItemImages] = await Promise.all([
+                    slot.reuseId
+                      ? Promise.resolve<string[]>([])
+                      : Promise.all(slot.images.map((img) => (img.startsWith("http") ? img : uploadOutfitSwapImage(img)))),
+                    Promise.all(slot.itemImages.map((img) => (img.startsWith("http") ? img : uploadOutfitSwapImage(img)))),
+                  ]);
+                  return {
+                    imageUrls: slotImages,
+                    reuseCharacterId: slot.reuseId ?? undefined,
+                    label: slot.label.trim() || undefined,
+                    itemReferenceUrls: slotItemImages,
+                  };
+                })
+              )
+            : Promise.resolve(undefined),
+          // Ảnh Bối cảnh/Địa điểm (tuỳ chọn, dùng chung cho cả job) — tải lên nếu là ảnh mới (base64),
+          // dùng thẳng nếu đã là URL thật (job khôi phục dở dang).
+          storyLocationReference
+            ? storyLocationReference.startsWith("http")
+              ? Promise.resolve(storyLocationReference)
+              : uploadOutfitSwapImage(storyLocationReference)
+            : Promise.resolve(undefined),
+        ]);
+        characterImageUrls = characterImageUrlsResult;
+        primaryItemReferenceUrls = primaryItemReferenceUrlsResult;
+        if (hasMultipleCharacters && extraUploaded) {
+          characters = [
+            {
+              imageUrls: reuseId ? [] : characterImageUrls,
+              reuseCharacterId: reuseId ?? undefined,
+              skipCharacterCreation: !reuseId && storySkipCharacterCreation,
+              label: storyPrimaryCharacterLabel.trim() || undefined,
+              itemReferenceUrls: primaryItemReferenceUrls,
+            },
+            ...extraUploaded,
+          ];
+        }
+        locationReferenceUrl = locationReferenceUrlResult;
       } catch (err) {
-        setStoryError(err instanceof Error ? err.message : "Không tải được ảnh địa điểm lên, thử lại");
+        setStoryError(err instanceof Error ? err.message : "Không tải được ảnh lên, thử lại");
         setStoryRunning(false);
         setStoryStatusText(null);
         return;
