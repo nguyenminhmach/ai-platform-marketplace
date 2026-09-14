@@ -3916,11 +3916,32 @@ export async function applyVideoStageResult(
   const { data: job } = await supabase.from("story_video_jobs").select("mini_app_id, frame_chain_mode").eq("id", jobId).single();
 
   // Frame-chaining — hoàn toàn tách khỏi luồng song song bên dưới (không chờ "đủ cảnh", tự nối tiếp
-  // tuần tự sang cảnh kế bằng khung hình THẬT vừa render ra). Không hỗ trợ lồng tiếng ở v1. "Tạo lại"
-  // (isRegenerate) VẪN tiếp tục chuỗi khi an toàn (xem chú thích trong applyFrameChainVideoResult) —
-  // hàm đó tự quyết định dừng lại nếu cảnh sau đã có ảnh từ trước (tránh cascade).
+  // tuần tự sang cảnh kế bằng khung hình THẬT vừa render ra). "Tạo lại" (isRegenerate) VẪN tiếp tục
+  // chuỗi khi an toàn (xem chú thích trong applyFrameChainVideoResult) — hàm đó tự quyết định dừng lại
+  // nếu cảnh sau đã có ảnh từ trước (tránh cascade). Lồng tiếng (nếu cảnh có dialogue_line) submit
+  // SONG SONG ngay dưới đây, KHÔNG chặn chuỗi — Kling LipSync chỉ chỉnh miệng trên video CÓ SẴN, không
+  // đổi khung hình nên không ảnh hưởng continuity; điều kiện "đủ cảnh chưa" trước khi ghép (nhánh cảnh
+  // cuối trong applyFrameChainVideoResult + applyLipsyncStageResult) tự chờ đúng cảnh lồng tiếng xong.
   if (job?.frame_chain_mode) {
     await applyFrameChainVideoResult(jobId, sceneId, videoUrl, isRegenerate);
+
+    const lipsyncModel = job ? (await getMiniAppModelConfig(job.mini_app_id)).model_config.lipsync_model : undefined;
+    const { data: sceneForLipsync } = await supabase
+      .from("story_video_scenes")
+      .select("id, dialogue_line, dialogue_speaker_position")
+      .eq("id", sceneId)
+      .single();
+    if (sceneForLipsync && sceneNeedsLipsync(sceneForLipsync, lipsyncModel)) {
+      try {
+        const voiceId = CHARACTER_VOICE_IDS[(sceneForLipsync.dialogue_speaker_position ?? 0) % CHARACTER_VOICE_IDS.length];
+        await submitSceneLipsyncForRow(jobId, sceneId, lipsyncModel as string, videoUrl, sceneForLipsync.dialogue_line as string, voiceId, isRegenerate);
+      } catch (err) {
+        console.error(`[story-video] Lỗi lồng tiếng cảnh #${sceneId} (frame-chain), dùng video câm thay thế:`, err);
+        if (!isRegenerate) {
+          await supabase.from("story_video_scenes").update({ dialogue_line: null }).eq("id", sceneId);
+        }
+      }
+    }
     return;
   }
 
@@ -4233,7 +4254,17 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
       await failJob(jobId, err instanceof Error ? err.message : String(err));
     }
   } else {
+    // Đã tới cảnh cuối cùng của chuỗi — nhưng có thể còn cảnh nào đó (cảnh này hoặc cảnh trước) đang
+    // chờ webhook lồng tiếng (xem nhánh frame_chain_mode trong applyVideoStageResult, giờ submit lồng
+    // tiếng song song không chặn chuỗi) — dùng chung đúng điều kiện "đủ cảnh chưa" như luồng bình
+    // thường (sceneNeedsLipsync), KHÔNG ghép ngay nếu còn cảnh chờ lồng tiếng; webhook lồng tiếng cuối
+    // cùng tới sau sẽ tự kiểm tra lại điều kiện này và gọi ghép (xem applyLipsyncStageResult).
+    const { data: jobForLipsync } = await supabase.from("story_video_jobs").select("mini_app_id").eq("id", jobId).single();
+    const lipsyncModel = jobForLipsync
+      ? (await getMiniAppModelConfig(jobForLipsync.mini_app_id)).model_config.lipsync_model
+      : undefined;
     const scenes = await getScenes(jobId);
+    if (scenes.some((s) => (sceneNeedsLipsync(s, lipsyncModel) ? !s.lipsync_url : !s.video_url))) return; // chờ lồng tiếng cảnh còn lại
     await stitchAndFinish(jobId, scenes);
   }
 }
