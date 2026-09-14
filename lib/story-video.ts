@@ -954,7 +954,7 @@ Trạng thái liên tục giữa các cảnh: MỖI cảnh được gửi cho mo
 Tư thế/hành động nối tiếp: "description" của cảnh này (trừ cảnh đầu tiên) PHẢI bắt đầu đúng từ tư thế/hành động mà "end_pose" của cảnh NGAY TRƯỚC nó vừa mô tả — viết liền thành 1 câu tự nhiên (thì hiện tại, 1 khoảnh khắc duy nhất), không kể lại 2 mốc thời gian nối nhau.
 Bối cảnh vật lý (bắt buộc, MỌI cảnh): thêm khoá "location" (chuỗi tiếng Anh NGẮN GỌN) mô tả nơi + ánh sáng/thời điểm trong ngày. Nếu nhiều cảnh liên tiếp cùng 1 chỗ, "location" phải viết Y HỆT NHAU, ĐÚNG TỪNG CHỮ.
 Trạng thái kết thúc cảnh (bắt buộc, MỌI cảnh): thêm khoá "end_pose" (chuỗi tiếng Anh NGẮN GỌN) mô tả tư thế/hành động lúc KẾT THÚC cảnh — dùng làm điểm nối sang cảnh sau.
-Lời thoại (chỉ khi ý tưởng gốc CÓ trích dẫn rõ ràng 1 nhân vật đang nói): thêm khoá "dialogue" là 1 object {"speaker": số (đúng chỉ số nhân vật đang nói), "line": chuỗi tiếng Việt giữ NGUYÊN VĂN, KHÔNG dịch, dưới 15 từ}. CHỈ được thêm khi "characters" của cảnh đó có ĐÚNG 1 phần tử (lý do kỹ thuật: lồng tiếng chỉ khớp môi được video có 1 người) — cảnh có từ 2 người trở lên LUÔN bỏ hẳn khoá "dialogue" dù truyện gốc có viết lời ở đó.
+Lời thoại (chỉ khi ý tưởng gốc CÓ trích dẫn rõ ràng 1 nhân vật đang nói): thêm khoá "dialogue" là 1 object {"speaker": số (đúng chỉ số nhân vật đang nói, phải nằm trong mảng "characters" của cảnh đó), "line": chuỗi tiếng Việt giữ NGUYÊN VĂN, KHÔNG dịch, dưới 15 từ}. Có thể thêm dù cảnh đó có nhiều người cùng khung hình — hệ thống lồng tiếng chỉ khớp môi đúng người được chỉ định qua "speaker", những người còn lại trong cảnh vẫn giữ nguyên, không bị ảnh hưởng.
 
 Nhiệm vụ 2 — Ước lượng thời lượng mỗi cảnh: thêm khoá "duration_seconds" (số nguyên, MỌI cảnh, bắt buộc) — số giây chuyển động cảnh này cần để trông tự nhiên, mượt mà. Dùng bảng tham khảo sau làm gốc:
 - hành động nhỏ (liếc mắt, mỉm cười nhẹ, nghiêng đầu): 1-2s
@@ -1002,13 +1002,15 @@ export function validateScriptSceneResultMulti(
     const durationSeconds = Number(s.duration_seconds);
     if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) throw new Error("duration_seconds không hợp lệ ở 1 hành động");
     const characters = s.characters as number[];
-    // Phòng thủ phía code: chỉ giữ dialogue khi ĐÚNG 1 người trong cảnh + câu thoại khớp nguyên văn truyện
-    // gốc (chặn AI dịch/diễn giải sang tiếng Anh) — cùng quy tắc đã áp dụng cho splitStoryIntoScenesMulti.
+    // Phòng thủ phía code: giữ dialogue khi speaker hợp lệ (nằm trong "characters" của cảnh) + câu thoại
+    // khớp nguyên văn truyện gốc (chặn AI dịch/diễn giải sang tiếng Anh) — cùng quy tắc đã áp dụng cho
+    // splitStoryIntoScenesMulti. Đã kiểm chứng qua test thật Kling LipSync: khớp môi đúng người được chỉ
+    // định qua "speaker" dù cảnh có nhiều người, không cần giới hạn còn ĐÚNG 1 người trong khung hình nữa.
     const rawDialogue = s.dialogue as { speaker?: unknown; line?: unknown } | null | undefined;
     const dialogue =
-      characters.length === 1 &&
       rawDialogue &&
       typeof rawDialogue.speaker === "number" &&
+      characters.includes(rawDialogue.speaker) &&
       typeof rawDialogue.line === "string" &&
       rawDialogue.line.trim() &&
       isVerbatimQuoteInStory(rawDialogue.line, storyDescription)
@@ -1347,7 +1349,7 @@ Tư thế/hành động nối tiếp (quan trọng, áp dụng cho MỌI cảnh 
 Không được bỏ sót hành động đổi tư thế lớn (bắt buộc): nếu ý tưởng gốc có 1 hành động đổi tư thế/trạng thái lớn của bất kỳ nhân vật nào (đứng dậy, ngồi xuống, quay người, bắt đầu di chuyển, dừng lại...), hành động đó PHẢI được thể hiện rõ trong "description" hoặc "end_pose" của ĐÚNG 1 cảnh cụ thể — không được để 2 cảnh liền kề nhảy thẳng từ tư thế này sang tư thế khác mà không cảnh nào thể hiện lúc đang chuyển. Khi số cảnh ít hơn số hành động trong ý tưởng gốc, ưu tiên gộp các hành động KHÔNG đổi tư thế lớn, tuyệt đối không gộp/bỏ qua đúng hành động CÓ đổi tư thế lớn.
 Khung hình/bố cục camera nhất quán (bắt buộc, khi nhiều cảnh liên tiếp cùng 1 địa điểm): vị trí các vật thể cố định trong khung hình (bàn, cửa sổ, cửa ra vào...) và mức độ zoom/cỡ cảnh PHẢI giữ nguyên qua các cảnh đó — không được tự đổi bố cục coi như đang quay từ góc khác. Chỉ đổi khi ý tưởng gốc có lý do rõ ràng (nhân vật di chuyển sang vị trí khác, hoặc mô tả rõ máy quay lùi ra/tiến lại gần).
 Không tự bịa phụ kiện/biểu cảm không có trong ý tưởng gốc nếu không có căn cứ.
-Lời thoại (chỉ áp dụng khi ý tưởng gốc CÓ trích dẫn/thể hiện rõ ràng 1 nhân vật đang NÓI THÀNH LỜI ở đúng cảnh đó): thêm khoá "dialogue" là 1 object {"speaker": số (đúng chỉ số nhân vật đang nói), "line": chuỗi tiếng Việt giữ NGUYÊN VĂN lời nói, KHÔNG dịch/diễn giải lại, dưới khoảng 15 từ}. QUAN TRỌNG: chỉ được thêm "dialogue" khi mảng "characters" của cảnh đó có ĐÚNG 1 phần tử (chỉ 1 người trong khung hình) — lý do kỹ thuật: hệ thống lồng tiếng hiện chỉ khớp môi được cho video có 1 người, cảnh có từ 2 người trở lên LUÔN LUÔN không có khoá "dialogue" dù truyện gốc có viết lời thoại ở đó. Cảnh không có lời nói (hoặc có từ 2 người trở lên) thì KHÔNG thêm khoá "dialogue" (bỏ hẳn khoá này). Không tự bịa thêm lời thoại không có trong ý tưởng gốc.
+Lời thoại (chỉ áp dụng khi ý tưởng gốc CÓ trích dẫn/thể hiện rõ ràng 1 nhân vật đang NÓI THÀNH LỜI ở đúng cảnh đó): thêm khoá "dialogue" là 1 object {"speaker": số (đúng chỉ số nhân vật đang nói, phải nằm trong mảng "characters" của cảnh đó), "line": chuỗi tiếng Việt giữ NGUYÊN VĂN lời nói, KHÔNG dịch/diễn giải lại, dưới khoảng 15 từ}. Có thể thêm dù cảnh có nhiều người cùng khung hình — hệ thống lồng tiếng chỉ khớp môi đúng người được chỉ định qua "speaker", những người còn lại trong cảnh vẫn giữ nguyên. Cảnh không có lời nói thì KHÔNG thêm khoá "dialogue" (bỏ hẳn khoá này). Không tự bịa thêm lời thoại không có trong ý tưởng gốc.
 Bối cảnh vật lý (bắt buộc, MỌI cảnh): thêm khoá "location" (chuỗi tiếng Anh NGẮN GỌN) mô tả nơi cảnh đang diễn ra, BAO GỒM cả ánh sáng/thời điểm trong ngày. Nếu nhiều cảnh liên tiếp cùng diễn ra ở 1 chỗ, "location" của những cảnh đó PHẢI viết Y HỆT NHAU, ĐÚNG TỪNG CHỮ (kể cả phần ánh sáng) — chỉ đổi khi ý tưởng gốc nói RÕ RÀNG có sự di chuyển sang nơi khác hoặc thời gian trôi qua rõ rệt. TUYỆT ĐỐI không tự đổi tông sáng (vd tự thêm hoàng hôn cho cảnh chia tay/rời đi) nếu truyện gốc không nói tới.
 Trạng thái kết thúc cảnh (bắt buộc, MỌI cảnh): thêm khoá "end_pose" (chuỗi tiếng Anh NGẮN GỌN) mô tả tư thế/hành động của (các) nhân vật ở khoảnh khắc KẾT THÚC cảnh đó — dùng làm điểm nối sang cảnh kế tiếp.
 Chỉ trả về DUY NHẤT 1 mảng JSON hợp lệ gồm đúng N phần tử, mỗi phần tử có khoá "description" (chuỗi tiếng Anh), "characters" (mảng số), "dialogue" (tuỳ chọn), "location" (bắt buộc) và "end_pose" (bắt buộc) như hướng dẫn trên — không kèm markdown fence, không giải thích, không đánh số, không có dòng chú thích (comment) nào trong JSON.
@@ -1417,14 +1419,16 @@ export async function splitStoryIntoScenesMulti(
     ) {
       throw new Error("wrong-shape");
     }
-    // Phòng thủ phía code (không chỉ dựa Agent nghe lời): cảnh ≥2 người LUÔN ép dialogue = null, kể cả
-    // khi Agent lỡ trả dialogue cho cảnh đó — giới hạn kỹ thuật lipsync 1 mặt/clip là bắt buộc, không
-    // phải gợi ý. Đồng thời chặn trường hợp Agent dịch câu thoại sang tiếng Anh (xem
-    // isVerbatimQuoteInStory) — không khớp nguyên văn truyện gốc thì coi như không có thoại.
+    // Phòng thủ phía code (không chỉ dựa Agent nghe lời): giữ dialogue khi speaker hợp lệ (nằm trong
+    // "characters" của cảnh, có thể nhiều người trong khung hình — đã kiểm chứng qua test thật Kling
+    // LipSync khớp môi đúng người được chỉ định, không ảnh hưởng người còn lại) + câu thoại khớp nguyên
+    // văn truyện gốc (chặn Agent dịch sang tiếng Anh, xem isVerbatimQuoteInStory).
     return (parsed as MultiSceneSplitResult[]).map((s) => ({
       ...s,
       dialogue:
-        s.characters.length === 1 && s.dialogue && isVerbatimQuoteInStory(s.dialogue.line, storyDescription)
+        s.dialogue &&
+        s.characters.includes(s.dialogue.speaker) &&
+        isVerbatimQuoteInStory(s.dialogue.line, storyDescription)
           ? s.dialogue
           : null,
     }));
