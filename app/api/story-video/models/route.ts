@@ -13,11 +13,18 @@ export async function GET(req: Request) {
   if (error || !data) return Response.json({ error: "Không tìm thấy Mini App" }, { status: 404 });
 
   const config = data.model_config as
-    | { image_models?: ImageModelEntry[]; video_models?: VideoModelEntry[]; genre_thumbnails?: Record<string, string> }
+    | {
+        image_models?: ImageModelEntry[];
+        video_models?: VideoModelEntry[];
+        genre_thumbnails?: Record<string, string>;
+        enable_speed_slider?: boolean;
+      }
     | null;
   const imageModels = (config?.image_models ?? []).filter((m) => m.enabled);
   const videoModels = (config?.video_models ?? []).filter((m) => m.enabled);
   const genreThumbnails = config?.genre_thumbnails ?? {};
+  // Thanh trượt điều chỉnh tốc độ từng hành động — admin bật ở /admin, mặc định TẮT.
+  const enableSpeedSlider = config?.enable_speed_slider === true;
 
-  return Response.json({ imageModels, videoModels, genreThumbnails });
+  return Response.json({ imageModels, videoModels, genreThumbnails, enableSpeedSlider });
 }

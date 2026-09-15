@@ -204,6 +204,14 @@ export default function MiniAppDetailPage() {
   const [storyScriptVideoCreditCost, setStoryScriptVideoCreditCost] = useState<number | null>(null);
   const [storyScriptLoading, setStoryScriptLoading] = useState(false);
   const [storyScriptError, setStoryScriptError] = useState<string | null>(null);
+  // Thanh trượt điều chỉnh tốc độ từng hành động — admin bật qua /admin (model_config.enable_speed_slider,
+  // mặc định TẮT), đọc cờ này 1 lần lúc tải model. Khi bật: sau "Tạo kịch bản", hiện danh sách HÀNH ĐỘNG
+  // GỐC (storyScriptActions, chưa gộp) kèm thanh trượt riêng từng cái thay vì hiện thẳng storyScriptScenes
+  // (đã gộp) — khách chỉnh xong bấm "Hoàn thành" mới gọi lại plan-script để gộp/chốt giá lại.
+  const [storyEnableSpeedSlider, setStoryEnableSpeedSlider] = useState(false);
+  const [storySpeedDrafts, setStorySpeedDrafts] = useState<Record<number, number>>({});
+  const [storySpeedFinalized, setStorySpeedFinalized] = useState(false);
+  const [storySpeedLoading, setStorySpeedLoading] = useState(false);
   const [storyCharacterImages, setStoryCharacterImages] = useState<string[]>([]);
   // Nhân vật #2, #3, #4 (nếu có) — nhân vật #1 vẫn dùng nguyên storyCharacterImages/
   // storySelectedSavedCharacterId ở trên, không đổi gì, để giữ đúng luồng 1-nhân-vật hiện có khi khách
@@ -406,10 +414,60 @@ export default function MiniAppDetailPage() {
       setStoryScriptVideoCreditCost(data.videoCreditCost ?? null);
       setNumScenes(data.scenes.length);
       setSceneCountChosen(true);
+      setStorySpeedDrafts({});
+      // Còn thanh trượt chờ chỉnh (nếu tính năng đang bật) — chưa coi là xong ngay, khách phải bấm
+      // "Hoàn thành" mới hiện đúng danh sách cảnh/giá cuối (xem khối render bên dưới).
+      setStorySpeedFinalized(false);
     } catch {
       setStoryScriptError("Không kết nối được tới server");
     } finally {
       setStoryScriptLoading(false);
+    }
+  }
+  // Bước "Hoàn thành chỉnh tốc độ" (chỉ chạy khi storyEnableSpeedSlider bật) — gửi lại ĐÚNG mảng hành
+  // động Agent đã liệt kê (storyScriptActions), chỉ thay duration_seconds theo thanh trượt khách vừa
+  // kéo, KHÔNG gọi lại Agent (route tự nhận diện qua field actions/actionsMulti, xem plan-script/route.ts).
+  async function handleFinalizeSpeed() {
+    if (!storyScriptActions) return;
+    setStorySpeedLoading(true);
+    setStoryScriptError(null);
+    try {
+      const hasMultipleCharacters = storyExtraCharacters.length > 0;
+      const adjustedActions = storyScriptActions.map((a, i) => ({
+        ...a,
+        duration_seconds: storySpeedDrafts[i] ?? a.duration_seconds,
+      }));
+      const characterLabels = hasMultipleCharacters
+        ? [storyPrimaryCharacterLabel.trim() || "Nhân vật 1", ...storyExtraCharacters.map((c, i) => c.label.trim() || `Nhân vật ${i + 2}`)]
+        : undefined;
+      const res = await fetch("/api/story-video/plan-script", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storyDescription: input.trim(),
+          miniAppId: app!.id,
+          videoModelKey: storyVideoModelKey,
+          modelChatKey: storyModelChatKey,
+          characterLabels,
+          actions: hasMultipleCharacters ? undefined : adjustedActions,
+          actionsMulti: hasMultipleCharacters ? adjustedActions : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStoryScriptError(data.error ?? "Không tính lại được cảnh/giá");
+        return;
+      }
+      setStoryScriptActions(data.actions);
+      setStoryScriptScenes(data.scenes);
+      setStoryScriptTotalSeconds(data.totalNaturalSeconds ?? null);
+      setStoryScriptVideoCreditCost(data.videoCreditCost ?? null);
+      setNumScenes(data.scenes.length);
+      setStorySpeedFinalized(true);
+    } catch {
+      setStoryScriptError("Không kết nối được tới server");
+    } finally {
+      setStorySpeedLoading(false);
     }
   }
   // Kịch bản đã tạo gắn với ĐÚNG nội dung truyện + model video lúc bấm — đổi 1 trong 2 thứ đó sau khi
@@ -420,6 +478,8 @@ export default function MiniAppDetailPage() {
       setStoryScriptScenes(null);
       setStoryScriptTotalSeconds(null);
       setStoryScriptVideoCreditCost(null);
+      setStorySpeedDrafts({});
+      setStorySpeedFinalized(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [input, storyVideoModelKey]);
@@ -714,6 +774,7 @@ export default function MiniAppDetailPage() {
         if (data.genreThumbnails && typeof data.genreThumbnails === "object") {
           setStoryGenreThumbnails(data.genreThumbnails);
         }
+        if (typeof data.enableSpeedSlider === "boolean") setStoryEnableSpeedSlider(data.enableSpeedSlider);
       })
       .catch(() => {});
   }, [params.id]);
@@ -3019,32 +3080,77 @@ export default function MiniAppDetailPage() {
                       <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">Đang tải danh sách model video...</p>
                     )}
                     {storyScriptError && <p className="mt-1 text-xs text-red-500">{storyScriptError}</p>}
-                    {storyScriptScenes && (
+                    {storyScriptActions && storyEnableSpeedSlider && !storySpeedFinalized ? (
                       <div className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800">
                         <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                          {storyScriptScenes.length} cảnh · ~{storyScriptTotalSeconds}s · ~{storyScriptVideoCreditCost} credit video
+                          Chỉnh tốc độ từng hành động (kéo chậm/nhanh), xong bấm &quot;Hoàn thành&quot; để tính lại số cảnh và giá.
                         </p>
-                        <ul className="space-y-1 text-xs text-zinc-600 dark:text-zinc-400">
-                          {storyScriptScenes.map((s, i) => {
-                            const characterLabels = [
-                              storyPrimaryCharacterLabel.trim() || "Nhân vật 1",
-                              ...storyExtraCharacters.map((c, ci) => c.label.trim() || `Nhân vật ${ci + 2}`),
-                            ];
-                            const dialogueLine =
-                              typeof s.dialogue === "string"
-                                ? s.dialogue
-                                : s.dialogue
-                                  ? `${characterLabels[s.dialogue.speaker] ?? "?"}: "${s.dialogue.line}"`
-                                  : null;
+                        <div className="space-y-3">
+                          {storyScriptActions.map((a, i) => {
+                            const selectedVideoModel = storyVideoModels.find((m) => m.key === storyVideoModelKey);
+                            const maxSeconds = selectedVideoModel?.duration_price_vnd
+                              ? Math.max(...Object.keys(selectedVideoModel.duration_price_vnd).map(Number))
+                              : 15;
+                            const value = storySpeedDrafts[i] ?? a.duration_seconds;
                             return (
-                              <li key={i}>
-                                <strong>Cảnh {i + 1}</strong> {s.duration_key ? `(${s.duration_key}s)` : ""}: {s.description.length > 90 ? `${s.description.slice(0, 90)}…` : s.description}
-                                {dialogueLine && <div className="mt-0.5 text-emerald-600 dark:text-emerald-400">💬 {dialogueLine}</div>}
-                              </li>
+                              <div key={i} className="rounded-lg border border-zinc-200 bg-white p-2 dark:border-zinc-700 dark:bg-zinc-900">
+                                <div className="mb-1 flex items-center justify-between gap-2">
+                                  <span className="text-xs text-zinc-600 dark:text-zinc-400">
+                                    {a.description.length > 70 ? `${a.description.slice(0, 70)}…` : a.description}
+                                  </span>
+                                  <span className="shrink-0 text-xs font-medium text-zinc-900 dark:text-zinc-50">{value}s</span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min={1}
+                                  max={maxSeconds}
+                                  step={1}
+                                  value={value}
+                                  onChange={(e) => setStorySpeedDrafts((prev) => ({ ...prev, [i]: Number(e.target.value) }))}
+                                  className="w-full"
+                                />
+                                <p className="mt-0.5 text-[11px] text-zinc-400 dark:text-zinc-500">Agent gợi ý: {a.duration_seconds}s</p>
+                              </div>
                             );
                           })}
-                        </ul>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleFinalizeSpeed}
+                          disabled={storySpeedLoading}
+                          className="mt-3 rounded-full border border-zinc-900 bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
+                        >
+                          {storySpeedLoading ? "Đang tính lại..." : "✅ Hoàn thành chỉnh tốc độ"}
+                        </button>
                       </div>
+                    ) : (
+                      storyScriptScenes && (
+                        <div className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800">
+                          <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                            {storyScriptScenes.length} cảnh · ~{storyScriptTotalSeconds}s · ~{storyScriptVideoCreditCost} credit video
+                          </p>
+                          <ul className="space-y-1 text-xs text-zinc-600 dark:text-zinc-400">
+                            {storyScriptScenes.map((s, i) => {
+                              const characterLabels = [
+                                storyPrimaryCharacterLabel.trim() || "Nhân vật 1",
+                                ...storyExtraCharacters.map((c, ci) => c.label.trim() || `Nhân vật ${ci + 2}`),
+                              ];
+                              const dialogueLine =
+                                typeof s.dialogue === "string"
+                                  ? s.dialogue
+                                  : s.dialogue
+                                    ? `${characterLabels[s.dialogue.speaker] ?? "?"}: "${s.dialogue.line}"`
+                                    : null;
+                              return (
+                                <li key={i}>
+                                  <strong>Cảnh {i + 1}</strong> {s.duration_key ? `(${s.duration_key}s)` : ""}: {s.description.length > 90 ? `${s.description.slice(0, 90)}…` : s.description}
+                                  {dialogueLine && <div className="mt-0.5 text-emerald-600 dark:text-emerald-400">💬 {dialogueLine}</div>}
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </div>
+                      )
                     )}
                   </div>
                 )}
@@ -4399,7 +4505,10 @@ export default function MiniAppDetailPage() {
                       (!storySelectedSavedCharacterId && storyCharacterImages.length === 0) ||
                       (!!storySelectedSavedCharacterId && !input.trim()) ||
                       // Luồng mặc định (1 nhân vật, không own-images): bắt buộc đã "Tạo kịch bản" xong.
-                      (storyUsesScriptFlow && !!input.trim() && !storyScriptActions)
+                      (storyUsesScriptFlow && !!input.trim() && !storyScriptActions) ||
+                      // Đang bật thanh trượt tốc độ: bắt buộc đã bấm "Hoàn thành" trước khi submit, tránh
+                      // khách chỉnh xong quên bấm rồi giá/thời lượng gửi lên không khớp thanh trượt đang thấy.
+                      (storyEnableSpeedSlider && !!storyScriptActions && !storySpeedFinalized)
                     }
                     className="rounded-full bg-zinc-900 px-6 py-2.5 text-base font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
                   >

@@ -1,5 +1,13 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { generateStoryScript, generateStoryScriptMulti, planStoryVideoScenes, planStoryVideoScenesMulti, MAX_SCENES } from "@/lib/story-video";
+import {
+  generateStoryScript,
+  generateStoryScriptMulti,
+  planStoryVideoScenes,
+  planStoryVideoScenesMulti,
+  validateScriptSceneResult,
+  validateScriptSceneResultMulti,
+  MAX_SCENES,
+} from "@/lib/story-video";
 import type { VideoModelEntry } from "@/lib/story-video";
 import { computeDynamicCreditCost, getMediaPricingSettings } from "@/lib/pricing";
 
@@ -7,8 +15,15 @@ import { computeDynamicCreditCost, getMediaPricingSettings } from "@/lib/pricing
 // nối vào luồng submit thật qua app/api/story-video/submit/route.ts (field preplannedActions/
 // preplannedActionsMulti). "characterLabels" (>=2 phần tử) chuyển route sang nhánh nhiều nhân vật —
 // không hỗ trợ requestedSceneCount (không merge cảnh, xem planStoryVideoScenesMulti).
+//
+// "actions"/"actionsMulti" (tuỳ chọn) — dùng cho bước "Hoàn thành chỉnh tốc độ" (thanh trượt, admin
+// bật qua model_config.enable_speed_slider): khách đã có sẵn danh sách hành động (từ lượt gọi ĐẦU,
+// Agent đã liệt kê) và chỉ chỉnh duration_seconds từng cái — gửi lại ĐÚNG mảng đó, KHÔNG gọi lại Agent
+// (tốn tiền + có thể ra hành động khác), chỉ validate lại (không tin field khác client gửi kèm) rồi
+// chạy lại planStoryVideoScenes()/Multi() với duration_seconds mới để gộp/chốt giá lại.
 export async function POST(req: Request) {
-  const { storyDescription, miniAppId, videoModelKey, requestedSceneCount, modelChatKey, characterLabels } = await req.json();
+  const { storyDescription, miniAppId, videoModelKey, requestedSceneCount, modelChatKey, characterLabels, actions: rawActions, actionsMulti: rawActionsMulti } =
+    await req.json();
 
   if (typeof storyDescription !== "string" || !storyDescription.trim()) {
     return Response.json({ error: "Thiếu storyDescription" }, { status: 400 });
@@ -39,12 +54,14 @@ export async function POST(req: Request) {
   try {
     const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
     if (isMulti) {
-      const actions = await generateStoryScriptMulti(
-        storyDescription.trim(),
-        characterLabels,
-        typeof modelChatKey === "string" ? modelChatKey : undefined,
-        miniAppId
-      );
+      const actions = rawActionsMulti
+        ? validateScriptSceneResultMulti(rawActionsMulti, storyDescription.trim(), characterLabels)
+        : await generateStoryScriptMulti(
+            storyDescription.trim(),
+            characterLabels,
+            typeof modelChatKey === "string" ? modelChatKey : undefined,
+            miniAppId
+          );
       const plan = planStoryVideoScenesMulti(actions, videoEntry);
       const videoCreditCost = computeDynamicCreditCost(plan.totalVideoProviderCostVnd, marginPercent, vndPerCredit);
       return Response.json({
@@ -56,7 +73,9 @@ export async function POST(req: Request) {
         videoModel: { key: videoEntry.key, label: videoEntry.label, duration_price_vnd: videoEntry.duration_price_vnd },
       });
     }
-    const actions = await generateStoryScript(storyDescription.trim(), typeof modelChatKey === "string" ? modelChatKey : undefined, miniAppId);
+    const actions = rawActions
+      ? validateScriptSceneResult(rawActions, storyDescription.trim())
+      : await generateStoryScript(storyDescription.trim(), typeof modelChatKey === "string" ? modelChatKey : undefined, miniAppId);
     const plan = planStoryVideoScenes(actions, videoEntry, typeof requestedSceneCount === "number" ? requestedSceneCount : undefined);
     const videoCreditCost = computeDynamicCreditCost(plan.totalVideoProviderCostVnd, marginPercent, vndPerCredit);
     return Response.json({

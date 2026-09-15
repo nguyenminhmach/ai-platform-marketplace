@@ -109,6 +109,7 @@ type MiniAppPrice = {
   storyVideoModels: StoryModelEntry[] | null;
   genreThumbnails: Record<string, string> | null;
   genreStyleGuides: Record<string, string> | null;
+  enableSpeedSlider: boolean | null;
 };
 
 // 7-skill architecture — mỗi field ứng với 1 bước AI trong pipeline "Video từ ý tưởng truyện" (2 skill
@@ -835,6 +836,25 @@ export default function AdminPage() {
     loadMiniApps();
   }
 
+  // Thanh trượt điều chỉnh tốc độ từng hành động (bước "Tạo kịch bản") — mặc định TẮT, admin tự bật
+  // khi sẵn sàng cho khách thấy. Toggle ngay, không cần nút "Lưu" riêng, giống pattern modelTiers ở trên.
+  async function handleToggleSpeedSlider(app: MiniAppPrice, enabled: boolean) {
+    setSavingAppId(app.id);
+    setAppPriceError(null);
+    const res = await fetch("/api/admin/mini-apps", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: app.id, enableSpeedSlider: enabled }),
+    });
+    setSavingAppId(null);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setAppPriceError(data.error ?? "Không cập nhật được thanh trượt tốc độ");
+      return;
+    }
+    loadMiniApps();
+  }
+
   async function handleCreateApp(e: React.FormEvent) {
     e.preventDefault();
     setCreatingApp(true);
@@ -1455,6 +1475,15 @@ export default function AdminPage() {
                     )}
                     {(app.storyImageModels || app.storyVideoModels) && (
                       <div className="border-t border-zinc-100 pt-2 dark:border-zinc-800">
+                        <label className="mb-3 flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+                          <input
+                            type="checkbox"
+                            checked={app.enableSpeedSlider === true}
+                            disabled={savingAppId === app.id}
+                            onChange={(e) => handleToggleSpeedSlider(app, e.target.checked)}
+                          />
+                          Cho khách chỉnh tốc độ từng hành động (thanh trượt) ở bước &quot;Tạo kịch bản&quot; — mặc định tắt
+                        </label>
                         <p className="mb-1 text-xs text-zinc-500 dark:text-zinc-400">
                           Prompt tạo ảnh Character (sheet nhiều góc) — rỗng = dùng bản mặc định 6 góc
                         </p>

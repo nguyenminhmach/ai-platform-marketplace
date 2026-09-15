@@ -66,6 +66,7 @@ export async function GET(req: Request) {
           video_models?: { key: string; provider: string; label: string; model: string; provider_cost_vnd: number; enabled: boolean }[];
           genre_thumbnails?: Record<string, string>;
           genre_style_guides?: Record<string, string>;
+          enable_speed_slider?: boolean;
         }
       | null;
     return {
@@ -126,6 +127,9 @@ export async function GET(req: Request) {
       // + override admin đã lưu, để textarea luôn hiện đúng nội dung đang thực sự áp dụng, không phải
       // rỗng khi admin chưa từng sửa. null cho app khác story-video.
       genreStyleGuides: config?.image_models ? { ...GENRE_STYLE_GUIDES, ...(config?.genre_style_guides ?? {}) } : null,
+      // Thanh trượt điều chỉnh tốc độ từng hành động (trước khi gộp cảnh) — chỉ app "Video từ ý tưởng
+      // truyện" có, null cho app khác. Mặc định TẮT (tính năng mới, admin tự bật khi sẵn sàng).
+      enableSpeedSlider: config?.image_models ? config?.enable_speed_slider === true : null,
     };
   });
 
@@ -157,6 +161,7 @@ export async function PATCH(req: Request) {
     storyVideoModels,
     genreThumbnails,
     genreStyleGuides,
+    enableSpeedSlider,
   } = await req.json();
   // modelTiers là alias tổng quát của outfitSwapModels — cùng 1 cơ chế bật/tắt entry trong
   // model_config.models, chỉ khác tên gọi cho rõ nghĩa khi dùng ở app không phải "Thay trang phục"
@@ -183,7 +188,8 @@ export async function PATCH(req: Request) {
     storyImageModels === undefined &&
     storyVideoModels === undefined &&
     genreThumbnails === undefined &&
-    genreStyleGuides === undefined
+    genreStyleGuides === undefined &&
+    enableSpeedSlider === undefined
   ) {
     return Response.json({ error: "Không có gì để cập nhật" }, { status: 400 });
   }
@@ -227,7 +233,8 @@ export async function PATCH(req: Request) {
     storyImageModels !== undefined ||
     storyVideoModels !== undefined ||
     genreThumbnails !== undefined ||
-    genreStyleGuides !== undefined
+    genreStyleGuides !== undefined ||
+    enableSpeedSlider !== undefined
   ) {
     const { data: current } = await supabase.from("mini_apps").select("model_config").eq("id", id).single();
     const currentConfig = (current?.model_config as Record<string, unknown>) ?? {};
@@ -350,6 +357,12 @@ export async function PATCH(req: Request) {
         return Response.json({ error: "genreStyleGuides không hợp lệ" }, { status: 400 });
       }
       nextConfig.genre_style_guides = genreStyleGuides;
+    }
+    if (enableSpeedSlider !== undefined) {
+      if (typeof enableSpeedSlider !== "boolean") {
+        return Response.json({ error: "enableSpeedSlider phải là true/false" }, { status: 400 });
+      }
+      nextConfig.enable_speed_slider = enableSpeedSlider;
     }
 
     update.model_config = nextConfig;
