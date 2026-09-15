@@ -876,7 +876,10 @@ export function validateScriptSceneResult(parsed: unknown, storyDescription: str
       dialogue,
       location: s.location.trim(),
       end_pose: s.end_pose.trim(),
-      duration_seconds: Math.round(durationSeconds),
+      // Không ép làm tròn số nguyên nữa — thanh trượt tốc độ (enable_speed_slider) cho khách kéo tự do,
+      // giữ nguyên số lẻ khách chọn. Vẫn làm tròn 2 chữ số thập phân để tránh nhiễu dấu phẩy động (vd
+      // "6.438297482926") lỡ lọt qua từ phía client, không giới hạn thực chất khả năng chỉnh tự do.
+      duration_seconds: Math.round(durationSeconds * 100) / 100,
       pace,
       rotation_degrees: rotationDegrees,
     };
@@ -1028,7 +1031,10 @@ export function validateScriptSceneResultMulti(
       dialogue,
       location: s.location.trim(),
       end_pose: s.end_pose.trim(),
-      duration_seconds: Math.round(durationSeconds),
+      // Không ép làm tròn số nguyên nữa — thanh trượt tốc độ (enable_speed_slider) cho khách kéo tự do,
+      // giữ nguyên số lẻ khách chọn. Vẫn làm tròn 2 chữ số thập phân để tránh nhiễu dấu phẩy động (vd
+      // "6.438297482926") lỡ lọt qua từ phía client, không giới hạn thực chất khả năng chỉnh tự do.
+      duration_seconds: Math.round(durationSeconds * 100) / 100,
       pace,
       rotation_degrees: rotationDegrees,
     };

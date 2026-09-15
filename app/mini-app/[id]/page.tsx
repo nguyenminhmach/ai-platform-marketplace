@@ -3098,18 +3098,20 @@ export default function MiniAppDetailPage() {
                                   <span className="text-xs text-zinc-600 dark:text-zinc-400">
                                     {a.description.length > 70 ? `${a.description.slice(0, 70)}…` : a.description}
                                   </span>
-                                  <span className="shrink-0 text-xs font-medium text-zinc-900 dark:text-zinc-50">{value}s</span>
+                                  <span className="shrink-0 text-xs font-medium text-zinc-900 dark:text-zinc-50">{value.toFixed(1)}s</span>
                                 </div>
                                 <input
                                   type="range"
                                   min={1}
                                   max={maxSeconds}
-                                  step={1}
+                                  step="any"
                                   value={value}
-                                  onChange={(e) => setStorySpeedDrafts((prev) => ({ ...prev, [i]: Number(e.target.value) }))}
+                                  onChange={(e) =>
+                                    setStorySpeedDrafts((prev) => ({ ...prev, [i]: Math.round(Number(e.target.value) * 10) / 10 }))
+                                  }
                                   className="w-full"
                                 />
-                                <p className="mt-0.5 text-[11px] text-zinc-400 dark:text-zinc-500">Agent gợi ý: {a.duration_seconds}s</p>
+                                <p className="mt-0.5 text-[11px] text-zinc-400 dark:text-zinc-500">Agent gợi ý: {a.duration_seconds.toFixed(1)}s</p>
                               </div>
                             );
                           })}
@@ -3127,7 +3129,7 @@ export default function MiniAppDetailPage() {
                       storyScriptScenes && (
                         <div className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800">
                           <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                            {storyScriptScenes.length} cảnh · ~{storyScriptTotalSeconds}s · ~{storyScriptVideoCreditCost} credit video
+                            {storyScriptScenes.length} cảnh · ~{storyScriptTotalSeconds?.toFixed(1)}s · ~{storyScriptVideoCreditCost} credit video
                           </p>
                           <ul className="space-y-1 text-xs text-zinc-600 dark:text-zinc-400">
                             {storyScriptScenes.map((s, i) => {
