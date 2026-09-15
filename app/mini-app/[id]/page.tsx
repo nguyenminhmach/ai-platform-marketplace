@@ -2222,15 +2222,20 @@ export default function MiniAppDetailPage() {
   // "Thay trang phục" (nhiều ảnh trang phục + 1 ảnh người mẫu, kết quả nhiều ảnh — outfitSwapResults).
   // Không áp dụng "Video đồng nhất nhân vật" — UI app đó là danh sách nhân vật động, khác cấu trúc.
   const isTwoColumnLayout = ["video-gen", "video-transform", "motion-transfer", "outfit-swap"].includes(app.inputType);
+  const isStoryVideo = app.inputType === "story-video";
   // "story-video" có bố cục 2 cột RIÊNG bên trong khối "Thử ngay" (trái: ảnh nhân vật/Agent/mô tả,
-  // phải: Cấu hình media) — không dùng chung hệ thống isTwoColumnLayout (vốn là input|kết quả),
-  // chỉ mượn cùng độ rộng khung trang để đủ chỗ cho 2 cột.
-  const isWideLayout = isTwoColumnLayout || app.inputType === "story-video";
+  // phải: Cấu hình media) — không dùng chung hệ thống isTwoColumnLayout (vốn là input|kết quả).
+  // Rộng hơn hẳn các luồng khác (max-w-[1600px] thay vì max-w-6xl) vì "Hàng 2+3" đã lên tới 4 cột ở
+  // 2xl — trên màn hình rất rộng (vd 3440px), max-w-6xl để trống hơn 1/3 màn hình mỗi bên, không có
+  // gì để lấp — giữ max-w-6xl cho các app isTwoColumnLayout khác (chỉ 2 cột input|kết quả) để không
+  // bị kéo giãn quá mức cần thiết.
+  const isWideLayout = isTwoColumnLayout || isStoryVideo;
+  const wideWidthClass = isStoryVideo ? "max-w-[1600px]" : "max-w-6xl";
 
   return (
     <div className="min-h-full bg-zinc-50 dark:bg-black">
       <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-black/80">
-        <div className={`mx-auto flex items-center justify-between px-6 py-4 ${isWideLayout ? "max-w-6xl" : "max-w-3xl"}`}>
+        <div className={`mx-auto flex items-center justify-between px-6 py-4 ${isWideLayout ? wideWidthClass : "max-w-3xl"}`}>
           <div className="flex items-center gap-4">
             <Link href="/" className="text-sm font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50">
               ← Quay lại Danh mục
@@ -2250,8 +2255,8 @@ export default function MiniAppDetailPage() {
 
       <main
         className={`mx-auto px-6 ${
-          isWideLayout ? "max-w-6xl pt-4 pb-10" : "max-w-3xl py-10"
-        } ${app.inputType === "story-video" ? "pb-24" : ""}`}
+          isWideLayout ? `${wideWidthClass} pt-4 pb-10` : "max-w-3xl py-10"
+        } ${isStoryVideo ? "pb-24" : ""}`}
       >
         {/* Header Mini App — bỏ badge Danh mục/Hot/Mới riêng cho các app video dùng bố cục 2 cột, tên
             app đã chuyển lên thanh Header phía trên rồi nên không cần lặp lại gì ở đây nữa. */}
@@ -3050,9 +3055,11 @@ export default function MiniAppDetailPage() {
                 </label>
               </div>
 
-              {/* Hàng 2: Model tạo ảnh phân cảnh + Model tạo video (2 cột) — đặt ngay dưới Ý tưởng
-                  truyện/Tạo kịch bản theo yêu cầu, để chọn model trước khi cuộn xuống các khối còn lại. */}
-              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {/* Hàng 2+3: Model tạo ảnh phân cảnh + Model tạo video + Agent xử lý + Model chat — gộp
+                  chung 1 lưới, lên 4 cột ở màn hình rất rộng (2xl) để dùng hết chiều ngang thay vì để
+                  trống 2 bên, đặt ngay dưới Ý tưởng truyện/Tạo kịch bản để chọn model trước khi cuộn
+                  xuống các khối còn lại. */}
+              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 2xl:grid-cols-4">
                     <div className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
                       <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">Model tạo ảnh phân cảnh</p>
                       {storyExtraCharacters.length > 0 && (
@@ -3288,10 +3295,7 @@ export default function MiniAppDetailPage() {
                         </label>
                       )}
                     </div>
-              </div>
 
-              {/* Hàng 3: Agent xử lý (Thể loại dạng thẻ) + Model chat */}
-              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
                   <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">🤖 Agent xử lý</p>
                   <label className="mb-2 block text-sm text-zinc-500 dark:text-zinc-400">Thể loại</label>
