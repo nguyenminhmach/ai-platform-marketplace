@@ -146,3 +146,39 @@ body {
 .story-video-theme .dark\:border-zinc-50 {
   border-color: #10b981 !important;
 }
+/* Thanh trượt tốc độ (bước "Tạo kịch bản") — style mặc định trình duyệt có nút kéo rất nhỏ (~12px) và
+   không hợp màu theme tối, khó bắt/kéo chính xác. To hẳn nút kéo lên 20px + màu tương phản rõ với track. */
+.story-video-theme input[type="range"] {
+  accent-color: #10b981;
+  height: 6px;
+  cursor: pointer;
+}
+.story-video-theme input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: #1f4632;
+}
+.story-video-theme input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -7px;
+  border-radius: 9999px;
+  background: #10b981;
+  border: 2px solid #eaf7ee;
+  cursor: pointer;
+}
+.story-video-theme input[type="range"]::-moz-range-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: #1f4632;
+}
+.story-video-theme input[type="range"]::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background: #10b981;
+  border: 2px solid #eaf7ee;
+  cursor: pointer;
+}
