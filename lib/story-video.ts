@@ -1107,24 +1107,30 @@ export function planStoryVideoScenes(
   const durationMap = videoEntry.duration_price_vnd;
   const maxSeconds = durationMap ? Math.max(...Object.keys(durationMap).map(Number).filter((n) => Number.isFinite(n))) : undefined;
 
-  // Gộp liền kề theo yêu cầu, không bao giờ vượt maxSeconds — kể cả khi requestedSceneCount đòi hỏi
-  // ít hơn, dừng gộp sớm hơn để giữ mượt (N thực tế có thể cao hơn requestedSceneCount).
+  // Gộp liền kề TỰ ĐỘNG (không cần requestedSceneCount) — bất cứ khi nào tổng giây 2 nhóm liền kề vẫn
+  // nằm trong mốc thời lượng LỚN NHẤT model video hỗ trợ (maxSeconds), gộp lại thành 1 cảnh để giảm số
+  // lượt gọi model video (tiết kiệm chi phí thật, không đổi chất lượng vì vẫn nằm trong đúng 1 mốc
+  // duration thật, phần dư vẫn được stitchAndFinish() cắt bỏ như bình thường). requestedSceneCount (nếu
+  // có -- hiện không nơi nào gửi, giữ lại cho tương lai) ép dừng gộp sớm hơn ở đúng N khách muốn.
   const groups: ScriptSceneResult[][] = actions.map((a) => [a]);
   const groupSeconds = (g: ScriptSceneResult[]) => g.reduce((sum, a) => sum + a.duration_seconds, 0);
-  if (requestedSceneCount && requestedSceneCount < groups.length && maxSeconds !== undefined) {
-    while (groups.length > requestedSceneCount) {
+  // Không gộp nếu CẢ HAI nhóm đều đã có lời thoại riêng -- bước ghép "dialogue" bên dưới chỉ giữ được
+  // đúng 1 câu/cảnh (group.find lấy câu ĐẦU tiên), gộp 2 nhóm có thoại sẽ làm mất câu còn lại.
+  const groupDialogueCount = (g: ScriptSceneResult[]) => g.filter((a) => a.dialogue).length;
+  if (maxSeconds !== undefined) {
+    while (groups.length > 1 && (!requestedSceneCount || groups.length > requestedSceneCount)) {
       // Tìm cặp liền kề có tổng giây NHỎ NHẤT sau khi gộp (ưu tiên gộp cặp "rẻ" nhất trước) mà vẫn
-      // trong ngưỡng maxSeconds -- nếu không còn cặp nào gộp được nữa thì dừng sớm (N > khách muốn).
+      // trong ngưỡng maxSeconds -- nếu không còn cặp nào gộp được nữa thì dừng.
       let bestIdx = -1;
       let bestSum = Infinity;
       for (let i = 0; i < groups.length - 1; i++) {
         const sum = groupSeconds(groups[i]) + groupSeconds(groups[i + 1]);
-        if (sum <= maxSeconds && sum < bestSum) {
+        if (sum <= maxSeconds && sum < bestSum && groupDialogueCount(groups[i]) + groupDialogueCount(groups[i + 1]) <= 1) {
           bestSum = sum;
           bestIdx = i;
         }
       }
-      if (bestIdx === -1) break; // không gộp thêm được nữa mà vẫn mượt -- giữ N hiện tại
+      if (bestIdx === -1) break; // không còn cặp nào gộp được nữa (hoặc chỉ còn cặp 2 lời thoại) -- dừng
       groups[bestIdx] = [...groups[bestIdx], ...groups[bestIdx + 1]];
       groups.splice(bestIdx + 1, 1);
     }
@@ -1173,20 +1179,63 @@ export type StoryVideoPlanMulti = {
   totalVideoProviderCostVnd: number;
 };
 
-// Mirror planStoryVideoScenes() cho NHIỀU NHÂN VẬT — code thuần, không gọi LLM. KHÔNG hỗ trợ gộp cảnh
-// (requestedSceneCount): gộp 2 hành động có tập "characters" khác nhau thành 1 cảnh không có nghĩa rõ
-// ràng (cảnh đó nên gửi ảnh tham chiếu của ai?) — luôn đúng 1 hành động = 1 cảnh, giống đúng quyết định
-// đã chốt cho luồng 1 nhân vật ở v1 (gộp để dành v2 sau, xem planStoryVideoScenes).
+// Mirror planStoryVideoScenes() cho NHIỀU NHÂN VẬT — code thuần, không gọi LLM. Gộp liền kề TỰ ĐỘNG
+// giống bản 1 nhân vật, nhưng CHỈ gộp khi 2 hành động có ĐÚNG CÙNG tập "characters" (không kể thứ tự)
+// — gộp 2 hành động khác tập nhân vật sẽ không rõ ảnh tĩnh của cảnh gộp (chỉ 1 ảnh/cảnh) nên vẽ ai,
+// theo mô tả nào. Hành động nào đổi tập nhân vật (thêm/bớt người) luôn giữ ranh giới cảnh riêng.
+function sameCharacterSet(a: number[], b: number[]): boolean {
+  if (a.length !== b.length) return false;
+  const sortedA = [...a].sort();
+  const sortedB = [...b].sort();
+  return sortedA.every((v, i) => v === sortedB[i]);
+}
+
 export function planStoryVideoScenesMulti(actions: ScriptSceneResultMulti[], videoEntry: VideoModelEntry): StoryVideoPlanMulti {
   const durationMap = videoEntry.duration_price_vnd;
+  const maxSeconds = durationMap ? Math.max(...Object.keys(durationMap).map(Number).filter((n) => Number.isFinite(n))) : undefined;
+
+  const groups: ScriptSceneResultMulti[][] = actions.map((a) => [a]);
+  const groupSeconds = (g: ScriptSceneResultMulti[]) => g.reduce((sum, a) => sum + a.duration_seconds, 0);
+  // Không gộp nếu CẢ HAI nhóm đều đã có lời thoại riêng — mirror đúng chốt an toàn của bản 1 nhân vật
+  // (bước ghép "dialogue" bên dưới chỉ giữ được đúng 1 câu/cảnh).
+  const groupDialogueCount = (g: ScriptSceneResultMulti[]) => g.filter((a) => a.dialogue).length;
+  if (maxSeconds !== undefined) {
+    while (groups.length > 1) {
+      let bestIdx = -1;
+      let bestSum = Infinity;
+      for (let i = 0; i < groups.length - 1; i++) {
+        if (!sameCharacterSet(groups[i][0].characters, groups[i + 1][0].characters)) continue;
+        const sum = groupSeconds(groups[i]) + groupSeconds(groups[i + 1]);
+        if (sum <= maxSeconds && sum < bestSum && groupDialogueCount(groups[i]) + groupDialogueCount(groups[i + 1]) <= 1) {
+          bestSum = sum;
+          bestIdx = i;
+        }
+      }
+      if (bestIdx === -1) break;
+      groups[bestIdx] = [...groups[bestIdx], ...groups[bestIdx + 1]];
+      groups.splice(bestIdx + 1, 1);
+    }
+  }
+
   let totalNaturalSeconds = 0;
   let totalVideoProviderCostVnd = 0;
-  const scenes: PlannedSceneMulti[] = actions.map((action) => {
-    totalNaturalSeconds += action.duration_seconds;
-    const durationKey = durationMap ? (resolveNearestDurationKey(durationMap, action.duration_seconds) ?? null) : null;
+  const scenes: PlannedSceneMulti[] = groups.map((group) => {
+    const naturalSeconds = groupSeconds(group);
+    totalNaturalSeconds += naturalSeconds;
+    const durationKey = durationMap ? (resolveNearestDurationKey(durationMap, naturalSeconds) ?? null) : null;
     const providerCostVnd = durationKey !== null ? (durationMap?.[durationKey] ?? videoEntry.provider_cost_vnd) : videoEntry.provider_cost_vnd;
     totalVideoProviderCostVnd += providerCostVnd;
-    return { ...action, duration_key: durationKey, provider_cost_vnd: providerCostVnd };
+    const primary = group[0];
+    const last = group[group.length - 1];
+    return {
+      ...primary,
+      description: group.length === 1 ? primary.description : group.map((a) => a.description).join(" Then, "),
+      end_pose: last.end_pose,
+      duration_seconds: naturalSeconds,
+      dialogue: group.length === 1 ? primary.dialogue : group.find((a) => a.dialogue)?.dialogue,
+      duration_key: durationKey,
+      provider_cost_vnd: providerCostVnd,
+    };
   });
   return { scenes, totalNaturalSeconds, totalVideoProviderCostVnd };
 }
@@ -1851,9 +1900,6 @@ async function runSceneStage(
   }
 
   const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
-  // Chuỗi liên tục: N+1 ảnh cho N cảnh (không phải 2N) — xem resolveCosts().
-  const imageCallCount = job.continuous_motion ? job.num_scenes + 1 : job.num_scenes;
-  const imageCost = computeDynamicCreditCost(job.image_provider_cost_vnd_per_scene * imageCallCount, marginPercent, vndPerCredit);
 
   // Mỗi cảnh từ bước kịch bản có thể có duration_key khác nhau (nhóm hành động khác tổng giây) — giá
   // video không còn là 1 mức phẳng nhân đều số cảnh, phải dùng đúng tổng giá thật planStoryVideoScenes
@@ -1870,6 +1916,15 @@ async function runSceneStage(
   } else {
     videoCost = computeDynamicCreditCost(job.video_provider_cost_vnd_per_scene * job.num_scenes, marginPercent, vndPerCredit);
   }
+
+  // Chuỗi liên tục: N+1 ảnh cho N cảnh (không phải 2N) — xem resolveCosts(). Số cảnh dùng để tính ảnh
+  // phải lấy theo plannedScenes.length (số cảnh THẬT SỰ sẽ tạo ảnh, sau khi planStoryVideoScenes() đã
+  // tự động gộp hành động liền kề) — không phải job.num_scenes (số hành động GỐC trước gộp, luôn ghi
+  // vào job lúc submit qua preplannedActions.length), nếu không khách sẽ bị trừ credit ảnh nhiều hơn số
+  // ảnh thật sự tạo ra.
+  const effectiveSceneCount = plannedScenes ? plannedScenes.length : job.num_scenes;
+  const imageCallCount = job.continuous_motion ? effectiveSceneCount + 1 : effectiveSceneCount;
+  const imageCost = computeDynamicCreditCost(job.image_provider_cost_vnd_per_scene * imageCallCount, marginPercent, vndPerCredit);
 
   const deduction = await deductCredit(userId, job.auto_video ? imageCost + videoCost : imageCost, job.mini_app_id, idempotencyKey);
   if (!deduction.success) throw new InsufficientCreditError();
@@ -2453,10 +2508,6 @@ async function runMultiCharacterSceneStage(
   }
 
   const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
-  // Chuỗi liên tục: N+1 ảnh cho N cảnh (không phải 2N) — xem resolveCosts()/runSceneStage() (luồng 1
-  // nhân vật đã áp dụng công thức này, đây là mirror cho nhiều nhân vật).
-  const imageCallCount = job.continuous_motion ? job.num_scenes + 1 : job.num_scenes;
-  const imageCost = computeDynamicCreditCost(job.image_provider_cost_vnd_per_scene * imageCallCount, marginPercent, vndPerCredit);
 
   // Mỗi cảnh từ bước kịch bản có thể có duration_key khác nhau — giá video không còn 1 mức phẳng nhân
   // đều số cảnh, phải dùng đúng tổng giá thật planStoryVideoScenesMulti đã tính (mirror runSceneStage).
@@ -2472,6 +2523,14 @@ async function runMultiCharacterSceneStage(
   } else {
     videoCost = computeDynamicCreditCost(job.video_provider_cost_vnd_per_scene * job.num_scenes, marginPercent, vndPerCredit);
   }
+
+  // Chuỗi liên tục: N+1 ảnh cho N cảnh (không phải 2N) — xem resolveCosts()/runSceneStage() (luồng 1
+  // nhân vật đã áp dụng công thức này, đây là mirror cho nhiều nhân vật). Số cảnh dùng để tính ảnh phải
+  // lấy theo plannedScenes.length (số cảnh THẬT SỰ sẽ tạo ảnh, sau khi planStoryVideoScenesMulti() đã
+  // tự động gộp hành động cùng tập nhân vật) — không phải job.num_scenes (số hành động GỐC trước gộp).
+  const effectiveSceneCount = plannedScenes ? plannedScenes.length : job.num_scenes;
+  const imageCallCount = job.continuous_motion ? effectiveSceneCount + 1 : effectiveSceneCount;
+  const imageCost = computeDynamicCreditCost(job.image_provider_cost_vnd_per_scene * imageCallCount, marginPercent, vndPerCredit);
 
   const deduction = await deductCredit(userId, job.auto_video ? imageCost + videoCost : imageCost, job.mini_app_id, idempotencyKey);
   if (!deduction.success) throw new InsufficientCreditError();
