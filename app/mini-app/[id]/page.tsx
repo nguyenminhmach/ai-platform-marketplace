@@ -998,6 +998,43 @@ export default function MiniAppDetailPage() {
     }, 4000);
   }
 
+  // Nén/resize ảnh NGAY trên trình duyệt trước khi tạo base64 để tải lên — ảnh điện thoại chụp
+  // thường 3-8MB, base64 hoá phình thêm ~33% rồi còn phải đi 2 chặng mạng (trình duyệt → Vercel →
+  // Supabase Storage), là nguyên nhân chính khiến tải ảnh chậm. Các model AI tạo ảnh xử lý ảnh tham
+  // chiếu ở độ phân giải nội bộ thấp hơn maxDimension này nhiều, nên thu nhỏ không làm giảm chất
+  // lượng AI nhận diện nhân vật — chỉ giảm dung lượng file thật sự cần gửi đi.
+  async function compressImageFile(file: File, maxDimension = 1800, quality = 0.85): Promise<string> {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+    // GIF động: canvas chỉ lấy được 1 khung hình tĩnh, sẽ mất hoạt ảnh — giữ nguyên gốc, không nén.
+    if (file.type === "image/gif") return dataUrl;
+    try {
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error("Không đọc được ảnh"));
+        el.src = dataUrl;
+      });
+      const scale = Math.min(1, maxDimension / Math.max(img.width, img.height));
+      const width = Math.round(img.width * scale);
+      const height = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return dataUrl;
+      ctx.drawImage(img, 0, 0, width, height);
+      return canvas.toDataURL("image/jpeg", quality);
+    } catch {
+      // Nén lỗi (trình duyệt cũ, ảnh hỏng...) — dùng ảnh gốc, không chặn khách tải lên.
+      return dataUrl;
+    }
+  }
+
   async function uploadOutfitSwapImage(dataUrl: string): Promise<string> {
     const res = await fetch("/api/outfit-swap/upload", {
       method: "POST",
@@ -3591,12 +3628,10 @@ export default function MiniAppDetailPage() {
                                   const file = e.target.files?.[0];
                                   e.target.value = "";
                                   if (!file) return;
-                                  const reader = new FileReader();
-                                  reader.onload = () => {
-                                    setStoryCharacterImages((prev) => [...prev, reader.result as string]);
+                                  compressImageFile(file).then((dataUrl) => {
+                                    setStoryCharacterImages((prev) => [...prev, dataUrl]);
                                     setStoryImageCheckResult(null);
-                                  };
-                                  reader.readAsDataURL(file);
+                                  });
                                 }}
                               />
                             </label>
@@ -3694,10 +3729,7 @@ export default function MiniAppDetailPage() {
                                   const file = e.target.files?.[0];
                                   e.target.value = "";
                                   if (!file) return;
-                                  const reader = new FileReader();
-                                  reader.onload = () =>
-                                    setStoryPrimaryItemReferences((prev) => [...prev, reader.result as string]);
-                                  reader.readAsDataURL(file);
+                                  compressImageFile(file).then((dataUrl) => setStoryPrimaryItemReferences((prev) => [...prev, dataUrl]));
                                 }}
                               />
                             </label>
@@ -3786,13 +3818,11 @@ export default function MiniAppDetailPage() {
                                     const file = e.target.files?.[0];
                                     e.target.value = "";
                                     if (!file) return;
-                                    const reader = new FileReader();
-                                    reader.onload = () => {
+                                    compressImageFile(file).then((dataUrl) => {
                                       setStoryExtraCharacters((prev) =>
-                                        prev.map((s, i) => (i === slotIndex ? { ...s, images: [...s.images, reader.result as string] } : s))
+                                        prev.map((s, i) => (i === slotIndex ? { ...s, images: [...s.images, dataUrl] } : s))
                                       );
-                                    };
-                                    reader.readAsDataURL(file);
+                                    });
                                   }}
                                 />
                               </label>
@@ -3844,14 +3874,13 @@ export default function MiniAppDetailPage() {
                                       const file = e.target.files?.[0];
                                       e.target.value = "";
                                       if (!file) return;
-                                      const reader = new FileReader();
-                                      reader.onload = () =>
+                                      compressImageFile(file).then((dataUrl) =>
                                         setStoryExtraCharacters((prev) =>
                                           prev.map((s, i) =>
-                                            i === slotIndex ? { ...s, itemImages: [...s.itemImages, reader.result as string] } : s
+                                            i === slotIndex ? { ...s, itemImages: [...s.itemImages, dataUrl] } : s
                                           )
-                                        );
-                                      reader.readAsDataURL(file);
+                                        )
+                                      );
                                     }}
                                   />
                                 </label>
@@ -3916,9 +3945,7 @@ export default function MiniAppDetailPage() {
                           const file = e.target.files?.[0];
                           e.target.value = "";
                           if (!file) return;
-                          const reader = new FileReader();
-                          reader.onload = () => setStoryLocationReference(reader.result as string);
-                          reader.readAsDataURL(file);
+                          compressImageFile(file).then((dataUrl) => setStoryLocationReference(dataUrl));
                         }}
                       />
                     </label>
@@ -4082,12 +4109,10 @@ export default function MiniAppDetailPage() {
                                     const file = e.target.files?.[0];
                                     e.target.value = "";
                                     if (!file) return;
-                                    const reader = new FileReader();
-                                    reader.onload = () => {
-                                      setStorySceneImages((prev) => [...prev, reader.result as string]);
+                                    compressImageFile(file).then((dataUrl) => {
+                                      setStorySceneImages((prev) => [...prev, dataUrl]);
                                       setStorySceneHints((prev) => [...prev, ""]);
-                                    };
-                                    reader.readAsDataURL(file);
+                                    });
                                   }}
                                 />
                               </label>
