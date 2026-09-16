@@ -22,8 +22,17 @@ import { computeDynamicCreditCost, getMediaPricingSettings } from "@/lib/pricing
 // (tốn tiền + có thể ra hành động khác), chỉ validate lại (không tin field khác client gửi kèm) rồi
 // chạy lại planStoryVideoScenes()/Multi() với duration_seconds mới để gộp/chốt giá lại.
 export async function POST(req: Request) {
-  const { storyDescription, miniAppId, videoModelKey, requestedSceneCount, modelChatKey, characterLabels, actions: rawActions, actionsMulti: rawActionsMulti } =
-    await req.json();
+  const {
+    storyDescription,
+    miniAppId,
+    videoModelKey,
+    requestedSceneCount,
+    modelChatKey,
+    characterLabels,
+    characterLabel,
+    actions: rawActions,
+    actionsMulti: rawActionsMulti,
+  } = await req.json();
 
   if (typeof storyDescription !== "string" || !storyDescription.trim()) {
     return Response.json({ error: "Thiếu storyDescription" }, { status: 400 });
@@ -75,7 +84,12 @@ export async function POST(req: Request) {
     }
     const actions = rawActions
       ? validateScriptSceneResult(rawActions, storyDescription.trim())
-      : await generateStoryScript(storyDescription.trim(), typeof modelChatKey === "string" ? modelChatKey : undefined, miniAppId);
+      : await generateStoryScript(
+          storyDescription.trim(),
+          typeof modelChatKey === "string" ? modelChatKey : undefined,
+          miniAppId,
+          typeof characterLabel === "string" ? characterLabel : undefined
+        );
     const plan = planStoryVideoScenes(actions, videoEntry, typeof requestedSceneCount === "number" ? requestedSceneCount : undefined);
     const videoCreditCost = computeDynamicCreditCost(plan.totalVideoProviderCostVnd, marginPercent, vndPerCredit);
     return Response.json({

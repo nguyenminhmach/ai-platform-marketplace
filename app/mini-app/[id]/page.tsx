@@ -401,6 +401,7 @@ export default function MiniAppDetailPage() {
           videoModelKey: storyVideoModelKey,
           modelChatKey: storyModelChatKey,
           characterLabels,
+          characterLabel: hasMultipleCharacters ? undefined : storyPrimaryCharacterLabel.trim() || "Nhân vật 1",
         }),
       });
       const data = await res.json();
@@ -3500,15 +3501,17 @@ export default function MiniAppDetailPage() {
               <div ref={storyCharacterCardRef} className="mt-4 rounded-lg border border-zinc-200 p-5 dark:border-zinc-700">
                       <p className="mb-2 text-base font-semibold text-zinc-700 dark:text-zinc-300">📷 Ảnh nhân vật</p>
 
-                      {storyExtraCharacters.length > 0 && (
-                        <input
-                          type="text"
-                          value={storyPrimaryCharacterLabel}
-                          onChange={(e) => setStoryPrimaryCharacterLabel(e.target.value)}
-                          placeholder='Tên nhân vật này (vd "Lan") — dùng đúng tên này trong Ý tưởng truyện để Agent gán đúng người'
-                          className="mb-3 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-                        />
-                      )}
+                      <input
+                        type="text"
+                        value={storyPrimaryCharacterLabel}
+                        onChange={(e) => setStoryPrimaryCharacterLabel(e.target.value)}
+                        placeholder={
+                          storyExtraCharacters.length > 0
+                            ? 'Tên nhân vật này (vd "Lan") — dùng đúng tên này trong Ý tưởng truyện để Agent gán đúng người'
+                            : 'Tên nhân vật (không bắt buộc) — giúp Agent viết kịch bản không tự bịa ngoại hình, để trống thì mặc định "Nhân vật 1"'
+                        }
+                        className="mb-3 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                      />
 
                       {storySavedCharacters.length > 0 && (
                         <div className="mb-3">

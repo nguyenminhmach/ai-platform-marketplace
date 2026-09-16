@@ -818,6 +818,7 @@ Quy tắc khi mô tả không nói rõ góc quay: nếu không nói gì đặc b
 Khi viết "description" (tiếng Anh): viết như 1 đạo diễn hình ảnh thật sự — có thể thêm chi tiết điện ảnh phù hợp với bối cảnh gốc (ánh sáng, loại khung hình/shot size, không khí, chất liệu/kết cấu môi trường xung quanh) để ảnh tạo ra sống động hơn, nhưng KHÔNG bịa thêm tình tiết, hành động, hay địa điểm không có trong ý tưởng gốc.
 Rào chắn giữ đúng danh tính nhân vật (bắt buộc, không được vi phạm dù thêm chi tiết điện ảnh): giữ nguyên giới tính, độ tuổi, kiểu tóc, màu tóc của nhân vật chính xuyên suốt mọi cảnh (đây là phần KHÔNG BAO GIỜ được đổi); không tự thêm nhân vật phụ mới nếu ý tưởng gốc không nhắc; nếu ý tưởng gốc mô tả 1 địa điểm liên tục thì không tự đổi bối cảnh giữa các cảnh.
 Trang phục — TUYỆT ĐỐI KHÔNG tự mô tả cụ thể màu sắc/kiểu dáng/chất liệu trang phục trong "description" trừ đúng lúc dùng "outfit_override". Nếu cần nhắc trang phục để giữ liên tục, chỉ viết chung chung kiểu "wearing the same outfit as before".
+Ngoại hình (tóc/vóc dáng/khuôn mặt) — TUYỆT ĐỐI KHÔNG tự mô tả cụ thể màu tóc/kiểu tóc/vóc dáng/đặc điểm khuôn mặt trong "description": bạn không nhìn thấy ảnh nhân vật thật, tự bịa (vd "long dark hair", "fit young man") sẽ mâu thuẫn với ảnh tham chiếu thật dùng để vẽ ảnh sau này. Chỉ cần gọi là "the character" hoặc đúng tên nhân vật nếu có, không cần mô tả ngoại hình.
 Trạng thái liên tục giữa các cảnh: MỖI cảnh được gửi cho model tạo ảnh RIÊNG BIỆT, độc lập — mỗi "description" phải TỰ ĐẦY ĐỦ ngữ cảnh (self-contained), nhắc lại rõ địa điểm/bối cảnh nếu tiếp nối cảnh trước.
 Tư thế/hành động nối tiếp: "description" của cảnh này PHẢI bắt đầu đúng từ tư thế/hành động mà "end_pose" của cảnh NGAY TRƯỚC nó vừa mô tả — viết liền thành 1 câu tự nhiên (thì hiện tại, 1 khoảnh khắc duy nhất), không kể lại 2 mốc thời gian nối nhau.
 Bối cảnh vật lý (bắt buộc, MỌI cảnh): thêm khoá "location" (chuỗi tiếng Anh NGẮN GỌN) mô tả nơi + ánh sáng/thời điểm trong ngày. Nếu nhiều cảnh liên tiếp cùng 1 chỗ, "location" phải viết Y HỆT NHAU, ĐÚNG TỪNG CHỮ.
@@ -904,10 +905,17 @@ export async function generateStoryScript(
   // Skill "story-planner" — admin ghi thêm ghi chú qua /admin (model_config.prompt_helper_instructions).
   // Trước đây field này CHỈ tới được luồng chia cảnh LLM cũ (splitStoryIntoScenes), Agent "Tạo kịch
   // bản" mới (luồng đang chạy thật) không đọc field này -- nối vào đây để admin chỉnh được thật.
-  miniAppId?: string
+  miniAppId?: string,
+  // Tên nhân vật chính (ô "Tên nhân vật", để trống ở frontend fallback "Nhân vật 1") — cho Agent 1 cái
+  // tên cụ thể để gọi thay vì phải tự bịa mô tả ngoại hình cho "tự đầy đủ ngữ cảnh" (xem rào chắn ngoại
+  // hình trong STORY_SCRIPT_SYSTEM_PROMPT — quy tắc đó tự nó đã đủ chặn bịa, câu này chỉ hỗ trợ thêm).
+  characterLabel?: string
 ): Promise<ScriptSceneResult[]> {
   const chatModel = modelChatKey && ALLOWED_CHAT_MODELS.includes(modelChatKey) ? modelChatKey : ALLOWED_CHAT_MODELS[0];
   let systemPrompt = STORY_SCRIPT_SYSTEM_PROMPT;
+  if (characterLabel?.trim()) {
+    systemPrompt += `\n\nNhân vật chính trong truyện này tên là "${characterLabel.trim()}" — gọi nhân vật bằng đúng tên này trong "description" thay vì "the character"/"a woman"/"a man" chung chung.`;
+  }
   if (miniAppId) {
     const miniApp = await getMiniAppModelConfig(miniAppId);
     const override = miniApp.model_config.prompt_helper_instructions;
@@ -953,6 +961,7 @@ Với MỖI cảnh, xác định thêm khoá "characters": 1 mảng các SỐ (�
 Khi viết "description" (tiếng Anh): mô tả rõ ai đang làm gì, có thể thêm chi tiết điện ảnh (ánh sáng, khung hình, không khí) phù hợp bối cảnh gốc, nhưng KHÔNG bịa thêm tình tiết/hành động/địa điểm không có trong ý tưởng gốc.
 Rào chắn giữ đúng danh tính (bắt buộc): không tự đổi giới tính/độ tuổi/kiểu tóc của bất kỳ nhân vật nào đã liệt kê ở trên; không tự thêm nhân vật phụ mới ngoài danh sách; nếu ý tưởng gốc mô tả 1 địa điểm liên tục thì không tự đổi bối cảnh giữa các cảnh.
 Trang phục — TUYỆT ĐỐI KHÔNG tự mô tả cụ thể màu sắc/kiểu dáng/chất liệu trang phục của bất kỳ ai trong "description" (bạn không nhìn thấy ảnh nhân vật thật — tự bịa sẽ mâu thuẫn với ảnh tham chiếu thật). Nếu cần nhắc trang phục để giữ liên tục, chỉ viết chung chung "wearing the same outfit as before".
+Ngoại hình (tóc/vóc dáng/khuôn mặt) — cùng lý do trên, TUYỆT ĐỐI KHÔNG tự mô tả cụ thể màu tóc/kiểu tóc/vóc dáng/đặc điểm khuôn mặt của bất kỳ ai trong "description". Chỉ gọi bằng đúng tên nhân vật trong danh sách ở trên, không cần mô tả ngoại hình.
 Trạng thái liên tục giữa các cảnh: MỖI cảnh được gửi cho model tạo ảnh RIÊNG BIỆT, độc lập — mỗi "description" phải TỰ ĐẦY ĐỦ ngữ cảnh (self-contained), nhắc lại rõ địa điểm/bối cảnh nếu tiếp nối cảnh trước.
 Tư thế/hành động nối tiếp: "description" của cảnh này (trừ cảnh đầu tiên) PHẢI bắt đầu đúng từ tư thế/hành động mà "end_pose" của cảnh NGAY TRƯỚC nó vừa mô tả — viết liền thành 1 câu tự nhiên (thì hiện tại, 1 khoảnh khắc duy nhất), không kể lại 2 mốc thời gian nối nhau.
 Bối cảnh vật lý (bắt buộc, MỌI cảnh): thêm khoá "location" (chuỗi tiếng Anh NGẮN GỌN) mô tả nơi + ánh sáng/thời điểm trong ngày. Nếu nhiều cảnh liên tiếp cùng 1 chỗ, "location" phải viết Y HỆT NHAU, ĐÚNG TỪNG CHỮ.
