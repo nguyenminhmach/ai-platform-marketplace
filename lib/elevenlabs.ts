@@ -1,4 +1,39 @@
+import { execFile } from "child_process";
+import { promisify } from "util";
+import { chmodSync } from "fs";
+import { mkdtemp, writeFile, readFile, rm } from "fs/promises";
+import { tmpdir } from "os";
+import path from "path";
+import ffmpegPath from "ffmpeg-static";
 import { getSupabaseAdmin } from "@/lib/supabase";
+
+const execFileAsync = promisify(execFile);
+
+// Kling LipSync từ chối audio dưới 2s ("Audio duration is too short. Minimum is 2 seconds.") — xảy ra
+// thật với câu thoại rất ngắn, khiến cả cảnh rơi về fallback video câm dù lời thoại đã trích đúng (xem
+// ghi nhớ project_story_video_scene_duration_architecture). Đệm thêm khoảng lặng vào cuối bằng ffmpeg
+// "apad=whole_dur=2.2" (chỉ đệm khi audio NGẮN HƠN 2.2s — đủ dư so với ngưỡng cứng 2.0s của Kling; audio
+// đã đủ dài thì bộ lọc này không đổi gì) trước khi upload — không đổi nội dung giọng đọc, chỉ tránh lỗi
+// kỹ thuật do audio quá ngắn. Lỗi ffmpeg (nếu có) không được làm hỏng cả lượt tạo giọng — rơi về dùng
+// nguyên audio gốc chưa đệm, vẫn tốt hơn là chặn hẳn không tạo được giọng nói.
+async function padAudioIfTooShort(audioBuffer: Buffer): Promise<Buffer> {
+  if (!ffmpegPath) return audioBuffer;
+  try {
+    chmodSync(ffmpegPath, 0o755);
+  } catch {}
+  const workDir = await mkdtemp(path.join(tmpdir(), "elevenlabs-pad-"));
+  try {
+    const inputPath = path.join(workDir, "input.mp3");
+    const outputPath = path.join(workDir, "output.mp3");
+    await writeFile(inputPath, audioBuffer);
+    await execFileAsync(ffmpegPath, ["-i", inputPath, "-af", "apad=whole_dur=2.2", "-y", outputPath]);
+    return await readFile(outputPath);
+  } catch {
+    return audioBuffer;
+  } finally {
+    await rm(workDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
 
 // Đọc lời thoại tiếng Việt thành giọng nói qua ElevenLabs — dùng cho pipeline "Video đồng nhất
 // nhân vật" và "Video từ ý tưởng truyện" (bước TTS -> Lip-sync). Giọng tiếng Việt thật do admin tự
@@ -54,7 +89,7 @@ export async function generateVietnameseSpeech(
     throw new Error(`ElevenLabs lỗi: ${res.status} ${errText}`);
   }
 
-  const audioBuffer = Buffer.from(await res.arrayBuffer());
+  const audioBuffer = await padAudioIfTooShort(Buffer.from(await res.arrayBuffer()));
 
   const supabase = getSupabaseAdmin();
   const filePath = `${namespace}/${jobId}-${characterId}.mp3`;
