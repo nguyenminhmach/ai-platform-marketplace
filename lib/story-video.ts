@@ -2793,21 +2793,34 @@ function extractMotionPromptFragment(text: string): string | undefined {
   }
 }
 
+// Model đôi khi chèn thẳng xuống dòng/tab THẬT (không escape thành "\n") vào giữa chuỗi motion_prompt —
+// phá cả JSON.parse() lẫn bước unescape trong extractMotionPromptFragment ("Bad control character in
+// string literal" ở CẢ 2 nơi), khiến rơi hẳn về fallback dùng NGUYÊN VĂN cả khối JSON thô (kèm mọi field
+// dư model tự thêm như "resolution"/"safety_tolerance"/"seed") làm prompt gửi thẳng cho model tạo video —
+// xác nhận qua job thật #370: model video từ chối 422 content_policy_violation vì prompt lẫn cú pháp
+// JSON + tên field lạ, không phải vì nội dung chuyển động thật có vấn đề. Thay hết ký tự xuống dòng/tab
+// thật bằng khoảng trắng trước khi thử parse — an toàn với JSON hợp lệ (khoảng trắng ngoài chuỗi không
+// ảnh hưởng cú pháp), chỉ sửa đúng trường hợp lỗi (khoảng trắng bên trong 1 chuỗi giá trị vẫn hợp lệ).
+function normalizeRawControlChars(text: string): string {
+  return text.replace(/[\r\n\t]+/g, " ");
+}
+
 function parseSceneMotionPlan(output: string): SceneMotionPlan {
   const cleaned = output.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  const normalized = normalizeRawControlChars(cleaned);
   try {
-    const parsed = JSON.parse(cleaned);
+    const parsed = JSON.parse(normalized);
     if (typeof parsed?.motion_prompt === "string" && parsed.motion_prompt.trim()) {
       const seconds = Number(parsed.duration_seconds);
       return { motionPrompt: parsed.motion_prompt.trim(), durationSeconds: Number.isFinite(seconds) && seconds > 0 ? seconds : undefined };
     }
   } catch {
-    const extracted = extractMotionPromptFragment(cleaned);
+    const extracted = extractMotionPromptFragment(normalized);
     if (extracted) return { motionPrompt: extracted };
     // Không trích được field riêng -> rơi về coi nguyên câu trả lời là motion_prompt, không có gợi ý
     // thời lượng (an toàn hơn báo lỗi cả cảnh chỉ vì thiếu đúng 1 field phụ này).
   }
-  return { motionPrompt: cleaned };
+  return { motionPrompt: normalized };
 }
 
 // Motion Timing Controller — xem migration-story-video-motion-timing.sql + ghi nhớ
