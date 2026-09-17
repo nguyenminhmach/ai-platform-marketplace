@@ -200,8 +200,13 @@ export async function callOpenRouter(
   }
 
   const data = await response.json();
+  // Đôi khi provider trả về message.content = null (bị chặn bởi bộ lọc nội dung, hoặc finish_reason
+  // khác "stop") dù response HTTP vẫn 200 OK -- ép "as string" trước đây không đúng thực tế runtime,
+  // khiến mọi nơi gọi .trim()/.includes() trên "output" bị crash TypeError. Rơi về chuỗi rỗng để các
+  // hàm gọi tự xử lý theo đúng logic catch/fallback đã có sẵn của từng nơi, thay vì crash giữa chừng.
+  const output = (data.choices?.[0]?.message?.content as string | null | undefined) ?? "";
   return {
-    output: data.choices[0].message.content as string,
+    output,
     costUsd: data.usage?.cost ?? 0,
     tokensUsed: data.usage?.total_tokens ?? 0,
   };
