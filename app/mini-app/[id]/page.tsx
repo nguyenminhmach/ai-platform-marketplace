@@ -281,6 +281,7 @@ export default function MiniAppDetailPage() {
   const STORY_MODEL_CHAT_OPTIONS = [
     { value: "google/gemini-3-flash-preview", label: "Gemini Flash" },
     { value: "anthropic/claude-sonnet-4.6", label: "Claude Sonnet" },
+    { value: "openai/gpt-5.1", label: "GPT-5.1" },
   ];
   const [storyModelChatKey, setStoryModelChatKey] = useState(STORY_MODEL_CHAT_OPTIONS[0].value);
   // Thể loại — chỉ là 1 khoá tra bảng (xem GENRE_STYLE_GUIDES trong lib/story-video.ts), nối thêm 1

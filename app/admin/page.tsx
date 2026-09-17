@@ -180,6 +180,7 @@ const MODEL_TIER_LABELS: Record<string, string> = { budget: "Tiết kiệm", bas
 const MODEL_OPTIONS = [
   { value: "google/gemini-3-flash-preview", label: "Gemini Flash (rẻ, nhanh)" },
   { value: "anthropic/claude-sonnet-4.6", label: "Claude Sonnet (chất lượng cao hơn, đắt hơn)" },
+  { value: "openai/gpt-5.1", label: "GPT-5.1" },
 ];
 
 const NEW_APP_CATEGORIES: Array<{ value: string; label: string }> = [

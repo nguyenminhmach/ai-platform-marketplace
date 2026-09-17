@@ -763,7 +763,7 @@ function extractImageUrl(falPayload: Record<string, unknown>): string | undefine
 // "Model chat" — LLM thực thi bước chia cảnh, tách biệt với "Agent" (persona/hướng dẫn). Whitelist
 // cứng 2 model đã kiểm chứng (đúng danh sách MODEL_OPTIONS admin dùng cho app tự tạo dạng text) —
 // không cho truyền chuỗi model tuỳ ý từ client để tránh gọi nhầm model lạ/tốn phí ngoài ý muốn.
-const ALLOWED_CHAT_MODELS = ["google/gemini-3-flash-preview", "anthropic/claude-sonnet-4.6"];
+const ALLOWED_CHAT_MODELS = ["google/gemini-3-flash-preview", "anthropic/claude-sonnet-4.6", "openai/gpt-5.1"];
 
 // Gợi ý số phân cảnh phù hợp cho khách — trước đây khách phải tự đếm số hành động/thay đổi tư thế
 // trong truyện rồi tự chọn nút "N cảnh", không thực tế với khách không rành kỹ thuật. Gọi 1 lượt
