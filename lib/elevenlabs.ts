@@ -65,6 +65,16 @@ export async function generateVietnameseSpeech(
   // nhưng "không biết tiếng nước nào" — đúng triệu chứng thanh điệu bị vỡ, không phải lỗi chọn giọng).
   const normalizedText = text.normalize("NFC");
 
+  // Câu thoại ngắn (<=6 từ, vd "Thật là tuyệt vời!") đọc ở tốc độ mặc định thường ra audio dưới 2.2s --
+  // padAudioIfTooShort() phải đệm THÊM khoảng lặng dài ở cuối để qua ngưỡng cứng 2s của Kling LipSync,
+  // và khoảng lặng chiếm tỉ trọng lớn bất thường trong clip ngắn bị nghi là nguyên nhân khiến miệng nhân
+  // vật khớp trễ so với lời thoại (báo cáo thật: "nói trước, sau đó mới máy môi"). Đọc chậm hơn
+  // (voice_settings.speed=0.7, mức chậm nhất ElevenLabs cho phép) kéo dài audio bằng giọng nói THẬT thay
+  // vì im lặng giả -- giảm (hoặc xoá hẳn) phần phải đệm sau. Chỉ áp dụng cho câu ngắn, câu bình thường/dài
+  // giữ nguyên tốc độ mặc định, không đổi hành vi.
+  const wordCount = normalizedText.trim().split(/\s+/).filter(Boolean).length;
+  const isShortLine = wordCount > 0 && wordCount <= 6;
+
   // model_id: đây là gốc rễ thật của toàn bộ chuỗi report "lơ lớ" từ đầu tới giờ — đã tra lại tài liệu
   // ElevenLabs hiện tại (docs/models) và xác nhận "eleven_multilingual_v2" KHÔNG hỗ trợ tiếng Việt
   // chính thức (danh sách 29 ngôn ngữ của model này không có tiếng Việt) dù comment cũ trong file này
@@ -81,6 +91,7 @@ export async function generateVietnameseSpeech(
     body: JSON.stringify({
       text: normalizedText,
       model_id: "eleven_flash_v2_5",
+      ...(isShortLine ? { voice_settings: { speed: 0.7 } } : {}),
     }),
   });
 
