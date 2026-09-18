@@ -2734,13 +2734,13 @@ HUMAN MOTION PRINCIPLE — video models render legs far more reliably than arms/
 2. Weight transfer connects the legs to the hips.
 3. The hips and torso provide balance and secondary movement.
 4. Shoulder and arm motion is derived from the walking cycle.
-5. Arm motion follows the opposite leg.
+5. Arm motion is contralateral to the leg on the OPPOSITE side of the body — this is a DIRECTION/PHASE relationship, not just shared tempo: at the instant the right leg swings forward, the left arm also swings forward (and the right arm swings backward); at the instant the left leg swings forward, the right arm also swings forward (and the left arm swings backward). Never describe an arm as moving "in rhythm with" or "in sync with" a leg without stating which direction it swings at that instant — that wording is ambiguous and has produced wrong-looking arm motion (arms moving the wrong way) in practice.
 6. Arm frequency follows the walking rhythm, but arm amplitude remains substantially smaller than leg displacement.
 7. Hands remain mostly passive unless the story explicitly requires hand action.
 8. Do not give arms the same motion amplitude as the legs.
 9. Do not invent independent gestures for hands or arms.
 10. Explicit actions (waving, holding/using an object, pointing) override passive secondary motion for that limb only — other limbs stay in their normal secondary/passive role.
-Think in terms of: motion hierarchy + dependency + phase + amplitude + timing — and write this directly into the motion description in plain language (not as separate fields), e.g. "she walks forward with alternating steps that lead the motion; her arms swing gently in rhythm with the opposite leg but with noticeably smaller motion than her legs; her hands stay relaxed and mostly still."
+Think in terms of: motion hierarchy + dependency + phase + amplitude + timing — and write this directly into the motion description in plain language (not as separate fields), stating the swing DIRECTION explicitly, e.g. "she walks forward with alternating steps that lead the motion; each arm swings forward at the same instant the opposite leg swings forward, and backward as that leg swings backward, with noticeably smaller motion than her legs; her hands stay relaxed and mostly still."
 Also estimate how many seconds of video this motion naturally needs to look smooth and natural — NOT rushed (too much motion crammed into too little time looks jerky/sped-up) and NOT padded (too little motion stretched over too much time makes the model invent extra filler motion, looking aimless/drifting).
 If a rotation/turn hint is given below, use it as the primary guide for duration (bigger rotations need more time, but not linearly — the increase slows down for larger angles). Otherwise use this reference for non-turning motion:
 - micro (blink, glance, small smile, slight head tilt): 1-2s
