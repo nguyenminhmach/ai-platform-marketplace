@@ -736,6 +736,14 @@ function buildVideoRequestBody(
     if (endImageUrl) body.end_image_url = endImageUrl;
     return body;
   }
+  if (model === "fal-ai/ltx-2.3/image-to-video/fast") {
+    // Xác nhận qua lỗi 422 thật trên production (job #148): model này nhận "duration" dạng SỐ NGUYÊN
+    // literal (6/8/10/12/14/16/18/20 — "Input should be 6, 8, 10, 12, 14, 16, 18 or 20"), KHÔNG phải
+    // chuỗi như phần lớn model khác trong app — gửi chuỗi (vd "10") bị từ chối dù giá trị số khớp catalog.
+    const body: Record<string, unknown> = { prompt, image_url: imageUrl, aspect_ratio: aspectRatio };
+    if (durationKey) body.duration = Number(durationKey);
+    return body;
+  }
   const body: Record<string, unknown> = { prompt, image_url: imageUrl, aspect_ratio: aspectRatio };
   if (durationKey) body.duration = durationKey;
   return body;
