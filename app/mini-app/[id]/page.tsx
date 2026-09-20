@@ -1663,7 +1663,15 @@ export default function MiniAppDetailPage() {
     // trước — đảm bảo giá hiện lúc "Tạo kịch bản" luôn khớp với giá thật lúc submit (không chia cảnh
     // ngầm bằng số cảnh cũ/mặc định nếu khách quên bấm nút). Own-images/nhiều nhân vật/chuyển động liên
     // tục/frame-chain không dùng bước kịch bản này (xem storyUsesScriptFlow).
-    if (storyUsesScriptFlow && input.trim() && !storyScriptActions) {
+    // 2 điều kiện TÁCH RIÊNG (trước đây gộp chung "input.trim() && !storyScriptActions" — khi ô Ý tưởng
+    // truyện đang trống, cả cụm bị bỏ qua hoàn toàn vì short-circuit, cho lọt request preplannedActions=
+    // null lên server và bị 400 "Danh sách hành động không hợp lệ"; xảy ra thật ở chế độ "AI tự vẽ" nhân
+    // vật vì khách có thể điền xong mô tả nhân vật mà quên/chưa kịp viết Ý tưởng truyện).
+    if (storyUsesScriptFlow && !input.trim()) {
+      setStoryError("Nhập Ý tưởng truyện trước khi tạo ảnh phân cảnh");
+      return;
+    }
+    if (storyUsesScriptFlow && (!storyScriptActions || storyScriptActions.length === 0)) {
       setStoryError('Bấm "Tạo kịch bản" trước khi tạo ảnh phân cảnh');
       return;
     }
@@ -4661,8 +4669,13 @@ export default function MiniAppDetailPage() {
                         storyCharacterImages.length === 0 &&
                         !(storyCharacterInputMode === "text" && storyCharacterAppearanceDescription.trim())) ||
                       (!!storySelectedSavedCharacterId && !input.trim()) ||
-                      // Luồng mặc định (1 nhân vật, không own-images): bắt buộc đã "Tạo kịch bản" xong.
-                      (storyUsesScriptFlow && !!input.trim() && !storyScriptActions) ||
+                      // Luồng mặc định (1 nhân vật, không own-images): bắt buộc có Ý tưởng truyện VÀ đã "Tạo
+                      // kịch bản" xong — 2 điều kiện tách riêng, không được gộp bằng "&&" chung với input.trim()
+                      // (trước đây gộp chung khiến ô Ý tưởng truyện trống làm cả cụm bị bỏ qua, nút không khoá dù
+                      // chưa có kịch bản — xảy ra thật ở chế độ "AI tự vẽ" nhân vật). Mảng RỖNG (không chỉ null)
+                      // cũng phải chặn — [] vẫn "truthy" trong JS nên chỉ check !storyScriptActions sẽ bỏ lọt.
+                      (storyUsesScriptFlow && !input.trim()) ||
+                      (storyUsesScriptFlow && (!storyScriptActions || storyScriptActions.length === 0)) ||
                       // Đang bật thanh trượt tốc độ: bắt buộc đã bấm "Hoàn thành" trước khi submit, tránh
                       // khách chỉnh xong quên bấm rồi giá/thời lượng gửi lên không khớp thanh trượt đang thấy.
                       (storyEnableSpeedSlider && !!storyScriptActions && !storySpeedFinalized)
