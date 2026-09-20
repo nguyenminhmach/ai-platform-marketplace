@@ -128,6 +128,16 @@ export const CHARACTER_PROVIDER_COST_VND = 5700;
 const CHARACTER_SHEET_PROMPT =
   "You are given one or more reference images of the SAME person — they may be ordinary photos and/or an existing multi-panel character sheet. Do NOT simply copy, crop, or pass through any single input image as-is, even if one of them already looks like a finished sheet. Always render a brand-new single image from scratch: one wide landscape canvas on a neutral light-gray studio background, divided into 6 equal panels labeled 1) FRONT VIEW (full body), 2) 3/4 LEFT VIEW (full body), 3) 3/4 RIGHT VIEW (full body), 4) SIDE VIEW (full body), 5) BACK VIEW (full body), 6) FACE CLOSE-UP. Extract the person's face, hairstyle, outfit, and body proportions by combining evidence from ALL provided reference images equally, and keep them identical and consistent across all six panels — do not invent a different person. Even, soft studio lighting, photorealistic, sharp focus.";
 
+// Chế độ "Mô tả bằng chữ" (không có ảnh tham chiếu thật) — dùng bản TEXT-TO-IMAGE thuần của cùng GPT
+// Image 2 (không có hậu tố "/edit", đã tra fal.ai/models/fal-ai/gpt-image-2 xác nhận nhận "prompt" +
+// "image_size" + "quality", KHÔNG nhận image_url(s)) thay vì bản edit ở trên. Giữ NGUYÊN bố cục 6 ô 3x2
+// y hệt CHARACTER_SHEET_PROMPT (chỉ đổi "extract từ ảnh" thành "tự bịa từ mô tả") để
+// cropCharacterSheetIntoAngles() cắt góc đúng như sheet tạo từ ảnh thật, không cần sửa gì ở bước cắt.
+const CHARACTER_TEXT_TO_IMAGE_MODEL = "fal-ai/gpt-image-2";
+function buildCharacterSheetTextPrompt(description: string): string {
+  return `Create a brand-new fictional character based ONLY on this text description (no reference photo exists) — invent a consistent, photorealistic appearance matching: "${description}". Render ONE wide landscape canvas on a neutral light-gray studio background, divided into 6 equal panels labeled 1) FRONT VIEW (full body), 2) 3/4 LEFT VIEW (full body), 3) 3/4 RIGHT VIEW (full body), 4) SIDE VIEW (full body), 5) BACK VIEW (full body), 6) FACE CLOSE-UP. Keep the SAME face, hairstyle, outfit, and body proportions perfectly identical and consistent across all six panels. Even, soft studio lighting, photorealistic, sharp focus, real photograph — not illustration, painting, or anime.`;
+}
+
 // Phân loại ảnh khách vừa tải lên: đã là 1 sheet nhiều góc (không cần tạo lại, dùng thẳng) hay chỉ là
 // 1 ảnh chụp thường (cần chạy bước Tạo Character). Dùng Gemini Flash (đã có sẵn qua callOpenRouter,
 // chi phí ~18đ/lần — rẻ hơn ảnh Character ~300 lần) thay vì đoán bằng heuristic không đáng tin.
@@ -348,6 +358,9 @@ type JobRow = {
   num_scenes: number;
   story_description: string;
   character_image_urls: string[];
+  // Chế độ "Mô tả bằng chữ" (không có ảnh tham chiếu thật) — lưu lại mô tả để regenerateCharacter()
+  // dùng lại đúng mô tả cũ, không bắt khách gõ lại. Null khi job dùng ảnh thật/thư viện như bình thường.
+  character_appearance_description: string | null;
   character_sheet_url: string | null;
   character_fal_request_id: string | null;
   image_model: string | null;
@@ -2110,7 +2123,11 @@ export async function submitStoryVideoJob(
   // Bước "Tạo kịch bản" bản NHIỀU NHÂN VẬT (xem runMultiCharacterSceneStage) — mirror preplannedActions
   // ở trên nhưng cho nhánh characters.length>=2. Tách riêng tham số vì 2 nhánh dùng 2 kiểu dữ liệu khác
   // nhau (ScriptSceneResult vs ScriptSceneResultMulti, có thêm "characters" per action).
-  preplannedActionsMulti?: ScriptSceneResultMulti[]
+  preplannedActionsMulti?: ScriptSceneResultMulti[],
+  // Chế độ "Mô tả bằng chữ" — CHỈ áp dụng nhánh 1 nhân vật (characters rỗng/1 phần tử), khách không có
+  // ảnh thật, để AI tự bịa hẳn nhân vật từ mô tả này (xem CHARACTER_TEXT_TO_IMAGE_MODEL bên dưới). Khi
+  // có giá trị, bỏ qua hoàn toàn yêu cầu characterImageUrls.length >= MIN_CHARACTER_IMAGES.
+  characterAppearanceDescription?: string
 ): Promise<{ jobId: number; newBalance: number }> {
   const resolvedNumScenes = preplannedActions ? preplannedActions.length : numScenes;
   if (resolvedNumScenes < MIN_SCENES || resolvedNumScenes > MAX_SCENES) {
@@ -2164,6 +2181,8 @@ export async function submitStoryVideoJob(
     if (!saved || saved.user_id !== userId) throw new Error("Không tìm thấy Character đã lưu");
     reusedImageUrl = saved.image_url;
     reusedAngleUrls = (saved.angle_urls as CharacterAngleUrls | null) ?? null;
+  } else if (characterAppearanceDescription?.trim()) {
+    // Chế độ "Mô tả bằng chữ" — không cần ảnh, bỏ qua hẳn yêu cầu MIN_CHARACTER_IMAGES.
   } else if (characterImageUrls.length < MIN_CHARACTER_IMAGES || characterImageUrls.length > MAX_CHARACTER_IMAGES) {
     throw new Error(`Cần từ ${MIN_CHARACTER_IMAGES} đến ${MAX_CHARACTER_IMAGES} ảnh nhân vật`);
   }
@@ -2180,6 +2199,7 @@ export async function submitStoryVideoJob(
       story_description: storyDescription,
       num_scenes: resolvedNumScenes,
       character_image_urls: characterImageUrls,
+      character_appearance_description: characterAppearanceDescription?.trim() || null,
       image_model: imageEntry.model,
       video_model: videoEntry.model,
       auto_video: autoVideo,
@@ -2245,6 +2265,35 @@ export async function submitStoryVideoJob(
           ...(await runSceneStage(userId, sceneStageJob, finalStoryDescription, modelChatKey, idempotencyKey, preplannedActions)),
         };
       }
+    } else if (characterAppearanceDescription?.trim()) {
+      // Chế độ "Mô tả bằng chữ" — không có ảnh thật, dùng bản TEXT-TO-IMAGE thuần của GPT Image 2
+      // (CHARACTER_TEXT_TO_IMAGE_MODEL, không có "/edit") thay vì bản edit dùng cho ảnh thật. Cùng bố
+      // cục 6 ô 3x2 như CHARACTER_SHEET_PROMPT nên applyCharacterStageResult()/cropCharacterSheetIntoAngles()
+      // phía dưới chạy y hệt, không cần sửa gì thêm.
+      const { creditCost } = await computeCharacterCreditCost();
+      const deduction = await deductCredit(userId, creditCost, miniAppId, idempotencyKey);
+      if (!deduction.success) throw new InsufficientCreditError();
+      characterTxId = deduction.txId ?? null;
+
+      const body = {
+        prompt: buildCharacterSheetTextPrompt(characterAppearanceDescription.trim()),
+        image_size: "landscape_4_3",
+        quality: "high",
+      };
+      const requestId = await submitFalJob(
+        CHARACTER_TEXT_TO_IMAGE_MODEL,
+        body,
+        `${SITE_URL}/api/story-video/webhook?jobId=${job.id}&stage=character`
+      );
+      await supabase
+        .from("story_video_jobs")
+        .update({
+          status: "generating_character",
+          character_source: "text_described",
+          character_credit_tx_id: characterTxId,
+          character_fal_request_id: requestId,
+        })
+        .eq("id", job.id);
     } else {
       // Khách chủ động tick "Bỏ qua tạo Character" — dùng thẳng ảnh đầu tiên đã tải làm tham chiếu
       // duy nhất cho mọi cảnh sau này, bỏ qua hẳn bước phân loại + tạo sheet mới (tiết kiệm credit,
@@ -3200,7 +3249,8 @@ export async function regenerateCharacter(userId: string, jobId: number, idempot
 
   if (job.user_id !== userId) throw new Error("Không có quyền với job này");
   if (job.status !== "character_ready") throw new Error("Job không ở trạng thái xem trước Character");
-  if (!job.character_image_urls || job.character_image_urls.length === 0) {
+  const hasDescription = !!job.character_appearance_description?.trim();
+  if (!hasDescription && (!job.character_image_urls || job.character_image_urls.length === 0)) {
     throw new Error("Job này không có ảnh gốc để tạo lại (đang dùng Character đã lưu từ thư viện)");
   }
 
@@ -3209,14 +3259,24 @@ export async function regenerateCharacter(userId: string, jobId: number, idempot
   if (!deduction.success) throw new InsufficientCreditError();
 
   try {
-    const characterPrompt = await resolveCharacterPrompt(job.mini_app_id);
-    const body = buildImageRequestBody(CHARACTER_SHEET_MODEL, characterPrompt, job.character_image_urls, true, "1:1", undefined);
-    const requestId = await submitFalJob(CHARACTER_SHEET_MODEL, body, `${SITE_URL}/api/story-video/webhook?jobId=${jobId}&stage=character`);
+    // Chế độ "Mô tả bằng chữ" — dùng lại đúng mô tả đã lưu, không cần khách gõ lại (xem
+    // character_appearance_description ở JobRow, set 1 lần lúc submitStoryVideoJob).
+    const requestId = hasDescription
+      ? await submitFalJob(
+          CHARACTER_TEXT_TO_IMAGE_MODEL,
+          { prompt: buildCharacterSheetTextPrompt(job.character_appearance_description!.trim()), image_size: "landscape_4_3", quality: "high" },
+          `${SITE_URL}/api/story-video/webhook?jobId=${jobId}&stage=character`
+        )
+      : await (async () => {
+          const characterPrompt = await resolveCharacterPrompt(job.mini_app_id);
+          const body = buildImageRequestBody(CHARACTER_SHEET_MODEL, characterPrompt, job.character_image_urls, true, "1:1", undefined);
+          return submitFalJob(CHARACTER_SHEET_MODEL, body, `${SITE_URL}/api/story-video/webhook?jobId=${jobId}&stage=character`);
+        })();
     await supabase
       .from("story_video_jobs")
       .update({
         status: "generating_character",
-        character_source: "generated",
+        character_source: hasDescription ? "text_described" : "generated",
         character_credit_tx_id: deduction.txId,
         character_fal_request_id: requestId,
       })

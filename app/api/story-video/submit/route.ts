@@ -18,6 +18,7 @@ import { InsufficientCreditError } from "@/lib/credit-system";
 import { getAuthenticatedUserId } from "@/lib/auth-server";
 
 const STORY_MAX_LENGTH = 2000;
+const CHARACTER_APPEARANCE_DESCRIPTION_MAX_LENGTH = 500;
 
 // Không tin số lượng/nội dung client tự gửi — lọc chuỗi hợp lệ + cắt về đúng cận trên cho an toàn.
 function parseItemReferenceUrls(raw: unknown): string[] | undefined {
@@ -53,6 +54,7 @@ export async function POST(req: Request) {
     frameChainMode,
     preplannedActions,
     preplannedActionsMulti,
+    characterAppearanceDescription,
   } = await req.json();
 
   const userId = await getAuthenticatedUserId();
@@ -99,11 +101,23 @@ export async function POST(req: Request) {
     }));
   }
 
+  // Chế độ "Mô tả bằng chữ" (không có ảnh tham chiếu thật) — CHỈ áp dụng luồng 1 nhân vật.
+  const trimmedAppearanceDescription =
+    typeof characterAppearanceDescription === "string" ? characterAppearanceDescription.trim() : "";
+  const hasAppearanceDescription = !isMultiCharacter && trimmedAppearanceDescription.length > 0;
+  if (hasAppearanceDescription && trimmedAppearanceDescription.length > CHARACTER_APPEARANCE_DESCRIPTION_MAX_LENGTH) {
+    return Response.json(
+      { error: `Mô tả nhân vật quá dài (tối đa ${CHARACTER_APPEARANCE_DESCRIPTION_MAX_LENGTH} ký tự)` },
+      { status: 400 }
+    );
+  }
+
   // Chọn Character từ thư viện đã lưu -> không cần ảnh tải lên mới, bỏ qua validate số lượng ảnh.
   const hasReuseCharacter = typeof reuseCharacterId === "number";
   if (
     !isMultiCharacter &&
     !hasReuseCharacter &&
+    !hasAppearanceDescription &&
     (!Array.isArray(characterImageUrls) ||
       characterImageUrls.length < MIN_CHARACTER_IMAGES ||
       characterImageUrls.length > MAX_CHARACTER_IMAGES ||
@@ -170,7 +184,8 @@ export async function POST(req: Request) {
       frameChainMode === true,
       parseItemReferenceUrls(itemReferenceUrls),
       parsedPreplannedActions,
-      parsedPreplannedActionsMulti
+      parsedPreplannedActionsMulti,
+      hasAppearanceDescription ? trimmedAppearanceDescription : undefined
     );
     return Response.json({ success: true, jobId: result.jobId, newBalance: result.newBalance });
   } catch (err) {

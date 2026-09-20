@@ -223,6 +223,11 @@ export default function MiniAppDetailPage() {
   // khớp đúng tên trong Ý tưởng truyện (vd truyện viết "Lan ôm Mai" thì cần đúng tên "Lan" ở đây,
   // không phải để mặc định "Nhân vật 1" — Agent sẽ không biết "Lan" là ai nếu tên không khớp).
   const [storyPrimaryCharacterLabel, setStoryPrimaryCharacterLabel] = useState("");
+  // Chế độ "Mô tả bằng chữ" — khách không có ảnh thật, để AI tự vẽ hẳn nhân vật từ mô tả này thay vì
+  // tải ảnh. CHỈ áp dụng khi đúng 1 nhân vật (storyExtraCharacters rỗng) — xem
+  // buildCharacterSheetTextPrompt() ở lib/story-video.ts.
+  const [storyCharacterInputMode, setStoryCharacterInputMode] = useState<"photo" | "text">("photo");
+  const [storyCharacterAppearanceDescription, setStoryCharacterAppearanceDescription] = useState("");
   // Ảnh THẬT của 1 địa điểm (sân vườn, nhà, cửa hàng...) — tuỳ chọn, dùng chung cho cả job, để ảnh
   // phân cảnh AI vẽ diễn ra đúng tại khung cảnh thật đó thay vì AI tự bịa bối cảnh.
   const [storyLocationReference, setStoryLocationReference] = useState<string | null>(null);
@@ -1640,7 +1645,10 @@ export default function MiniAppDetailPage() {
     // buộc nhập trước ở đây để chắc chắn kích hoạt được đường tắt đó (ảnh thường vẫn không cần, vì
     // server không biết trước có phải toàn bộ ảnh đã là sheet hay không).
     const hasMultipleCharacters = storyExtraCharacters.length > 0;
-    if (!user || (!reuseId && images.length === 0) || !storyImageModelKey || !storyVideoModelKey) return;
+    // Chế độ "Mô tả bằng chữ" — không có ảnh, AI tự vẽ từ mô tả này (xem storyCharacterInputMode).
+    const usesAppearanceDescription =
+      !hasMultipleCharacters && storyCharacterInputMode === "text" && !!storyCharacterAppearanceDescription.trim();
+    if (!user || (!reuseId && !usesAppearanceDescription && images.length === 0) || !storyImageModelKey || !storyVideoModelKey) return;
     if (reuseId && !input.trim()) return;
     if (hasMultipleCharacters && storyExtraCharacters.some((s) => !s.reuseId && s.images.length === 0)) {
       setStoryError("Có nhân vật chưa tải ảnh — xoá bớt hoặc tải ảnh cho đủ trước khi chạy");
@@ -1784,6 +1792,7 @@ export default function MiniAppDetailPage() {
           frameChainMode: storyFrameChainMode,
           preplannedActions: storyUsesScriptFlow && !hasMultipleCharacters ? storyScriptActions : undefined,
           preplannedActionsMulti: storyUsesScriptFlow && hasMultipleCharacters ? storyScriptActions : undefined,
+          characterAppearanceDescription: usesAppearanceDescription ? storyCharacterAppearanceDescription.trim() : undefined,
         }),
       });
       const data = await res.json();
@@ -3514,6 +3523,52 @@ export default function MiniAppDetailPage() {
                         className="mb-3 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                       />
 
+                      {/* Chế độ "Mô tả bằng chữ" — khách không có ảnh thật, để AI tự vẽ hẳn nhân vật từ mô
+                          tả. CHỈ hiện khi đúng 1 nhân vật (không có nhân vật phụ). */}
+                      {storyExtraCharacters.length === 0 && (
+                        <div className="mb-3 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setStoryCharacterInputMode("photo")}
+                            className={`rounded-full border px-3 py-1 text-sm font-medium ${
+                              storyCharacterInputMode === "photo"
+                                ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
+                                : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
+                            }`}
+                          >
+                            📷 Tải ảnh thật
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setStoryCharacterInputMode("text")}
+                            className={`rounded-full border px-3 py-1 text-sm font-medium ${
+                              storyCharacterInputMode === "text"
+                                ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
+                                : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
+                            }`}
+                          >
+                            ✍️ Mô tả bằng chữ (AI tự vẽ)
+                          </button>
+                        </div>
+                      )}
+
+                      {storyCharacterInputMode === "text" && storyExtraCharacters.length === 0 ? (
+                        <div>
+                          <textarea
+                            value={storyCharacterAppearanceDescription}
+                            onChange={(e) => setStoryCharacterAppearanceDescription(e.target.value)}
+                            placeholder='Mô tả ngoại hình nhân vật để AI tự vẽ (vd "phụ nữ Việt Nam khoảng 25 tuổi, tóc dài đen, dáng người mảnh, mặc áo sơ mi trắng") — không có ảnh thật, AI sẽ bịa 1 nhân vật khớp mô tả này'
+                            rows={4}
+                            maxLength={500}
+                            className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                          />
+                          <p className="mt-2 text-sm text-zinc-400 dark:text-zinc-500">
+                            AI sẽ tự vẽ 1 nhân vật khớp mô tả (không phải người thật) rồi dùng giữ đúng nhân vật đó xuyên
+                            suốt các cảnh — giống hệt cách hoạt động của ảnh tải lên.
+                          </p>
+                        </div>
+                      ) : (
+                        <>
                       {storySavedCharacters.length > 0 && (
                         <div className="mb-3">
                           <p className="mb-1 text-sm text-zinc-500 dark:text-zinc-400">📂 Character đã lưu</p>
@@ -3688,6 +3743,8 @@ export default function MiniAppDetailPage() {
                               )}
                             </div>
                           )}
+                        </>
+                      )}
                         </>
                       )}
 
@@ -3897,7 +3954,7 @@ export default function MiniAppDetailPage() {
                         </div>
                       ))}
 
-                      {storyExtraCharacters.length < STORY_MAX_CHARACTERS - 1 && (
+                      {storyExtraCharacters.length < STORY_MAX_CHARACTERS - 1 && storyCharacterInputMode === "photo" && (
                         <button
                           onClick={() => setStoryExtraCharacters((prev) => [...prev, { images: [], reuseId: null, label: "", itemImages: [] }])}
                           className="mt-3 rounded-full border border-zinc-300 px-4 py-1.5 text-sm font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
@@ -4536,7 +4593,13 @@ export default function MiniAppDetailPage() {
                       storyRunning ||
                       !storyVideoModelKey ||
                       !storyImageModelKey ||
-                      (!storySelectedSavedCharacterId && storyCharacterImages.length === 0) ||
+                      (!storySelectedSavedCharacterId &&
+                        storyCharacterImages.length === 0 &&
+                        !(
+                          storyExtraCharacters.length === 0 &&
+                          storyCharacterInputMode === "text" &&
+                          storyCharacterAppearanceDescription.trim()
+                        )) ||
                       (!!storySelectedSavedCharacterId && !input.trim()) ||
                       // Luồng mặc định (1 nhân vật, không own-images): bắt buộc đã "Tạo kịch bản" xong.
                       (storyUsesScriptFlow && !!input.trim() && !storyScriptActions) ||
