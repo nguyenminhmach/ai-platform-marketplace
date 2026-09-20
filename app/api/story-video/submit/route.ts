@@ -82,6 +82,18 @@ export async function POST(req: Request) {
     }
     for (const c of characters) {
       const hasReuse = typeof c?.reuseCharacterId === "number";
+      // Chế độ "Mô tả bằng chữ" cho ĐÚNG nhân vật này — không cần ảnh, mirror validate ở luồng 1 nhân
+      // vật bên dưới (mỗi nhân vật trong job có thể độc lập dùng ảnh thật HOẶC mô tả chữ).
+      const trimmedDescription = typeof c?.appearanceDescription === "string" ? c.appearanceDescription.trim() : "";
+      if (trimmedDescription) {
+        if (trimmedDescription.length > CHARACTER_APPEARANCE_DESCRIPTION_MAX_LENGTH) {
+          return Response.json(
+            { error: `Mô tả nhân vật quá dài (tối đa ${CHARACTER_APPEARANCE_DESCRIPTION_MAX_LENGTH} ký tự)` },
+            { status: 400 }
+          );
+        }
+        continue;
+      }
       if (
         !hasReuse &&
         (!Array.isArray(c?.imageUrls) ||
@@ -98,6 +110,7 @@ export async function POST(req: Request) {
       skipCharacterCreation: c.skipCharacterCreation === true,
       label: typeof c.label === "string" ? c.label : undefined,
       itemReferenceUrls: parseItemReferenceUrls(c.itemReferenceUrls),
+      appearanceDescription: typeof c.appearanceDescription === "string" && c.appearanceDescription.trim() ? c.appearanceDescription.trim() : undefined,
     }));
   }
 

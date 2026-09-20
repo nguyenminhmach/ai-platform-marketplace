@@ -217,7 +217,7 @@ export default function MiniAppDetailPage() {
   // storySelectedSavedCharacterId ở trên, không đổi gì, để giữ đúng luồng 1-nhân-vật hiện có khi khách
   // không thêm ai — chỉ khi mảng này có phần tử mới coi là job nhiều nhân vật.
   const [storyExtraCharacters, setStoryExtraCharacters] = useState<
-    { images: string[]; reuseId: number | null; label: string; itemImages: string[] }[]
+    { images: string[]; reuseId: number | null; label: string; itemImages: string[]; inputMode: "photo" | "text"; appearanceDescription: string }[]
   >([]);
   // Tên nhân vật #1 — chỉ cần điền khi có thêm nhân vật khác (job nhiều người), để Agent chia cảnh
   // khớp đúng tên trong Ý tưởng truyện (vd truyện viết "Lan ôm Mai" thì cần đúng tên "Lan" ở đây,
@@ -1645,12 +1645,17 @@ export default function MiniAppDetailPage() {
     // buộc nhập trước ở đây để chắc chắn kích hoạt được đường tắt đó (ảnh thường vẫn không cần, vì
     // server không biết trước có phải toàn bộ ảnh đã là sheet hay không).
     const hasMultipleCharacters = storyExtraCharacters.length > 0;
-    // Chế độ "Mô tả bằng chữ" — không có ảnh, AI tự vẽ từ mô tả này (xem storyCharacterInputMode).
-    const usesAppearanceDescription =
-      !hasMultipleCharacters && storyCharacterInputMode === "text" && !!storyCharacterAppearanceDescription.trim();
+    // Chế độ "Mô tả bằng chữ" — không có ảnh, AI tự vẽ từ mô tả này (xem storyCharacterInputMode). Mỗi
+    // nhân vật (kể cả #2+ bên dưới) độc lập chọn ảnh thật hoặc mô tả chữ.
+    const usesAppearanceDescription = storyCharacterInputMode === "text" && !!storyCharacterAppearanceDescription.trim();
     if (!user || (!reuseId && !usesAppearanceDescription && images.length === 0) || !storyImageModelKey || !storyVideoModelKey) return;
     if (reuseId && !input.trim()) return;
-    if (hasMultipleCharacters && storyExtraCharacters.some((s) => !s.reuseId && s.images.length === 0)) {
+    if (
+      hasMultipleCharacters &&
+      storyExtraCharacters.some(
+        (s) => !s.reuseId && s.images.length === 0 && !(s.inputMode === "text" && s.appearanceDescription.trim())
+      )
+    ) {
       setStoryError("Có nhân vật chưa tải ảnh — xoá bớt hoặc tải ảnh cho đủ trước khi chạy");
       return;
     }
@@ -1690,7 +1695,14 @@ export default function MiniAppDetailPage() {
     let characterImageUrls: string[] = [];
     let primaryItemReferenceUrls: string[] = [];
     let characters:
-      | { imageUrls: string[]; reuseCharacterId?: number; skipCharacterCreation?: boolean; label?: string; itemReferenceUrls?: string[] }[]
+      | {
+          imageUrls: string[];
+          reuseCharacterId?: number;
+          skipCharacterCreation?: boolean;
+          label?: string;
+          itemReferenceUrls?: string[];
+          appearanceDescription?: string;
+        }[]
       | undefined;
     let locationReferenceUrl: string | undefined;
     if (!reuseId || storyPrimaryItemReferences.length > 0 || hasMultipleCharacters || storyLocationReference) {
@@ -1725,6 +1737,8 @@ export default function MiniAppDetailPage() {
                     reuseCharacterId: slot.reuseId ?? undefined,
                     label: slot.label.trim() || undefined,
                     itemReferenceUrls: slotItemImages,
+                    appearanceDescription:
+                      !slot.reuseId && slot.inputMode === "text" ? slot.appearanceDescription.trim() || undefined : undefined,
                   };
                 })
               )
@@ -1747,6 +1761,7 @@ export default function MiniAppDetailPage() {
               skipCharacterCreation: !reuseId && storySkipCharacterCreation,
               label: storyPrimaryCharacterLabel.trim() || undefined,
               itemReferenceUrls: primaryItemReferenceUrls,
+              appearanceDescription: usesAppearanceDescription ? storyCharacterAppearanceDescription.trim() : undefined,
             },
             ...extraUploaded,
           ];
@@ -3524,35 +3539,33 @@ export default function MiniAppDetailPage() {
                       />
 
                       {/* Chế độ "Mô tả bằng chữ" — khách không có ảnh thật, để AI tự vẽ hẳn nhân vật từ mô
-                          tả. CHỈ hiện khi đúng 1 nhân vật (không có nhân vật phụ). */}
-                      {storyExtraCharacters.length === 0 && (
-                        <div className="mb-3 flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setStoryCharacterInputMode("photo")}
-                            className={`rounded-full border px-3 py-1 text-sm font-medium ${
-                              storyCharacterInputMode === "photo"
-                                ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
-                                : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
-                            }`}
-                          >
-                            📷 Tải ảnh thật
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setStoryCharacterInputMode("text")}
-                            className={`rounded-full border px-3 py-1 text-sm font-medium ${
-                              storyCharacterInputMode === "text"
-                                ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
-                                : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
-                            }`}
-                          >
-                            ✍️ Mô tả bằng chữ (AI tự vẽ)
-                          </button>
-                        </div>
-                      )}
+                          tả. Mỗi nhân vật (kể cả #2+ bên dưới) chọn độc lập ảnh thật HOẶC mô tả chữ. */}
+                      <div className="mb-3 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setStoryCharacterInputMode("photo")}
+                          className={`rounded-full border px-3 py-1 text-sm font-medium ${
+                            storyCharacterInputMode === "photo"
+                              ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
+                              : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
+                          }`}
+                        >
+                          📷 Tải ảnh thật
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setStoryCharacterInputMode("text")}
+                          className={`rounded-full border px-3 py-1 text-sm font-medium ${
+                            storyCharacterInputMode === "text"
+                              ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
+                              : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
+                          }`}
+                        >
+                          ✍️ Mô tả bằng chữ (AI tự vẽ)
+                        </button>
+                      </div>
 
-                      {storyCharacterInputMode === "text" && storyExtraCharacters.length === 0 ? (
+                      {storyCharacterInputMode === "text" ? (
                         <div>
                           <textarea
                             value={storyCharacterAppearanceDescription}
@@ -3843,6 +3856,51 @@ export default function MiniAppDetailPage() {
                           )}
 
                           {!slot.reuseId && (
+                            <div className="mb-2 flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setStoryExtraCharacters((prev) => prev.map((s, i) => (i === slotIndex ? { ...s, inputMode: "photo" } : s)))
+                                }
+                                className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${
+                                  slot.inputMode === "photo"
+                                    ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
+                                    : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
+                                }`}
+                              >
+                                📷 Tải ảnh thật
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setStoryExtraCharacters((prev) => prev.map((s, i) => (i === slotIndex ? { ...s, inputMode: "text" } : s)))
+                                }
+                                className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${
+                                  slot.inputMode === "text"
+                                    ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
+                                    : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
+                                }`}
+                              >
+                                ✍️ Mô tả bằng chữ
+                              </button>
+                            </div>
+                          )}
+
+                          {!slot.reuseId && slot.inputMode === "text" ? (
+                            <textarea
+                              value={slot.appearanceDescription}
+                              onChange={(e) =>
+                                setStoryExtraCharacters((prev) =>
+                                  prev.map((s, i) => (i === slotIndex ? { ...s, appearanceDescription: e.target.value } : s))
+                                )
+                              }
+                              placeholder='Mô tả ngoại hình nhân vật này để AI tự vẽ (vd "đàn ông khoảng 30 tuổi, tóc ngắn, dáng cao") — không cần ảnh'
+                              rows={3}
+                              maxLength={500}
+                              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                            />
+                          ) : (
+                          !slot.reuseId && (
                             <div className="grid grid-cols-4 gap-3">
                               {slot.images.map((img, imgIndex) => (
                                 <div key={imgIndex} className="relative w-full" style={{ aspectRatio: storyAspectRatio.replace(":", " / ") }}>
@@ -3891,6 +3949,7 @@ export default function MiniAppDetailPage() {
                                 />
                               </label>
                             </div>
+                          )
                           )}
 
                           {/* Vật phẩm riêng của nhân vật này (tuỳ chọn, vd đôi giày/túi xách thật) — độc
@@ -3954,9 +4013,14 @@ export default function MiniAppDetailPage() {
                         </div>
                       ))}
 
-                      {storyExtraCharacters.length < STORY_MAX_CHARACTERS - 1 && storyCharacterInputMode === "photo" && (
+                      {storyExtraCharacters.length < STORY_MAX_CHARACTERS - 1 && (
                         <button
-                          onClick={() => setStoryExtraCharacters((prev) => [...prev, { images: [], reuseId: null, label: "", itemImages: [] }])}
+                          onClick={() =>
+                            setStoryExtraCharacters((prev) => [
+                              ...prev,
+                              { images: [], reuseId: null, label: "", itemImages: [], inputMode: "photo", appearanceDescription: "" },
+                            ])
+                          }
                           className="mt-3 rounded-full border border-zinc-300 px-4 py-1.5 text-sm font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
                         >
                           + Thêm nhân vật (tối đa {STORY_MAX_CHARACTERS} người cùng khung hình)
@@ -4595,11 +4659,7 @@ export default function MiniAppDetailPage() {
                       !storyImageModelKey ||
                       (!storySelectedSavedCharacterId &&
                         storyCharacterImages.length === 0 &&
-                        !(
-                          storyExtraCharacters.length === 0 &&
-                          storyCharacterInputMode === "text" &&
-                          storyCharacterAppearanceDescription.trim()
-                        )) ||
+                        !(storyCharacterInputMode === "text" && storyCharacterAppearanceDescription.trim())) ||
                       (!!storySelectedSavedCharacterId && !input.trim()) ||
                       // Luồng mặc định (1 nhân vật, không own-images): bắt buộc đã "Tạo kịch bản" xong.
                       (storyUsesScriptFlow && !!input.trim() && !storyScriptActions) ||

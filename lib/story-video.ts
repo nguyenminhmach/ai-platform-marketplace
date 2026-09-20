@@ -58,6 +58,10 @@ export type MultiCharacterInput = {
   // tự bịa kiểu dáng khác. Mỗi nhân vật có vật phẩm riêng (khác location_reference_url dùng chung cho
   // cả job).
   itemReferenceUrls?: string[];
+  // Chế độ "Mô tả bằng chữ" cho ĐÚNG nhân vật này (không có ảnh thật) — mirror
+  // characterAppearanceDescription ở luồng 1 nhân vật, xem buildCharacterSheetTextPrompt(). Mỗi nhân
+  // vật trong job có thể độc lập dùng ảnh thật HOẶC mô tả chữ, không bắt buộc cả job cùng 1 kiểu.
+  appearanceDescription?: string;
 };
 
 // Lọc bỏ chuỗi rỗng + cắt về đúng cận trên MAX_ITEM_REFERENCES — dùng chung mọi nơi nhận mảng vật
@@ -1769,6 +1773,7 @@ type JobCharacterRefRow = {
   character_sheet_url: string | null;
   character_angle_urls: CharacterAngleUrls | null;
   item_reference_urls: string[] | null;
+  appearance_description: string | null;
 };
 
 // Reference Selector cho job NHIỀU NHÂN VẬT (Bước 2) — đơn giản hơn hẳn selectReferenceImagesForScene
@@ -2364,8 +2369,11 @@ type ResolvedMultiCharacter = {
   needsGeneration: boolean;
   initialSheetUrl: string | null;
   initialAngleUrls: CharacterAngleUrls | null;
-  characterSource: "reused" | "uploaded_sheet" | "skipped" | "generated";
+  characterSource: "reused" | "uploaded_sheet" | "skipped" | "generated" | "text_described";
   itemReferenceUrls: string[] | null;
+  // Chế độ "Mô tả bằng chữ" cho ĐÚNG nhân vật này — không có ảnh, dùng CHARACTER_TEXT_TO_IMAGE_MODEL
+  // thay vì CHARACTER_SHEET_MODEL (xem nhánh generate bên dưới).
+  appearanceDescription: string | null;
 };
 
 // Nhánh "nhiều nhân vật cùng khung hình" (Bước 1) — chỉ dừng ở "character_ready" khi xong, KHÔNG tự
@@ -2432,6 +2440,22 @@ async function submitMultiCharacterStoryVideoJob(
           initialAngleUrls: (saved.angle_urls as CharacterAngleUrls | null) ?? null,
           characterSource: "reused",
           itemReferenceUrls: normalizeItemReferenceUrls(c.itemReferenceUrls),
+          appearanceDescription: null,
+        };
+      }
+      // Chế độ "Mô tả bằng chữ" cho ĐÚNG nhân vật này — không cần ảnh, mirror nhánh cùng tên ở
+      // submitStoryVideoJob (luồng 1 nhân vật).
+      const trimmedDescription = c.appearanceDescription?.trim();
+      if (trimmedDescription) {
+        return {
+          label,
+          imageUrls: [],
+          needsGeneration: true,
+          initialSheetUrl: null,
+          initialAngleUrls: null,
+          characterSource: "text_described",
+          itemReferenceUrls: normalizeItemReferenceUrls(c.itemReferenceUrls),
+          appearanceDescription: trimmedDescription,
         };
       }
       const imageUrls = c.imageUrls ?? [];
@@ -2449,6 +2473,7 @@ async function submitMultiCharacterStoryVideoJob(
           initialAngleUrls: null,
           characterSource: skipEntirely ? "skipped" : "uploaded_sheet",
           itemReferenceUrls: normalizeItemReferenceUrls(c.itemReferenceUrls),
+          appearanceDescription: null,
         };
       }
       return {
@@ -2459,6 +2484,7 @@ async function submitMultiCharacterStoryVideoJob(
         initialAngleUrls: null,
         characterSource: "generated",
         itemReferenceUrls: normalizeItemReferenceUrls(c.itemReferenceUrls),
+        appearanceDescription: null,
       };
     })
   );
@@ -2508,6 +2534,7 @@ async function submitMultiCharacterStoryVideoJob(
         character_angle_urls: r.initialAngleUrls,
         character_source: r.characterSource,
         item_reference_urls: r.itemReferenceUrls,
+        appearance_description: r.appearanceDescription,
       }))
     )
     .select("id, position")
@@ -2526,12 +2553,20 @@ async function submitMultiCharacterStoryVideoJob(
         characterRows.map(async (row) => {
           const r = resolved[row.position];
           if (!r.needsGeneration) return;
-          const body = buildImageRequestBody(CHARACTER_SHEET_MODEL, characterPrompt, r.imageUrls, true, "1:1", undefined);
-          const requestId = await submitFalJob(
-            CHARACTER_SHEET_MODEL,
-            body,
-            `${SITE_URL}/api/story-video/webhook?jobId=${job.id}&stage=character&characterPosition=${row.position}`
-          );
+          // Chế độ "Mô tả bằng chữ" cho ĐÚNG người này — dùng CHARACTER_TEXT_TO_IMAGE_MODEL (text-to-image
+          // thuần) thay vì CHARACTER_SHEET_MODEL (edit, cần ảnh thật). Mirror nhánh cùng tên ở
+          // submitStoryVideoJob (luồng 1 nhân vật).
+          const requestId = r.appearanceDescription
+            ? await submitFalJob(
+                CHARACTER_TEXT_TO_IMAGE_MODEL,
+                { prompt: buildCharacterSheetTextPrompt(r.appearanceDescription), image_size: "landscape_4_3", quality: "high" },
+                `${SITE_URL}/api/story-video/webhook?jobId=${job.id}&stage=character&characterPosition=${row.position}`
+              )
+            : await submitFalJob(
+                CHARACTER_SHEET_MODEL,
+                buildImageRequestBody(CHARACTER_SHEET_MODEL, characterPrompt, r.imageUrls, true, "1:1", undefined),
+                `${SITE_URL}/api/story-video/webhook?jobId=${job.id}&stage=character&characterPosition=${row.position}`
+              );
           await supabase.from("story_video_job_characters").update({ character_fal_request_id: requestId }).eq("id", row.id);
         })
       );
@@ -3309,12 +3344,13 @@ export async function regenerateJobCharacter(
 
   const { data: jobCharacter } = await supabase
     .from("story_video_job_characters")
-    .select("id, source_image_urls")
+    .select("id, source_image_urls, appearance_description")
     .eq("job_id", jobId)
     .eq("position", position)
     .single();
   if (!jobCharacter) throw new Error("Không tìm thấy nhân vật này trong job");
-  if (!jobCharacter.source_image_urls || jobCharacter.source_image_urls.length === 0) {
+  const hasDescription = !!jobCharacter.appearance_description?.trim();
+  if (!hasDescription && (!jobCharacter.source_image_urls || jobCharacter.source_image_urls.length === 0)) {
     throw new Error("Nhân vật này không có ảnh gốc để tạo lại (đang dùng Character đã lưu từ thư viện)");
   }
 
@@ -3323,13 +3359,18 @@ export async function regenerateJobCharacter(
   if (!deduction.success) throw new InsufficientCreditError();
 
   try {
-    const characterPrompt = await resolveCharacterPrompt(job.mini_app_id);
-    const body = buildImageRequestBody(CHARACTER_SHEET_MODEL, characterPrompt, jobCharacter.source_image_urls, true, "1:1", undefined);
-    const requestId = await submitFalJob(
-      CHARACTER_SHEET_MODEL,
-      body,
-      `${SITE_URL}/api/story-video/webhook?jobId=${jobId}&stage=character&characterPosition=${position}`
-    );
+    // Chế độ "Mô tả bằng chữ" — dùng lại đúng mô tả đã lưu, không cần khách gõ lại.
+    const requestId = hasDescription
+      ? await submitFalJob(
+          CHARACTER_TEXT_TO_IMAGE_MODEL,
+          { prompt: buildCharacterSheetTextPrompt(jobCharacter.appearance_description!.trim()), image_size: "landscape_4_3", quality: "high" },
+          `${SITE_URL}/api/story-video/webhook?jobId=${jobId}&stage=character&characterPosition=${position}`
+        )
+      : await (async () => {
+          const characterPrompt = await resolveCharacterPrompt(job.mini_app_id);
+          const body = buildImageRequestBody(CHARACTER_SHEET_MODEL, characterPrompt, jobCharacter.source_image_urls, true, "1:1", undefined);
+          return submitFalJob(CHARACTER_SHEET_MODEL, body, `${SITE_URL}/api/story-video/webhook?jobId=${jobId}&stage=character&characterPosition=${position}`);
+        })();
     await supabase
       .from("story_video_job_characters")
       .update({ character_sheet_url: null, character_angle_urls: null, character_fal_request_id: requestId })
