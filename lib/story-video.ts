@@ -2979,13 +2979,24 @@ async function generateSceneDescriptionFromImage(
   // dùng tới), nhưng Agent viết chuyển động chỉ nhìn ảnh nên dễ bỏ qua, tả chuyển động chung chung
   // không nhắc tới vật phẩm dù đang cầm/đeo nó rõ trong ảnh. Câu nhắc này không bắt buộc Agent phải bịa
   // thêm hành động — chỉ nhắc ưu tiên mô tả ĐÚNG tương tác thật đang thấy trong ảnh khi có liên quan.
-  hasItemReference?: boolean
+  hasItemReference?: boolean,
+  // Cảnh CÓ lời thoại (sẽ lồng tiếng bằng Kling LipSync ở bước SAU, tách riêng) — truyền vào để chặn
+  // Agent tự mô tả nhân vật "nói liên tục"/"speaking" xuyên suốt cả video câm này. Đã xác nhận qua báo
+  // cáo thật: video câm gốc (trước khi lồng tiếng) tự vẽ miệng chuyển động gần như suốt clip theo đúng
+  // mô tả "speaking naturally" — dài hơn hẳn thời gian đọc thật của câu thoại (đã đệm audio khớp đúng độ
+  // dài video, nhưng KHÔNG sửa được việc video câm gốc đã "nói" quá lâu) — LipSync chỉ chỉnh KHỚP MIỆNG
+  // theo audio chứ không ép miệng đứng yên hoàn toàn khi audio đã sang đoạn im lặng, nên miệng vẫn "mấp
+  // máy" sau khi lời thoại kết thúc. Gốc rễ thật nằm ở video câm gốc, không phải ở bước lồng tiếng.
+  dialogueLine?: string | null
 ): Promise<SceneMotionPlan> {
   let systemPrompt = genreStyleGuide?.trim()
     ? `${SCENE_PROMPT_FROM_IMAGE_SYSTEM}\n\nGhi chú thêm về phong cách/nhịp điệu chuyển động cho đúng thể loại: ${genreStyleGuide.trim()}`
     : SCENE_PROMPT_FROM_IMAGE_SYSTEM;
   if (hasItemReference) {
     systemPrompt += `\n\nThe character may be wearing, holding, or carrying one of their own real physical items in this image. If the image clearly shows them interacting with such an item (wearing it, holding it, using it), describe that interaction naturally as part of the motion — do not ignore a visible item interaction in favor of a generic description. Only mention the item if it is actually visible in the image; do not invent one.`;
+  }
+  if (dialogueLine?.trim()) {
+    systemPrompt += `\n\nThis scene has a short spoken line that will be added afterward via a SEPARATE lip-sync process applied to this silent video — do NOT describe the character as talking/speaking continuously for the whole clip. The real spoken line is short (only a few seconds); describe the mouth/face as speaking only briefly near the start, then returning to a natural closed/resting mouth expression for the rest of the clip. Never write "speaking naturally" or similar as an action spanning the entire described motion.`;
   }
   // Skill "motion-planner" — admin ghi thêm ghi chú qua /admin (vd luôn nhấn mạnh chuyển động camera).
   if (skillOverride?.trim()) systemPrompt += `\n\nGhi chú thêm từ admin: ${skillOverride.trim()}`;
@@ -3909,7 +3920,8 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
               naturalDurationSeconds ?? undefined,
               scene.pace as "fast" | "normal" | "slow" | null,
               scene.rotation_degrees,
-              hasItemReference
+              hasItemReference,
+              scene.dialogue_line
             );
             motionPrompt = plan.motionPrompt;
             // Motion Timing Controller: tái dùng đúng lượt gọi AI vừa viết motion_prompt để chọn luôn
