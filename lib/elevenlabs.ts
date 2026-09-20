@@ -12,11 +12,15 @@ const execFileAsync = promisify(execFile);
 // Kling LipSync từ chối audio dưới 2s ("Audio duration is too short. Minimum is 2 seconds.") — xảy ra
 // thật với câu thoại rất ngắn, khiến cả cảnh rơi về fallback video câm dù lời thoại đã trích đúng (xem
 // ghi nhớ project_story_video_scene_duration_architecture). Đệm thêm khoảng lặng vào cuối bằng ffmpeg
-// "apad=whole_dur=2.2" (chỉ đệm khi audio NGẮN HƠN 2.2s — đủ dư so với ngưỡng cứng 2.0s của Kling; audio
-// đã đủ dài thì bộ lọc này không đổi gì) trước khi upload — không đổi nội dung giọng đọc, chỉ tránh lỗi
-// kỹ thuật do audio quá ngắn. Lỗi ffmpeg (nếu có) không được làm hỏng cả lượt tạo giọng — rơi về dùng
-// nguyên audio gốc chưa đệm, vẫn tốt hơn là chặn hẳn không tạo được giọng nói.
-async function padAudioIfTooShort(audioBuffer: Buffer): Promise<Buffer> {
+// "apad=whole_dur=X" (chỉ đệm khi audio NGẮN HƠN X giây — audio đã đủ dài thì bộ lọc này không đổi gì)
+// trước khi upload — không đổi nội dung giọng đọc, chỉ tránh lỗi kỹ thuật do audio quá ngắn. targetDurationSeconds
+// mặc định 2.2s (đủ dư so với ngưỡng cứng 2.0s của Kling) khi không truyền — dùng cho dialogue-video (video
+// luôn ngắn, không cần khớp thêm). story-video truyền đúng độ dài THẬT của video cảnh (xem
+// generateVietnameseSpeech) — nếu chỉ đệm cố định 2.2s trong khi video cảnh dài hơn nhiều (vd 6s/8s), audio
+// kết thúc sớm hơn hẳn video khiến Kling LipSync không có tín hiệu im lặng cho đoạn đuôi, miệng nhân vật vẫn
+// tiếp tục "mấp máy" dù lời thoại đã hết (báo cáo thật). Lỗi ffmpeg (nếu có) không được làm hỏng cả lượt tạo
+// giọng — rơi về dùng nguyên audio gốc chưa đệm, vẫn tốt hơn là chặn hẳn không tạo được giọng nói.
+async function padAudioIfTooShort(audioBuffer: Buffer, targetDurationSeconds = 2.2): Promise<Buffer> {
   if (!ffmpegPath) return audioBuffer;
   try {
     chmodSync(ffmpegPath, 0o755);
@@ -26,7 +30,7 @@ async function padAudioIfTooShort(audioBuffer: Buffer): Promise<Buffer> {
     const inputPath = path.join(workDir, "input.mp3");
     const outputPath = path.join(workDir, "output.mp3");
     await writeFile(inputPath, audioBuffer);
-    await execFileAsync(ffmpegPath, ["-i", inputPath, "-af", "apad=whole_dur=2.2", "-y", outputPath]);
+    await execFileAsync(ffmpegPath, ["-i", inputPath, "-af", `apad=whole_dur=${targetDurationSeconds}`, "-y", outputPath]);
     return await readFile(outputPath);
   } catch {
     return audioBuffer;
@@ -54,7 +58,10 @@ export async function generateVietnameseSpeech(
   // nhau (id tự tăng ĐỘC LẬP mỗi bảng), nên jobId+characterId có thể trùng số giữa 2 app dù không liên
   // quan gì nhau. Không truyền namespace riêng thì 2 app ghi đè lẫn audio của nhau qua cùng 1 path
   // "dialogue-video/{jobId}-{characterId}.mp3" (đã xảy ra thật, gây tiếng lồng sai/lẫn tiếng người khác).
-  namespace: "dialogue-video" | "story-video" = "dialogue-video"
+  namespace: "dialogue-video" | "story-video" = "dialogue-video",
+  // Độ dài THẬT (giây) của video cảnh sẽ ghép giọng này vào — chỉ story-video truyền vào (xem chú thích
+  // padAudioIfTooShort). Không truyền -> giữ hành vi cũ (đệm cố định 2.2s).
+  videoDurationSeconds?: number
 ): Promise<string> {
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) throw new Error("Chưa cấu hình ELEVENLABS_API_KEY trong .env.local");
@@ -100,7 +107,10 @@ export async function generateVietnameseSpeech(
     throw new Error(`ElevenLabs lỗi: ${res.status} ${errText}`);
   }
 
-  const audioBuffer = await padAudioIfTooShort(Buffer.from(await res.arrayBuffer()));
+  // Đệm khớp theo đúng độ dài video thật (nếu có) thay vì luôn cố định 2.2s — không bao giờ đệm NGẮN
+  // hơn 2.2s (ngưỡng cứng Kling) dù videoDurationSeconds truyền vào nhỏ hơn.
+  const padTargetSeconds = Math.max(2.2, videoDurationSeconds ?? 0);
+  const audioBuffer = await padAudioIfTooShort(Buffer.from(await res.arrayBuffer()), padTargetSeconds);
 
   const supabase = getSupabaseAdmin();
   const filePath = `${namespace}/${jobId}-${characterId}.mp3`;

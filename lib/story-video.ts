@@ -3812,10 +3812,13 @@ async function submitSceneLipsyncForRow(
   videoUrl: string,
   dialogueLine: string,
   voiceId: string,
-  regen: boolean
+  regen: boolean,
+  // Độ dài THẬT (giây) của video câm vừa render (motion_duration_key) — truyền xuống để pad audio khớp
+  // hết clip, không chỉ đủ ngưỡng tối thiểu 2.2s của Kling (xem chú thích trong lib/elevenlabs.ts).
+  videoDurationSeconds?: number
 ): Promise<void> {
   const supabase = getSupabaseAdmin();
-  const audioUrl = await generateVietnameseSpeech(dialogueLine, voiceId, jobId, sceneId, "story-video");
+  const audioUrl = await generateVietnameseSpeech(dialogueLine, voiceId, jobId, sceneId, "story-video", videoDurationSeconds);
   const requestId = await submitFalJob(
     lipsyncModel,
     { video_url: videoUrl, audio_url: audioUrl },
@@ -4132,13 +4135,23 @@ export async function applyVideoStageResult(
     const lipsyncModel = job ? (await getMiniAppModelConfig(job.mini_app_id)).model_config.lipsync_model : undefined;
     const { data: sceneForLipsync } = await supabase
       .from("story_video_scenes")
-      .select("id, dialogue_line, dialogue_speaker_position")
+      .select("id, dialogue_line, dialogue_speaker_position, motion_duration_key")
       .eq("id", sceneId)
       .single();
     if (sceneForLipsync && sceneNeedsLipsync(sceneForLipsync, lipsyncModel)) {
       try {
         const voiceId = CHARACTER_VOICE_IDS[(sceneForLipsync.dialogue_speaker_position ?? 0) % CHARACTER_VOICE_IDS.length];
-        await submitSceneLipsyncForRow(jobId, sceneId, lipsyncModel as string, videoUrl, sceneForLipsync.dialogue_line as string, voiceId, isRegenerate);
+        const parsedDuration = sceneForLipsync.motion_duration_key ? Number(sceneForLipsync.motion_duration_key) : NaN;
+        await submitSceneLipsyncForRow(
+          jobId,
+          sceneId,
+          lipsyncModel as string,
+          videoUrl,
+          sceneForLipsync.dialogue_line as string,
+          voiceId,
+          isRegenerate,
+          Number.isFinite(parsedDuration) ? parsedDuration : undefined
+        );
       } catch (err) {
         console.error(`[story-video] Lỗi lồng tiếng cảnh #${sceneId} (frame-chain), dùng video câm thay thế:`, err);
         if (!isRegenerate) {
@@ -4157,7 +4170,17 @@ export async function applyVideoStageResult(
   if (scene && sceneNeedsLipsync(scene, lipsyncModel)) {
     try {
       const voiceId = CHARACTER_VOICE_IDS[(scene.dialogue_speaker_position ?? 0) % CHARACTER_VOICE_IDS.length];
-      await submitSceneLipsyncForRow(jobId, sceneId, lipsyncModel as string, videoUrl, scene.dialogue_line as string, voiceId, isRegenerate);
+      const parsedDuration = scene.motion_duration_key ? Number(scene.motion_duration_key) : NaN;
+      await submitSceneLipsyncForRow(
+        jobId,
+        sceneId,
+        lipsyncModel as string,
+        videoUrl,
+        scene.dialogue_line as string,
+        voiceId,
+        isRegenerate,
+        Number.isFinite(parsedDuration) ? parsedDuration : undefined
+      );
       return; // cảnh này còn chờ bước lồng tiếng, chưa tính là xong
     } catch (err) {
       console.error(`[story-video] Lỗi lồng tiếng cảnh #${sceneId}, dùng video câm thay thế:`, err);
