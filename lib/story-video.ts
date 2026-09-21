@@ -254,11 +254,26 @@ async function checkImageNotBlank(imageUrl: string): Promise<SceneQcResult> {
   return parseSceneQcResponse(output);
 }
 
-const SCENE_IDENTITY_CHECK_PROMPT = `Bạn kiểm tra xem 2 ảnh có phải CÙNG 1 người hay không. Ảnh THỨ NHẤT là ảnh gốc chuẩn của nhân vật, ảnh THỨ HAI là ảnh AI vừa vẽ ra cho 1 cảnh khác (khác tư thế/góc máy/ánh sáng).
+// Siết khắt khe hơn bản gốc (xác nhận thật qua Frame-chain + H3 Max: bản cũ cho "ok:true" dù mặt đã
+// lệch rõ khi so sánh trực tiếp 2 khung hình đầu/cuối chuỗi — quá dễ dãi, thiên về chấp nhận trừ khi
+// "thật sự rõ ràng khác người"). Đổi hướng: mặc định NGHI NGỜ, chỉ chấp nhận khi cấu trúc khuôn mặt
+// (không phải biểu cảm/góc chụp) khớp rõ ràng — không chắc thì báo sai để hệ thống tự vẽ lại, thà tốn
+// thêm 1 lượt vẽ còn hơn để lọt mặt khác người.
+const SCENE_IDENTITY_CHECK_PROMPT = `Bạn kiểm tra xem 2 ảnh có phải CÙNG 1 người hay không, với tiêu chuẩn NGHIÊM NGẶT. Ảnh THỨ NHẤT là ảnh gốc chuẩn của nhân vật, ảnh THỨ HAI là ảnh AI vừa vẽ ra cho 1 cảnh khác (khác tư thế/góc máy/ánh sáng/biểu cảm).
+
+So sánh KỸ từng đặc điểm cấu trúc khuôn mặt — không bị ảnh hưởng bởi biểu cảm nhất thời (cười/không cười), góc chụp, hay ánh sáng:
+- Hình dáng tổng thể khuôn mặt (tròn/oval/vuông/trái xoan/thon dài)
+- Hình dáng và khoảng cách 2 mắt
+- Sống mũi và đầu mũi
+- Hình dáng môi
+- Đường chân mày
+- Cấu trúc gò má/quai hàm
+
 Trả lời ĐÚNG 1 dòng JSON, không thêm chữ nào khác:
-{"ok": true} nếu rõ ràng là CÙNG 1 người (dù khác góc chụp, tư thế, ánh sáng, biểu cảm), hoặc
-{"ok": false, "issue": "<mô tả ngắn gọn tiếng Việt điểm khác biệt>"} nếu cấu trúc khuôn mặt (hình dáng mặt, mũi, môi, mắt) RÕ RÀNG là người khác.
-Chỉ báo sai khi THẬT SỰ rõ ràng là người khác — không báo sai chỉ vì góc chụp/ánh sáng/biểu cảm khác nhau.`;
+{"ok": true} CHỈ khi các đặc điểm cấu trúc trên khớp nhau rõ ràng, hoặc
+{"ok": false, "issue": "<mô tả ngắn gọn tiếng Việt đặc điểm nào khác biệt>"} nếu BẤT KỲ đặc điểm cấu trúc nào (dáng mặt/mắt/mũi/môi/chân mày/gò má) khác biệt đáng kể — "trông tổng thể có vẻ giống" (cùng kiểu tóc, cùng tông da, cùng phong cách) KHÔNG ĐỦ để coi là cùng 1 người nếu cấu trúc khuôn mặt lệch.
+
+Ưu tiên AN TOÀN: nếu không chắc chắn rõ ràng là cùng 1 người, chọn {"ok": false} — thà vẽ lại dư 1 lần còn hơn để lọt sai người.`;
 
 // Frame-chaining — lưới an toàn lớp 2 (bên cạnh việc luôn kèm ảnh Character trong prompt ở lớp 1): so
 // ảnh vừa vẽ với ĐÚNG ảnh Character gốc (không phải khung hình chain cảnh trước) để phát hiện trôi danh
