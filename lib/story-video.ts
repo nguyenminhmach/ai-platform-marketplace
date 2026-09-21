@@ -4550,12 +4550,12 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
     // tiếng song song không chặn chuỗi) — dùng chung đúng điều kiện "đủ cảnh chưa" như luồng bình
     // thường (sceneNeedsLipsync), KHÔNG ghép ngay nếu còn cảnh chờ lồng tiếng; webhook lồng tiếng cuối
     // cùng tới sau sẽ tự kiểm tra lại điều kiện này và gọi ghép (xem applyLipsyncStageResult).
-    const { data: jobForLipsync } = await supabase.from("story_video_jobs").select("mini_app_id").eq("id", jobId).single();
+    const { data: jobForLipsync } = await supabase.from("story_video_jobs").select("mini_app_id, video_model").eq("id", jobId).single();
     const lipsyncModel = jobForLipsync
       ? (await getMiniAppModelConfig(jobForLipsync.mini_app_id)).model_config.lipsync_model
       : undefined;
     const scenes = await getScenes(jobId);
-    if (scenes.some((s) => (sceneNeedsLipsync(s, lipsyncModel) ? !s.lipsync_url : !s.video_url))) return; // chờ lồng tiếng cảnh còn lại
+    if (scenes.some((s) => (sceneNeedsLipsync(s, lipsyncModel, jobForLipsync?.video_model) ? !s.lipsync_url : !s.video_url))) return; // chờ lồng tiếng cảnh còn lại
     await stitchAndFinish(jobId, scenes);
   }
 }
