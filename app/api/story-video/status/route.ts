@@ -37,6 +37,7 @@ export async function GET(req: Request) {
         videoUrl: string | null;
         hasDialogue: boolean;
         motionPrompt: string;
+        identityRetryCount: number;
       }[]
     | undefined;
   let characters:
@@ -69,7 +70,7 @@ export async function GET(req: Request) {
   if (["generating_images", "images_ready", "generating_videos", "stitching", "failed", "cancelled"].includes(data.status)) {
     const { data: sceneRows } = await supabase
       .from("story_video_scenes")
-      .select("id, position, image_url, end_image_url, video_url, lipsync_url, dialogue_line, motion_prompt, scene_description")
+      .select("id, position, image_url, end_image_url, video_url, lipsync_url, dialogue_line, motion_prompt, scene_description, identity_retry_count")
       .eq("job_id", jobId)
       .order("position", { ascending: true });
     if (sceneRows) {
@@ -87,6 +88,7 @@ export async function GET(req: Request) {
         videoUrl: s.lipsync_url ?? s.video_url,
         hasDialogue: !!s.dialogue_line,
         motionPrompt: s.motion_prompt ?? s.scene_description ?? "",
+        identityRetryCount: s.identity_retry_count ?? 0,
       }));
       if (data.status === "generating_images" || data.status === "generating_videos") {
         const doneCount = sceneRows.filter((s) => (data.status === "generating_images" ? s.image_url : s.video_url)).length;

@@ -510,6 +510,7 @@ export default function MiniAppDetailPage() {
         videoUrl: string | null;
         hasDialogue?: boolean;
         motionPrompt?: string;
+        identityRetryCount?: number;
       }[]
     | null
   >(null);
@@ -4526,6 +4527,14 @@ export default function MiniAppDetailPage() {
                               title="Cảnh này có lời thoại, đã lồng tiếng"
                             >
                               🗣️
+                            </span>
+                          )}
+                          {(scene.identityRetryCount ?? 0) > 0 && (
+                            <span
+                              className="absolute top-1 right-1 rounded bg-amber-600/80 px-1.5 py-0.5 text-xs text-white"
+                              title={`Hệ thống phát hiện khuôn mặt bị lệch so với nhân vật gốc và đã tự vẽ lại ${scene.identityRetryCount} lần`}
+                            >
+                              🔄 x{scene.identityRetryCount}
                             </span>
                           )}
                           {!isEditingThisPrompt && (
