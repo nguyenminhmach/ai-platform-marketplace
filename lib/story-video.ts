@@ -660,6 +660,24 @@ function buildVideoRequestBody(
     // Đã tra schema thật — model này KHÔNG có tham số tỉ lệ khung hình, luôn theo đúng ảnh đầu vào.
     return { prompt, image_url: imageUrl, duration: durationKey ?? "6", resolution: "768P" };
   }
+  if (model === "minimax/h3-max/image-to-video") {
+    // Đã tra schema thật (fal.ai/models/minimax/h3-max/image-to-video/api): "duration" là SỐ NGUYÊN
+    // (không enum liệt kê cụ thể như LTX-2.3, không có hậu tố "s"), "prompt_expansion_mode" schema đánh
+    // dấu bắt buộc dù có default "balanced" nên gửi tường minh cho chắc, "end_image_url" tuỳ chọn hỗ trợ
+    // First-Last-Frame giống Kling O1 FLFV. Model này TỰ SINH GIỌNG NÓI + khớp môi ngay trong lúc tạo
+    // video (đã xác nhận qua test thật với tiếng Việt) — câu thoại (nếu có) đã được nhét thẳng vào cuối
+    // "prompt" từ submitSceneVideoForRow, không cần audio_url/target_audio_url riêng ở đây.
+    const body: Record<string, unknown> = {
+      prompt,
+      image_url: imageUrl,
+      aspect_ratio: aspectRatio,
+      resolution: "768P",
+      prompt_expansion_mode: "balanced",
+    };
+    if (durationKey) body.duration = Number(durationKey);
+    if (endImageUrl) body.end_image_url = endImageUrl;
+    return body;
+  }
   if (model === "fal-ai/veo3.1/lite/first-last-frame-to-video") {
     // VEO 3.1 Lite FLF (First-Last-Frame-to-Video) — model Fal.ai RIÊNG (khác hẳn "fal-ai/veo3.1/lite/
     // image-to-video" ở nhánh trên, chỉ nhận 1 ảnh). Đã tra schema thật: "first_frame_url" +
@@ -3759,6 +3777,7 @@ type VideoSceneRefRow = {
   motion_duration_key?: string | null;
   natural_duration_seconds?: number | null;
   end_image_url?: string | null;
+  dialogue_line?: string | null;
 };
 
 // Build prompt (ưu tiên motion_prompt đã sinh riêng cho video, fallback scene_description nếu thiếu —
@@ -3794,6 +3813,13 @@ async function submitSceneVideoForRow(
   const generationSeconds = resolvedDurationKey ? Number(resolvedDurationKey) : undefined;
   if (!row.end_image_url && prompt && row.natural_duration_seconds && generationSeconds && generationSeconds > row.natural_duration_seconds) {
     prompt = `${prompt} Complete the entire described motion within the first ${row.natural_duration_seconds} seconds, then hold completely still in that final pose for the rest of the clip — no new movement, no repeated motion, no drifting.`;
+  }
+  // Model tự sinh giọng (H3 Max) — nhét THẲNG nguyên văn câu thoại tiếng Việt vào prompt bằng code (không
+  // qua LLM viết lại, tránh rủi ro bị dịch/diễn đạt lại khác câu gốc — đúng triết lý isVerbatimQuoteInStory
+  // đã áp dụng cho luồng TTS/LipSync cũ). Model tự tạo giọng + khớp môi theo đúng câu này, không cần
+  // ElevenLabs/Kling LipSync riêng nữa (xem sceneNeedsLipsync).
+  if (row.dialogue_line?.trim() && NATIVE_DIALOGUE_VIDEO_MODELS.has(job.video_model as string) && prompt) {
+    prompt = `${prompt} The character speaks naturally, in Vietnamese, saying exactly: "${row.dialogue_line.trim()}"`;
   }
   // Chỉ 2 model đã kiểm chứng thật (xem buildVideoRequestBody) mới chấp nhận ảnh Character làm căn cứ
   // lúc TẠO VIDEO — so trực tiếp theo model string, không cần tra lại catalog ở tầng thấp này (đúng
@@ -3846,10 +3872,20 @@ async function submitSceneLipsyncForRow(
   await supabase.from("story_video_scenes").update({ dialogue_audio_url: audioUrl, lipsync_fal_request_id: requestId }).eq("id", sceneId);
 }
 
+// Model video TỰ sinh giọng nói + khớp môi ngay trong lúc tạo video (đã xác nhận qua test thật của anh
+// với tiếng Việt) — cảnh dùng model này có dialogue_line vẫn giữ nguyên (để nhét thẳng câu thoại vào
+// prompt, xem submitSceneVideoForRow), nhưng KHÔNG chạy qua bước TTS (ElevenLabs) + Kling LipSync riêng
+// như các model khác — sceneNeedsLipsync() phải trả false cho model này dù scene có dialogue_line.
+const NATIVE_DIALOGUE_VIDEO_MODELS = new Set(["minimax/h3-max/image-to-video"]);
+
 // Cảnh có coi là "cần chờ lồng tiếng mới xong" hay không — cần đồng bộ giữa applyVideoStageResult,
 // applyLipsyncStageResult và resolveStoryVideoJob nên tách riêng 1 hàm dùng chung.
-function sceneNeedsLipsync(scene: Pick<SceneRow, "dialogue_line">, lipsyncModel: string | undefined): boolean {
-  return !!scene.dialogue_line && !!lipsyncModel;
+function sceneNeedsLipsync(
+  scene: Pick<SceneRow, "dialogue_line">,
+  lipsyncModel: string | undefined,
+  videoModel?: string | null
+): boolean {
+  return !!scene.dialogue_line && !!lipsyncModel && !(videoModel && NATIVE_DIALOGUE_VIDEO_MODELS.has(videoModel));
 }
 
 async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
@@ -3877,9 +3913,12 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
     // Trừ credit lồng tiếng RIÊNG, 1 lần cho cả job — chỉ tính được chính xác ở đây vì lúc này Agent
     // đã chia cảnh xong nên đã biết đúng số cảnh có dialogue_line (không đoán trước lúc submit).
     // Idempotency key cố định theo jobId để lỡ hàm này chạy 2 lần (race hiếm) không bị trừ trùng.
+    // Model tự sinh giọng (NATIVE_DIALOGUE_VIDEO_MODELS) không cần khoản phụ phí này — chi phí đã nằm
+    // sẵn trong provider_cost_vnd/giây của chính model đó, không gọi ElevenLabs/Kling LipSync riêng.
+    const isNativeDialogueModel = NATIVE_DIALOGUE_VIDEO_MODELS.has(job.video_model);
     const lipsyncModel = miniApp.model_config.lipsync_model;
     const lipsyncCostVnd = miniApp.model_config.lipsync_provider_cost_vnd;
-    const dialogueScenes = lipsyncModel && lipsyncCostVnd ? scenes.filter((s) => s.dialogue_line) : [];
+    const dialogueScenes = !isNativeDialogueModel && lipsyncModel && lipsyncCostVnd ? scenes.filter((s) => s.dialogue_line) : [];
     if (dialogueScenes.length > 0) {
       const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
       const lipsyncCost = computeDynamicCreditCost(lipsyncCostVnd! * dialogueScenes.length, marginPercent, vndPerCredit);
@@ -3921,7 +3960,10 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
               scene.pace as "fast" | "normal" | "slow" | null,
               scene.rotation_degrees,
               hasItemReference,
-              scene.dialogue_line
+              // Model tự sinh giọng (H3 Max): KHÔNG áp dụng chỉ dẫn "đừng mô tả nói xuyên suốt" — model
+              // này cần nói tự nhiên đúng theo lời thoại thật (tự tạo giọng + khớp môi), khác hẳn nhóm
+              // model câm cần giữ miệng nghỉ để chờ Kling LipSync xử lý riêng sau.
+              isNativeDialogueModel ? undefined : scene.dialogue_line
             );
             motionPrompt = plan.motionPrompt;
             // Motion Timing Controller: tái dùng đúng lượt gọi AI vừa viết motion_prompt để chọn luôn
@@ -3957,6 +3999,7 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
             motion_duration_key: motionDurationKey,
             natural_duration_seconds: naturalDurationSeconds,
             end_image_url: scene.end_image_url,
+            dialogue_line: scene.dialogue_line,
           },
           false
         );
@@ -4007,8 +4050,9 @@ export async function regenerateSceneVideo(
 
   // Cảnh có lời thoại — tạo lại video câm nghĩa là phải lồng tiếng lại từ đầu (applyVideoStageResult
   // tự làm khi nhận video mới), cộng thêm đúng phí lồng tiếng cho 1 cảnh này (không nhân num_scenes
-  // như lúc submit batch ở proceedToVideoStage).
-  if (sceneData.dialogue_line) {
+  // như lúc submit batch ở proceedToVideoStage). Model tự sinh giọng (H3 Max) không có bước lồng tiếng
+  // riêng nên không cộng phụ phí này.
+  if (sceneData.dialogue_line && !NATIVE_DIALOGUE_VIDEO_MODELS.has(job.video_model)) {
     const miniApp = await getMiniAppModelConfig(job.mini_app_id);
     if (miniApp.model_config.lipsync_model && miniApp.model_config.lipsync_provider_cost_vnd) {
       cost += computeDynamicCreditCost(miniApp.model_config.lipsync_provider_cost_vnd, marginPercent, vndPerCredit);
@@ -4140,7 +4184,7 @@ export async function applyVideoStageResult(
 
   await supabase.from("story_video_scenes").update({ video_url: videoUrl }).eq("id", sceneId);
 
-  const { data: job } = await supabase.from("story_video_jobs").select("mini_app_id, frame_chain_mode").eq("id", jobId).single();
+  const { data: job } = await supabase.from("story_video_jobs").select("mini_app_id, frame_chain_mode, video_model").eq("id", jobId).single();
 
   // Frame-chaining — hoàn toàn tách khỏi luồng song song bên dưới (không chờ "đủ cảnh", tự nối tiếp
   // tuần tự sang cảnh kế bằng khung hình THẬT vừa render ra). "Tạo lại" (isRegenerate) VẪN tiếp tục
@@ -4158,7 +4202,7 @@ export async function applyVideoStageResult(
       .select("id, dialogue_line, dialogue_speaker_position, motion_duration_key")
       .eq("id", sceneId)
       .single();
-    if (sceneForLipsync && sceneNeedsLipsync(sceneForLipsync, lipsyncModel)) {
+    if (sceneForLipsync && sceneNeedsLipsync(sceneForLipsync, lipsyncModel, job?.video_model)) {
       try {
         const voiceId = CHARACTER_VOICE_IDS[(sceneForLipsync.dialogue_speaker_position ?? 0) % CHARACTER_VOICE_IDS.length];
         const parsedDuration = sceneForLipsync.motion_duration_key ? Number(sceneForLipsync.motion_duration_key) : NaN;
@@ -4187,7 +4231,7 @@ export async function applyVideoStageResult(
   const scenes = await getScenes(jobId);
   const scene = scenes.find((s) => s.id === sceneId);
 
-  if (scene && sceneNeedsLipsync(scene, lipsyncModel)) {
+  if (scene && sceneNeedsLipsync(scene, lipsyncModel, job?.video_model)) {
     try {
       const voiceId = CHARACTER_VOICE_IDS[(scene.dialogue_speaker_position ?? 0) % CHARACTER_VOICE_IDS.length];
       const parsedDuration = scene.motion_duration_key ? Number(scene.motion_duration_key) : NaN;
@@ -4213,7 +4257,7 @@ export async function applyVideoStageResult(
     }
   }
 
-  if (scenes.length === 0 || scenes.some((s) => (sceneNeedsLipsync(s, lipsyncModel) ? !s.lipsync_url : !s.video_url))) return; // chờ cảnh còn lại
+  if (scenes.length === 0 || scenes.some((s) => (sceneNeedsLipsync(s, lipsyncModel, job?.video_model) ? !s.lipsync_url : !s.video_url))) return; // chờ cảnh còn lại
 
   await stitchAndFinish(jobId, scenes);
 }
@@ -4858,7 +4902,7 @@ export async function resolveStoryVideoJob(jobId: number): Promise<void> {
       if (!scene.video_url && scene.video_fal_request_id) {
         const result = await pollFalResult(job.video_model, scene.video_fal_request_id);
         if (result) await applyVideoStageResult(jobId, scene.id, result);
-      } else if (scene.video_url && sceneNeedsLipsync(scene, lipsyncModel) && !scene.lipsync_url && scene.lipsync_fal_request_id) {
+      } else if (scene.video_url && sceneNeedsLipsync(scene, lipsyncModel, job.video_model) && !scene.lipsync_url && scene.lipsync_fal_request_id) {
         const result = await pollFalResult(lipsyncModel as string, scene.lipsync_fal_request_id);
         if (result) await applyLipsyncStageResult(jobId, scene.id, result);
       }
@@ -4869,7 +4913,7 @@ export async function resolveStoryVideoJob(jobId: number): Promise<void> {
     // để poll. Nếu tất cả cảnh đã sẵn sàng (video_url, hoặc lipsync_url với cảnh có thoại), thử ghép lại
     // — idempotent (tải/encode/upload lại từ đầu, ghi đè status "done" + output_url khi xong).
     const lipsyncModel = (await getMiniAppModelConfig(job.mini_app_id)).model_config.lipsync_model;
-    if (scenes.length > 0 && scenes.every((s) => (sceneNeedsLipsync(s, lipsyncModel) ? s.lipsync_url : s.video_url))) {
+    if (scenes.length > 0 && scenes.every((s) => (sceneNeedsLipsync(s, lipsyncModel, job.video_model) ? s.lipsync_url : s.video_url))) {
       await stitchAndFinish(jobId, scenes);
     }
   }
