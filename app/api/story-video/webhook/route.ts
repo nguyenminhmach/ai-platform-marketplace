@@ -1,4 +1,5 @@
 import { applyCharacterStageResult, applyImageStageResult, applyVideoStageResult, applyLipsyncStageResult } from "@/lib/story-video";
+import { getSupabaseAdmin } from "@/lib/supabase";
 
 // Fal.ai gọi vào đây: 1 lần/job cho bước tạo Character (không có sceneId), 1 lần/cảnh cho bước tạo
 // ảnh và 1 lần/cảnh cho bước tạo video — phân biệt bằng query param sceneId (id hàng trong
@@ -27,6 +28,24 @@ export async function POST(req: Request) {
     }
 
     const payload = await req.json();
+
+    // Fal.ai giao webhook kiểu "at-least-once" — có thể gửi trùng cùng 1 sự kiện (xác nhận thật qua log
+    // production: cùng 1 kết quả tạo ảnh/video cho 1 cảnh bị xử lý đồng thời 2-3 lần), mỗi lượt trùng
+    // chạy lại toàn bộ logic bên dưới (kể cả lưới an toàn danh tính tự vẽ lại ảnh/video) — tốn thêm tiền
+    // Fal.ai thật mà không mang lại lợi ích gì. Chặn trùng bằng insert 1 dòng khoá duy nhất (mirror đúng
+    // pattern webhook_dedup của Sepay) — request_id do Fal.ai cấp lúc submit, có trong MỌI payload webhook
+    // của họ. Thiếu request_id (không nên xảy ra) thì bỏ qua bước chặn, xử lý bình thường như trước.
+    const falRequestId = typeof payload.request_id === "string" ? payload.request_id : undefined;
+    if (falRequestId) {
+      const dedupKey = `${stage}-${sceneId ?? "job"}-${falRequestId}`;
+      const { error: dedupError } = await getSupabaseAdmin().from("story_video_webhook_dedup").insert({ dedup_key: dedupKey });
+      if (dedupError) {
+        if (dedupError.code === "23505") {
+          return Response.json({ success: true, status: "already_processed" });
+        }
+        console.error("[story-video-webhook] Lỗi ghi dedup, vẫn xử lý tiếp:", dedupError);
+      }
+    }
 
     if (stage === "character") {
       await applyCharacterStageResult(Number(jobId), payload, characterPosition);
