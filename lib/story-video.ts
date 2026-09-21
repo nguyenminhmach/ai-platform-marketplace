@@ -2083,8 +2083,32 @@ async function runSceneStage(
       // trước (xem applyFrameChainVideoResult) — không thể tạo trước vì video cảnh trước chưa tồn tại.
       const firstRow = sceneRows.find((r) => r.position === 0);
       if (firstRow) {
-        const requestId = await submitSceneImageForRow(job, firstRow, imageEntry, false, "image");
-        await supabase.from("story_video_scenes").update({ image_fal_request_id: requestId }).eq("id", firstRow.id);
+        // Bỏ qua AI vẽ ảnh riêng cho cảnh 1, dùng thẳng ảnh góc "front" sạch từ bước tạo Character —
+        // xác nhận thật qua test trực tiếp gọi Fal.ai (anh phát hiện + kiểm chứng lại bằng job thật):
+        // H3 Max không khoá cứng bối cảnh của ảnh đầu vào làm khung hình 1, mà ưu tiên PROMPT để đặt
+        // nhân vật vào bối cảnh mới (model tự mô tả "is fully referenced" cho danh tính, còn bối cảnh
+        // theo motion_prompt) — dùng ảnh gốc không hề làm video bị kẹt ở nền studio như lo ngại ban đầu,
+        // ngược lại còn giữ mặt ổn định hơn hẳn so với ảnh đã qua AI vẽ lại (bớt đúng 1 lớp trôi mặt ở
+        // điểm khởi đầu chuỗi — mọi cảnh sau đều nối tiếp từ đây). Chỉ áp dụng khi: đúng model đã kiểm
+        // chứng, có ảnh góc front sạch (chỉ job character_source="generated" mới có — ảnh tự tải lên
+        // không được cắt góc vì không chắc đúng bố cục, xem cropCharacterSheetIntoAngles), cảnh 1 không
+        // cần đổi trang phục/vật phẩm riêng/địa điểm thật riêng (những thứ này cần AI ghép ảnh, model
+        // video không tự làm được từ 1 ảnh chân dung đơn).
+        const frontAngleUrl = (job.character_angle_urls as CharacterAngleUrls | null)?.front;
+        const canUseCharacterPhotoDirectly =
+          job.video_model === "minimax/h3-max/image-to-video" &&
+          !!frontAngleUrl &&
+          firstRow.camera_view === "front" &&
+          !firstRow.outfit_override &&
+          (job.item_reference_urls?.length ?? 0) === 0 &&
+          !job.location_reference_url;
+        if (canUseCharacterPhotoDirectly) {
+          await supabase.from("story_video_scenes").update({ image_url: frontAngleUrl }).eq("id", firstRow.id);
+          await applyFrameChainImageResult(job.id, firstRow.id);
+        } else {
+          const requestId = await submitSceneImageForRow(job, firstRow, imageEntry, false, "image");
+          await supabase.from("story_video_scenes").update({ image_fal_request_id: requestId }).eq("id", firstRow.id);
+        }
       }
     } else if (job.continuous_motion) {
       // Chuỗi N+1 ảnh: ảnh ĐẦU của cảnh 1 (1 lượt) + ảnh CUỐI của MỌI cảnh (N lượt) — gửi SONG SONG
