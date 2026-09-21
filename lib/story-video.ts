@@ -4460,6 +4460,65 @@ async function applyFrameChainImageResult(jobId: number, sceneId: number) {
   }
 }
 
+// Cảnh CUỐI chuỗi Frame-chain không có "cảnh kế" để checkFrameChainIdentity gác trước khi dùng khung
+// hình vừa tách — nhưng chính khung hình đó (mặt nhân vật) vẫn có thể đã trôi NGAY TRONG LÚC model video
+// tự sinh chuyển động (khác lỗi AI vẽ ảnh tĩnh sai mặt, đã có lưới chặn riêng ở checkFrameChainIdentity)
+// — xác nhận thật qua job #153 (H3 Max): khung ĐẦU video khớp mặt gốc (đã qua checkFrameChainIdentity ở
+// cảnh trước) nhưng khung CUỐI (lúc nhân vật cười to) bị lệch. Vì đây là cảnh cuối, không có ảnh nào để
+// "vẽ lại" cho cảnh sau — cách sửa duy nhất là tạo lại chính video này (dùng lại đúng ảnh đầu vào đã xác
+// nhận đúng mặt, không vẽ ảnh mới, không tốn thêm credit ảnh). Dùng chung identity_retry_count với
+// checkFrameChainIdentity — coi là 1 ngân sách "số lần phải can thiệp vì nghi lệch mặt" cho cả cảnh.
+async function checkFinalSceneVideoIdentity(jobId: number, sceneId: number, lastFrameUrl: string): Promise<boolean> {
+  const supabase = getSupabaseAdmin();
+  const { data: job } = await supabase
+    .from("story_video_jobs")
+    .select("id, mini_app_id, video_model, aspect_ratio, video_duration_key, character_sheet_url, character_angle_urls")
+    .eq("id", jobId)
+    .single();
+  const { data: scene } = await supabase
+    .from("story_video_scenes")
+    .select(
+      "id, image_url, end_image_url, motion_prompt, scene_description, motion_duration_key, natural_duration_seconds, dialogue_line, identity_retry_count"
+    )
+    .eq("id", sceneId)
+    .single();
+  if (!job || !scene || !job.character_sheet_url) return true;
+  const retryCount = scene.identity_retry_count ?? 0;
+  if (retryCount > MAX_IDENTITY_RETRY) return true;
+
+  let identityOk = true;
+  try {
+    const faceReference = (job.character_angle_urls as CharacterAngleUrls | null)?.front || job.character_sheet_url;
+    const check = await checkSceneIdentityMatch(faceReference, lastFrameUrl, job.mini_app_id);
+    identityOk = check.ok;
+    if (!identityOk) {
+      console.error(`[story-video] Cảnh cuối #${sceneId} nghi mặt trôi trong lúc quay (lần ${retryCount + 1}): ${check.issue}`);
+    }
+  } catch (err) {
+    console.error(`[story-video] Lỗi kiểm tra danh tính khung cuối cảnh #${sceneId}, coi như đạt:`, err);
+    return true;
+  }
+  if (identityOk) return true;
+
+  if (retryCount >= MAX_IDENTITY_RETRY) {
+    console.error(`[story-video] Cảnh cuối #${sceneId} hết lượt thử lại video, chấp nhận kết quả hiện có.`);
+    await supabase.from("story_video_scenes").update({ identity_retry_count: MAX_IDENTITY_RETRY + 1 }).eq("id", sceneId);
+    return true;
+  }
+
+  try {
+    const requestId = await submitSceneVideoForRow(job, scene, true);
+    await supabase
+      .from("story_video_scenes")
+      .update({ identity_retry_count: retryCount + 1, video_url: null, video_fal_request_id: requestId })
+      .eq("id", sceneId);
+  } catch (err) {
+    console.error(`[story-video] Lỗi tạo lại video cảnh cuối #${sceneId} sau khi phát hiện lệch mặt:`, err);
+    return true; // không chặn cứng — dùng video hiện có thay vì kẹt job
+  }
+  return false; // đã submit lại video, đợi webhook mới, KHÔNG ghép ngay
+}
+
 // Video cảnh N vừa render xong -> tách khung hình cuối THẬT (extractLastFrame) -> hoặc submit ảnh cảnh
 // N+1 dùng khung hình đó làm mỏ neo (chainedFrameUrl), hoặc nếu là cảnh cuối cùng thì ghép video luôn.
 // isRegenerate=true khi gọi từ "Tạo lại" — mặc định KHÔNG tiếp tục chuỗi (cảnh N+1 nếu đã có ảnh sẵn
@@ -4560,11 +4619,16 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
       await failJob(jobId, err instanceof Error ? err.message : String(err));
     }
   } else {
-    // Đã tới cảnh cuối cùng của chuỗi — nhưng có thể còn cảnh nào đó (cảnh này hoặc cảnh trước) đang
-    // chờ webhook lồng tiếng (xem nhánh frame_chain_mode trong applyVideoStageResult, giờ submit lồng
-    // tiếng song song không chặn chuỗi) — dùng chung đúng điều kiện "đủ cảnh chưa" như luồng bình
-    // thường (sceneNeedsLipsync), KHÔNG ghép ngay nếu còn cảnh chờ lồng tiếng; webhook lồng tiếng cuối
-    // cùng tới sau sẽ tự kiểm tra lại điều kiện này và gọi ghép (xem applyLipsyncStageResult).
+    // Cảnh cuối cùng của chuỗi — không có cảnh kế để checkFrameChainIdentity gác trước khi dùng khung
+    // hình vừa tách, nên kiểm tra riêng khung cuối của chính cảnh này (xem checkFinalSceneVideoIdentity).
+    // Lệch thì đã tự submit lại video, KHÔNG ghép ngay — đợi webhook mới quay lại đúng nhánh này.
+    if (!(await checkFinalSceneVideoIdentity(jobId, sceneId, lastFrameUrl))) return;
+
+    // Có thể còn cảnh nào đó (cảnh này hoặc cảnh trước) đang chờ webhook lồng tiếng (xem nhánh
+    // frame_chain_mode trong applyVideoStageResult, giờ submit lồng tiếng song song không chặn chuỗi) —
+    // dùng chung đúng điều kiện "đủ cảnh chưa" như luồng bình thường (sceneNeedsLipsync), KHÔNG ghép
+    // ngay nếu còn cảnh chờ lồng tiếng; webhook lồng tiếng cuối cùng tới sau sẽ tự kiểm tra lại điều
+    // kiện này và gọi ghép (xem applyLipsyncStageResult).
     const { data: jobForLipsync } = await supabase.from("story_video_jobs").select("mini_app_id, video_model").eq("id", jobId).single();
     const lipsyncModel = jobForLipsync
       ? (await getMiniAppModelConfig(jobForLipsync.mini_app_id)).model_config.lipsync_model
