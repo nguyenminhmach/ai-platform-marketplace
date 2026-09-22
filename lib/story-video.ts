@@ -2376,16 +2376,26 @@ export async function submitStoryVideoJob(
       const allAreSheets = skipEntirely ? true : await classifyAllAreSheets(characterImageUrls);
       if (allAreSheets) {
         const sheetUrl = characterImageUrls[0];
+        // Thử cắt góc luôn cho sheet khách tự tải lên (uploaded_sheet — ĐÃ được AI phân loại xác nhận
+        // đúng là sheet hợp lệ qua classifyAllAreSheets, khác "skipped" bên dưới nơi ảnh có thể chỉ là 1
+        // ảnh thường bất kỳ, không đảm bảo bố cục 3x2). Trước đây luôn bỏ qua bước cắt cho uploaded_sheet
+        // vì lo sheet khách không đúng bố cục 3 cột x 2 hàng — xác nhận thật qua job #153/#154 (anh tự
+        // cắt thử panel "front" của đúng sheet khách tải lên, dùng thẳng cho video vẫn giữ mặt tốt, đúng
+        // bố cục chuẩn): rủi ro này thấp hơn tưởng — cắt sai thì lưới an toàn danh tính đã có
+        // (checkFrameChainIdentity/checkFinalSceneVideoIdentity) tự phát hiện lệch mặt và sửa lại.
+        const angleUrls = skipEntirely ? null : await cropCharacterSheetIntoAngles(sheetUrl, userId);
         await supabase
           .from("story_video_jobs")
           .update({
             status: "character_ready",
             character_sheet_url: sheetUrl,
             character_source: skipEntirely ? "skipped" : "uploaded_sheet",
+            character_angle_urls: angleUrls,
           })
           .eq("id", job.id);
         if (finalStoryDescription) {
           sceneStageJob.character_sheet_url = sheetUrl;
+          sceneStageJob.character_angle_urls = angleUrls;
           return {
           jobId: job.id,
           ...(await runSceneStage(userId, sceneStageJob, finalStoryDescription, modelChatKey, idempotencyKey, preplannedActions)),
