@@ -889,8 +889,8 @@ Nhiệm vụ 2 — Ước lượng thời lượng mỗi cảnh: thêm khoá "du
 - hành động nhỏ (liếc mắt, mỉm cười nhẹ, nghiêng đầu): 1-2s
 - cử chỉ (gật đầu, vẫy tay, chỉ tay, nhặt vật nhỏ): 2-3s
 - chuyển động thân người (đứng dậy, ngồi xuống): 3-4s
-- di chuyển (đi vài bước): 4-6s
-- xoay người theo góc: xoay nhẹ (<45°) 2-3s; xoay vừa (45-90°) 3-5s; xoay nhiều/quay hẳn lưng (90-180°) 5-7s; xoay trọn 1 vòng (360°) 6-8s
+- di chuyển (đi vài bước): số giây = số bước × 0.5s (nhịp đi thật ~2 bước/giây — đi vài bước thường là 3-5 bước, tức ~1.5-2.5s; ĐỪNG mặc định 4-6s theo thói quen, kéo dài quá khiến model quay ra dáng chạy/jog chứ không phải đi bộ). Nếu khung cảnh cần đi xa hơn, tăng số giây theo đúng nhịp 0.5s/bước (thêm bước), TUYỆT ĐỐI không giữ nguyên số giây rồi để bước chân nhanh hơn.
+- xoay người theo góc: xoay nhẹ (<45°) 2-3s; xoay vừa (45-90°) 3-5s; xoay nhiều/quay hẳn lưng (90-180°) 5-7s; xoay trọn 1 vòng (360°, quay liên tục 1 mạch chứ không phải xoay từng nấc) ~2s — 1 vòng quay dứt khoát, đều tốc độ, xong đứng yên hẳn ở tư thế kết; TUYỆT ĐỐI không quay 2 vòng dù duration_seconds còn dư
 - hành động nhiều bước gộp lại (đi tới + nhặt đồ + quay lại): 6-8s
 Dù số giây ước lượng cho 1 hành động cao (kể cả xoay 360° 6-8s) — VẪN PHẢI giữ nguyên là 1 cảnh DUY NHẤT, một khoá "duration_seconds" DUY NHẤT cho hành động đó. TUYỆT ĐỐI KHÔNG được tự chia 1 chuyển động xoay/di chuyển liên tục thành "nửa đầu"/"nửa sau"/"giai đoạn 1"/"giai đoạn 2" ở 2 cảnh khác nhau — dù bạn thấy giây ước lượng dài. Ví dụ SAI cần tránh: quay 1 vòng 360° bị chia thành cảnh A "bắt đầu xoay, xoay tới nửa vòng" + cảnh B "xoay nốt nửa vòng còn lại" — đây là lỗi nghiêm trọng, chỉ được viết ĐÚNG 1 cảnh "she rotates a full 360 degrees" với "duration_seconds": 7 (hoặc tương đương trong khoảng 6-8s).
 
@@ -1030,8 +1030,8 @@ Nhiệm vụ 2 — Ước lượng thời lượng mỗi cảnh: thêm khoá "du
 - hành động nhỏ (liếc mắt, mỉm cười nhẹ, nghiêng đầu): 1-2s
 - cử chỉ (gật đầu, vẫy tay, chỉ tay, nhặt vật nhỏ): 2-3s
 - chuyển động thân người (đứng dậy, ngồi xuống): 3-4s
-- di chuyển (đi vài bước): 4-6s
-- xoay người theo góc: xoay nhẹ (<45°) 2-3s; xoay vừa (45-90°) 3-5s; xoay nhiều/quay hẳn lưng (90-180°) 5-7s; xoay trọn 1 vòng (360°) 6-8s
+- di chuyển (đi vài bước): số giây = số bước × 0.5s (nhịp đi thật ~2 bước/giây — đi vài bước thường là 3-5 bước, tức ~1.5-2.5s; ĐỪNG mặc định 4-6s theo thói quen, kéo dài quá khiến model quay ra dáng chạy/jog chứ không phải đi bộ). Nếu khung cảnh cần đi xa hơn, tăng số giây theo đúng nhịp 0.5s/bước (thêm bước), TUYỆT ĐỐI không giữ nguyên số giây rồi để bước chân nhanh hơn.
+- xoay người theo góc: xoay nhẹ (<45°) 2-3s; xoay vừa (45-90°) 3-5s; xoay nhiều/quay hẳn lưng (90-180°) 5-7s; xoay trọn 1 vòng (360°, quay liên tục 1 mạch chứ không phải xoay từng nấc) ~2s — 1 vòng quay dứt khoát, đều tốc độ, xong đứng yên hẳn ở tư thế kết; TUYỆT ĐỐI không quay 2 vòng dù duration_seconds còn dư
 - hành động nhiều bước gộp lại: 6-8s
 Dù số giây ước lượng cho 1 hành động cao — VẪN PHẢI giữ nguyên là 1 cảnh DUY NHẤT, TUYỆT ĐỐI KHÔNG tự chia 1 chuyển động xoay/di chuyển liên tục thành "nửa đầu"/"nửa sau" ở 2 cảnh khác nhau.
 
@@ -2083,27 +2083,15 @@ async function runSceneStage(
       // trước (xem applyFrameChainVideoResult) — không thể tạo trước vì video cảnh trước chưa tồn tại.
       const firstRow = sceneRows.find((r) => r.position === 0);
       if (firstRow) {
-        // Bỏ qua AI vẽ ảnh riêng cho cảnh 1, dùng thẳng ảnh góc "front" sạch từ bước tạo Character —
-        // xác nhận thật qua test trực tiếp gọi Fal.ai (anh phát hiện + kiểm chứng lại bằng job thật):
-        // H3 Max không khoá cứng bối cảnh của ảnh đầu vào làm khung hình 1, mà ưu tiên PROMPT để đặt
-        // nhân vật vào bối cảnh mới (model tự mô tả "is fully referenced" cho danh tính, còn bối cảnh
-        // theo motion_prompt) — dùng ảnh gốc không hề làm video bị kẹt ở nền studio như lo ngại ban đầu,
-        // ngược lại còn giữ mặt ổn định hơn hẳn so với ảnh đã qua AI vẽ lại (bớt đúng 1 lớp trôi mặt ở
-        // điểm khởi đầu chuỗi — mọi cảnh sau đều nối tiếp từ đây). Chỉ áp dụng khi: đúng model đã kiểm
-        // chứng, có ảnh góc front sạch (chỉ job character_source="generated" mới có — ảnh tự tải lên
-        // không được cắt góc vì không chắc đúng bố cục, xem cropCharacterSheetIntoAngles), cảnh 1 không
-        // cần đổi trang phục/vật phẩm riêng/địa điểm thật riêng (những thứ này cần AI ghép ảnh, model
-        // video không tự làm được từ 1 ảnh chân dung đơn).
-        const frontAngleUrl = (job.character_angle_urls as CharacterAngleUrls | null)?.front;
-        const canUseCharacterPhotoDirectly =
-          job.video_model === "minimax/h3-max/image-to-video" &&
-          !!frontAngleUrl &&
-          firstRow.camera_view === "front" &&
-          !firstRow.outfit_override &&
-          (job.item_reference_urls?.length ?? 0) === 0 &&
-          !job.location_reference_url;
-        if (canUseCharacterPhotoDirectly) {
-          await supabase.from("story_video_scenes").update({ image_url: frontAngleUrl }).eq("id", firstRow.id);
+        // Bỏ qua AI vẽ ảnh riêng cho cảnh 1 nếu đủ điều kiện, dùng thẳng ảnh góc "front" sạch từ bước
+        // tạo Character — xác nhận thật qua test trực tiếp gọi Fal.ai (anh phát hiện + kiểm chứng lại
+        // bằng job thật): H3 Max không khoá cứng bối cảnh của ảnh đầu vào, mà ưu tiên PROMPT để đặt nhân
+        // vật vào bối cảnh mới — dùng ảnh gốc không hề làm video bị kẹt ở nền studio như lo ngại ban đầu,
+        // ngược lại còn giữ mặt ổn định hơn hẳn so với ảnh đã qua AI vẽ lại. Điều kiện đầy đủ + lý do mở
+        // rộng sang MỌI cảnh (không riêng cảnh 1): xem resolveCharacterPhotoDirectlyUrl().
+        const directPhotoUrl = resolveCharacterPhotoDirectlyUrl(job, firstRow);
+        if (directPhotoUrl) {
+          await supabase.from("story_video_scenes").update({ image_url: directPhotoUrl }).eq("id", firstRow.id);
           await applyFrameChainImageResult(job.id, firstRow.id);
         } else {
           const requestId = await submitSceneImageForRow(job, firstRow, imageEntry, false, "image");
@@ -2905,9 +2893,9 @@ If a rotation/turn hint is given below, use it as the primary guide for duration
 - micro (blink, glance, small smile, slight head tilt): 1-2s
 - gesture (nod, wave, point, pick up small object): 2-3s
 - body motion (stand up, sit down): 3-4s
-- locomotion (walk a few steps): 4-6s
-- multi-step action (walk to object + pick it up + turn back): 6-8s
-If the motion is (or includes) a FULL 360-degree rotation/turn: explicitly pace it as EVEN, roughly constant-speed rotation across the whole clip — about a quarter-turn every 1.5-2s (0°→90°, 90°→180°, 180°→270°, 270°→360°), never a fast initial snap that then slows down. Write this even pacing directly into the motion description itself (e.g. "she turns steadily and evenly through a full 360-degree rotation at an unhurried, constant pace, completing roughly a quarter turn every couple seconds") — a vague phrase like "smoothly rotates" alone is not enough guidance for the video model and tends to render as an abrupt fast turn in the first second.
+- locomotion (walk a few steps): duration = number of steps × 0.5s (real walking cadence is about 2 steps per second — a typical few-step walk is 3-5 steps, so about 1.5-2.5s; do NOT default to a longer duration out of habit, stretching a few steps over more time makes the model render a jog/run instead of a walk). If the framing needs the character to cover more ground, extend the duration to fit MORE steps at this same 0.5s/step cadence — never speed up the gait itself to cover more distance in less time, that is exactly what produces a running gait when a walk was intended.
+- multi-step action (walk to object + pick it up + turn back): scale from the locomotion rule above (steps × 0.5s) plus 1-2s for the object interaction.
+If the motion is (or includes) a FULL 360-degree rotation/turn (a continuous spin, not a step-wise turn to face a new direction): pace it as ONE brisk, EVEN, constant-speed rotation lasting about 2 seconds total (roughly a quarter-turn every 0.5s) — this is a single continuous momentum spin, much faster than a deliberate step-wise turn, and should read as confident/fluid, not slow or hesitant. Immediately after completing the full 360°, the character holds completely still in the ending pose — do NOT let the motion continue into a second rotation or any extra movement; if the estimated duration_seconds is longer than the spin itself needs, spend the remaining time on the hold, not on repeating the spin. Write this directly into the motion description (e.g. "she completes one brisk, even 360-degree rotation in about two seconds, then holds completely still facing forward — a single spin only, no second rotation") — a vague phrase like "smoothly rotates" alone is not enough guidance and tends to render as either an abrupt fast turn or an unwanted repeated spin.
 Write the motion itself with a natural acceleration into the movement and a brief deceleration/settle at the end — not constant-speed motion, and not an abrupt instant stop — this reads as far more physically real.
 Return ONLY 1 line of valid JSON with EXACTLY these 2 keys, no markdown fence, no explanation, no comment lines, and NO other keys of any kind: {"motion_prompt": "<the motion description>", "duration_seconds": <integer, your best estimate>}. Do NOT add extra keys like "primary_motion", "secondary_motion", "camera_motion", or any other breakdown — put everything into the single "motion_prompt" string. Adding extra keys makes the response too long and get cut off mid-way, breaking the JSON entirely.`;
 
@@ -4319,6 +4307,34 @@ export async function applyVideoStageResult(
 // cảnh ở đúng 1 cảnh đó, nhưng chắc chắn đúng mặt) — xem applyFrameChainImageResult().
 const MAX_IDENTITY_RETRY = 2;
 
+// Điều kiện dùng THẲNG ảnh Character gốc (góc "front" sạch) làm ảnh của 1 cảnh Frame-chain, bỏ qua cả
+// AI vẽ lại LẪN nối khung hình thật (last-frame) — dùng chung cho MỌI cảnh (không riêng cảnh 1 nữa, xem
+// applyFrameChainVideoResult): mỗi cảnh đủ điều kiện đều neo lại đúng 1 ảnh gốc sạch thay vì khung hình
+// vừa render (có thể tự trôi nhẹ qua nhiều lượt sinh video liên tiếp — trôi mặt CỘNG DỒN qua chuỗi dài
+// là đúng rủi ro cốt lõi của cơ chế frame-chain). Đổi lại: mất tính liền mạch bối cảnh/tư thế giữa cảnh
+// đó với cảnh liền trước (model phải tự "dịch chuyển" nhân vật sang bối cảnh mới chỉ từ prompt) — đã
+// xác nhận qua test thật là H3 Max làm được việc này tốt (ưu tiên prompt hơn ảnh nền đầu vào). Chỉ áp
+// dụng khi: đúng model đã kiểm chứng, có ảnh góc front sạch (character_source="generated"), cảnh này
+// không cần đổi trang phục/vật phẩm riêng/địa điểm thật riêng (những thứ cần ghép ảnh, model video
+// không tự làm được từ 1 ảnh chân dung đơn).
+function resolveCharacterPhotoDirectlyUrl(
+  job: Pick<JobRow, "video_model" | "character_angle_urls" | "item_reference_urls" | "location_reference_url">,
+  scene: { camera_view: string | null; outfit_override: string | null }
+): string | undefined {
+  const frontAngleUrl = (job.character_angle_urls as CharacterAngleUrls | null)?.front;
+  if (
+    job.video_model === "minimax/h3-max/image-to-video" &&
+    !!frontAngleUrl &&
+    scene.camera_view === "front" &&
+    !scene.outfit_override &&
+    (job.item_reference_urls?.length ?? 0) === 0 &&
+    !job.location_reference_url
+  ) {
+    return frontAngleUrl;
+  }
+  return undefined;
+}
+
 // Lưới an toàn lớp 2 — dùng chung cho CẢ 2 nơi tạo ảnh cảnh chain: (a) đường vẽ lại bằng AI (khi Vision
 // phát hiện sai danh tính, xem bên dưới), (b) đường ghép ảnh THẬT trực tiếp mới thêm (applyFrameChainVideoResult).
 // Trả về true = danh tính ổn, cứ submit video luôn; false = đã tự gửi yêu cầu vẽ lại ảnh khác (bằng AI),
@@ -4595,18 +4611,24 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
       .single();
     if (!job) return;
 
-    // Dùng THẲNG khung hình thật vừa tách làm ảnh đầu cảnh kế tiếp — liền mạch tuyệt đối (đúng pixel,
-    // không qua AI vẽ lại nên không còn sai số bố cục/góc máy nào cả). Bản trước nhờ AI "vẽ lại 1 ảnh
-    // tham khảo" khung hình này — dù đã ép prompt giữ khung hình/góc máy, vẫn chỉ là xác suất theo lời
-    // model, không chắc chắn 100% (đúng phản hồi thật của user: ảnh đầu cảnh sau vẫn không giống hệt
-    // khung cuối cảnh trước). Đánh đổi: mất bước AI "chỉnh lại cho đúng mặt" mỗi cảnh — bù lại bằng đúng
-    // lưới an toàn danh tính đã có (checkFrameChainIdentity), chạy NGAY trên khung hình thật này; nếu
-    // model video tự làm trôi mặt trong lúc quay (hiếm nhưng có thể), lưới vẫn bắt được và mới nhờ AI vẽ
-    // lại làm phương án dự phòng, y hệt cơ chế cũ — chỉ khác là giờ đây là NGOẠI LỆ, không phải mặc định.
-    await supabase.from("story_video_scenes").update({ image_url: lastFrameUrl }).eq("id", nextScene.id);
-    const nextSceneWithImage = { ...nextScene, image_url: lastFrameUrl };
+    // Cảnh này có đủ điều kiện neo lại đúng ảnh Character gốc sạch không (xem resolveCharacterPhotoDirectlyUrl)
+    // — nếu có, dùng thẳng ảnh đó, KHÔNG dùng khung hình thật vừa tách (tránh trôi mặt cộng dồn qua
+    // chuỗi dài); ảnh gốc chính là ảnh tham chiếu danh tính nên không cần checkFrameChainIdentity kiểm
+    // tra lại (chắc chắn khớp 100%, gọi thêm chỉ tốn 1 lượt gọi Vision vô ích). Nếu KHÔNG đủ điều kiện,
+    // giữ nguyên cơ chế cũ: dùng THẲNG khung hình thật vừa tách làm ảnh đầu cảnh kế tiếp — liền mạch
+    // tuyệt đối (đúng pixel, không qua AI vẽ lại nên không còn sai số bố cục/góc máy nào cả). Bản trước
+    // nhờ AI "vẽ lại 1 ảnh tham khảo" khung hình này — dù đã ép prompt giữ khung hình/góc máy, vẫn chỉ
+    // là xác suất theo lời model, không chắc chắn 100% (đúng phản hồi thật của user: ảnh đầu cảnh sau
+    // vẫn không giống hệt khung cuối cảnh trước). Đánh đổi: mất bước AI "chỉnh lại cho đúng mặt" mỗi
+    // cảnh — bù lại bằng đúng lưới an toàn danh tính đã có (checkFrameChainIdentity), chạy NGAY trên
+    // khung hình thật này; nếu model video tự làm trôi mặt trong lúc quay (hiếm nhưng có thể), lưới vẫn
+    // bắt được và mới nhờ AI vẽ lại làm phương án dự phòng, y hệt cơ chế cũ.
+    const directPhotoUrl = resolveCharacterPhotoDirectlyUrl(job, nextScene);
+    const nextImageUrl = directPhotoUrl ?? lastFrameUrl;
+    await supabase.from("story_video_scenes").update({ image_url: nextImageUrl }).eq("id", nextScene.id);
+    const nextSceneWithImage = { ...nextScene, image_url: nextImageUrl };
 
-    if (!(await checkFrameChainIdentity(jobId, nextSceneWithImage, job))) return; // đã tự vẽ lại ảnh khác, đợi webhook ảnh mới
+    if (!directPhotoUrl && !(await checkFrameChainIdentity(jobId, nextSceneWithImage, job))) return; // đã tự vẽ lại ảnh khác, đợi webhook ảnh mới
 
     try {
       // Motion Timing Controller — xem chú thích trong applyFrameChainImageResult(), đây là bản mirror
