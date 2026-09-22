@@ -3649,6 +3649,10 @@ export async function applyCharacterStageResult(
 
   if (characterPosition !== undefined) {
     if (isError) {
+      // Log FULL payload (không chỉ falPayload.error, chuỗi ngắn kiểu "Unexpected status code: 422" không
+      // đủ chẩn đoán được nguyên nhân thật) — mirror đúng cách đã làm cho lỗi tạo ảnh/video/lồng tiếng cảnh,
+      // bước tạo Character trước đây bị sót.
+      console.error(`[story-video] Lỗi tạo Character #${characterPosition + 1}, full payload:`, JSON.stringify(falPayload));
       await failJob(jobId, `Lỗi tạo Character #${characterPosition + 1}: ${String(falPayload.error ?? "")}`);
       return;
     }
@@ -3673,6 +3677,13 @@ export async function applyCharacterStageResult(
   }
 
   if (isError) {
+    // Log FULL payload (không chỉ falPayload.error, chuỗi ngắn kiểu "Unexpected status code: 422" không đủ
+    // chẩn đoán được nguyên nhân thật) — mirror đúng cách đã làm cho lỗi tạo ảnh/video/lồng tiếng cảnh, bước
+    // tạo Character (luồng 1 nhân vật) trước đây bị sót. Xác nhận thật qua job #156: webhook báo lỗi này
+    // nhưng khi tra thẳng request_id qua Fal.ai API sau đó thì request lại ĐÃ "COMPLETED" — khả năng cao là
+    // lỗi tạm thời phía provider (Fal.ai/model) tự phục hồi sau webhook đầu, nhưng app không có gì để biết
+    // vì chưa từng log payload đầy đủ ở bước này.
+    console.error(`[story-video] Lỗi tạo Character, full payload:`, JSON.stringify(falPayload));
     await failJob(jobId, `Lỗi tạo Character: ${String(falPayload.error ?? "")}`);
     return;
   }
