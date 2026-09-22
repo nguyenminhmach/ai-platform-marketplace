@@ -153,14 +153,18 @@ export async function classifyCharacterImage(imageUrl: string): Promise<boolean>
   try {
     const { output } = await callOpenRouter(
       "google/gemini-3-flash-preview",
-      30,
+      300,
       CHARACTER_CLASSIFY_SYSTEM_PROMPT,
       "Phân loại ảnh này.",
       imageUrl
     );
-    // maxTokens nhỏ trước đây (10) có thể cắt cụt câu trả lời trước khi ra hết chữ "SHEET" -> nới token
-    // + so khớp bằng includes (không chỉ startsWith) để không bỏ lỡ khi model có thêm chữ thừa dù đã
-    // yêu cầu trả đúng 1 từ.
+    // maxTokens nhỏ trước đây (10 -> 30) vẫn có thể bị cắt cụt: xác nhận thật qua job #156, model trả về
+    // đúng "SHE" (thiếu "ET") -> rơi về coi như ảnh thường dù ảnh khách tải lên ĐÃ LÀ sheet thật, khiến
+    // job chạy nhầm bước Tạo Character (tốn credit, có lúc còn lỗi 422 luôn). Model này ("thinking" model)
+    // tốn 1 phần token cho suy nghĩ nội bộ TRƯỚC khi ra chữ trả lời -- max_tokens quá chật ăn hết vào phần
+    // suy nghĩ, cắt cụt luôn câu trả lời thật. Nới hẳn lên 300 (không tốn thêm phí nếu model trả lời gọn
+    // như bình thường, chỉ để không bị cắt cụt khi cần vài token suy nghĩ) + so khớp bằng includes (không
+    // chỉ startsWith) để không bỏ lỡ khi model có thêm chữ thừa dù đã yêu cầu trả đúng 1 từ.
     const cleaned = output.trim().toUpperCase();
     const isSheet = cleaned.includes("SHEET");
     if (!isSheet && !cleaned.includes("PHOTO")) {
