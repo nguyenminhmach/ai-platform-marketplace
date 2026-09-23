@@ -1784,6 +1784,11 @@ async function submitSceneImageForRow(
   // Ép ảnh chụp thật — model dễ ngả sang phong cách minh hoạ/tranh vẽ khi scene_description dùng
   // ngôn từ giàu chất thơ (hoàng hôn, khu vườn hoa...) mà không có chỉ dẫn phong cách hình ảnh rõ ràng.
   scenePrompt += ` Photorealistic photo, shot on a real camera — not an illustration, painting, drawing, anime, or digital art.`;
+  // Khách đa số không rành nhiếp ảnh/ánh sáng — truyện chỉ tả kiểu "đi lúc bình minh" là đủ với họ, còn
+  // việc mặt nhân vật có bị tối/ngược sáng hay không là việc app phải tự lo, không thể dò từng từ khoá
+  // (bình minh/đêm tối/hang động/nến...) vì vô số tình huống không liệt kê hết được. Thêm 1 câu KHÔNG
+  // ĐIỀU KIỆN áp dụng cho MỌI cảnh, bất kể ánh sáng mô tả là gì.
+  scenePrompt += ` Regardless of what kind of lighting the scene describes (sunset, sunrise, night, backlight, inside a cave, a dark room, candlelight, or any other lighting condition), always keep the character's face and key details visible and reasonably well-exposed; if the described lighting would leave the face or important details lost in shadow or unrecognizable, automatically add a very subtle, natural fill light matching the direction, color, intensity, atmosphere, and mood of the existing light, without altering or breaking the original lighting scenario.`;
   // Xác nhận qua test thật (job story-100, story-97): khi cảnh có gương, model tự vẽ ra ảnh phản chiếu
   // với gương mặt KHÁC hẳn nhân vật thật (son đậm hơn, gò má khác) — lưới kiểm tra danh tính bắt được
   // lỗi này nhưng vẽ lại cũng dễ sai lại vì đây là điểm yếu chung của model (không "soi gương" thật, chỉ
@@ -1906,6 +1911,8 @@ async function submitMultiCharacterSceneImageForRow(
   // nhân lỗi (model tự bịa trang phục khác/gương vẽ sai mặt) cũng có thể xảy ra ở luồng nhiều nhân vật.
   scenePrompt += ` Keep the exact same clothing/outfit (garment type, color, style) for each person as shown in their own reference image — do not substitute different clothing, even if the scene's mood or setting might otherwise suggest different attire.`;
   scenePrompt += ` Photorealistic photo, shot on a real camera — not an illustration, painting, drawing, anime, or digital art.`;
+  // Mirror đúng câu chỉ dẫn ánh sáng đã thêm cho luồng 1 nhân vật (xem submitSceneImageForRow).
+  scenePrompt += ` Regardless of what kind of lighting the scene describes (sunset, sunrise, night, backlight, inside a cave, a dark room, candlelight, or any other lighting condition), always keep each character's face and key details visible and reasonably well-exposed; if the described lighting would leave a face or important details lost in shadow or unrecognizable, automatically add a very subtle, natural fill light matching the direction, color, intensity, atmosphere, and mood of the existing light, without altering or breaking the original lighting scenario.`;
   scenePrompt += ` If this scene includes a mirror or any other reflective surface, every reflection must show the exact same face and identity as the corresponding real character in the shot — never draw a different-looking face in a reflection.`;
   // Mirror đúng câu chỉ dẫn giữ phụ kiện đã thêm cho luồng 1 nhân vật (xem submitSceneImageForRow).
   scenePrompt += ` Keep any accessories (glasses, jewelry, watch, hat, or similar items) shown on each person in their own reference image — do not remove or omit them in this scene, and do not add new accessories that are not in the reference image, unless the scene description explicitly requires a change.`;
