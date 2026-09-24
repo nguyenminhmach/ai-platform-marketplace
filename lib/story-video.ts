@@ -3088,7 +3088,7 @@ function normalizeRawControlChars(text: string): string {
   return text.replace(/[\r\n\t]+/g, " ");
 }
 
-function parseSceneMotionPlan(output: string): SceneMotionPlan {
+function parseSceneMotionPlan(output: string, fallbackPrompt?: string): SceneMotionPlan {
   const cleaned = output.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
   const normalized = normalizeRawControlChars(cleaned);
   try {
@@ -3100,10 +3100,14 @@ function parseSceneMotionPlan(output: string): SceneMotionPlan {
   } catch {
     const extracted = extractMotionPromptFragment(normalized);
     if (extracted) return { motionPrompt: extracted };
-    // Không trích được field riêng -> rơi về coi nguyên câu trả lời là motion_prompt, không có gợi ý
-    // thời lượng (an toàn hơn báo lỗi cả cảnh chỉ vì thiếu đúng 1 field phụ này).
   }
-  return { motionPrompt: normalized };
+  // Không trích được field "motion_prompt" hợp lệ nào (JSON hỏng, hoặc JSON hợp lệ nhưng thiếu/rỗng
+  // field này) — xác nhận thật qua job #163: model tự thêm field "primary_motion" TRƯỚC "motion_prompt"
+  // (dù prompt đã cấm rõ), rồi bị cắt cụt NGAY GIỮA field đó, "motion_prompt" chưa từng được viết ra.
+  // TUYỆT ĐỐI không gửi nguyên văn rác JSON dở dang làm prompt video (đúng lỗi đã gặp ở job #370: model
+  // video từ chối 422 vì lẫn cú pháp JSON/tên field lạ) — rơi về mô tả cảnh tĩnh (scene_description/hint)
+  // đã có sẵn, an toàn hơn hẳn dù không phải "mô tả chuyển động" thật sự, còn hơn gửi rác.
+  return { motionPrompt: fallbackPrompt?.trim() || normalized };
 }
 
 // Motion Timing Controller — xem migration-story-video-motion-timing.sql + ghi nhớ
@@ -3187,8 +3191,11 @@ async function generateSceneDescriptionFromImage(
       ? `\nThời lượng cảnh này ĐÃ ĐƯỢC CHỐT SẴN: ${knownDurationSeconds} giây — không cần tự ước lượng lại số giây. ${buildMotionTimingSpec(knownDurationSeconds, pace ?? "normal", rotationDegrees ?? undefined)}`
       : "";
   const userPrompt = `Ý tưởng truyện tổng thể: ${storyDescription}${hint ? `\nGợi ý riêng cho cảnh này: ${hint}` : ""}${turnHint ? `\n${turnHint}` : ""}${durationLine}\nViết mô tả chuyển động ngắn cho ảnh này.`;
-  const { output } = await callOpenRouter(modelChatKey || "google/gemini-3-flash-preview", 500, systemPrompt, userPrompt, imageUrl);
-  return parseSceneMotionPlan(output);
+  // 500 -> 900: model "thinking" (gemini-3-flash-preview) tốn 1 phần token cho suy nghĩ nội bộ trước khi
+  // ra chữ trả lời (cùng nguyên nhân đã sửa cho classifyCharacterImage) — nếu model lỡ thêm field thừa
+  // (primary_motion/camera_motion...) dù đã bị cấm, 500 token quá chật dễ bị cắt cụt giữa chừng.
+  const { output } = await callOpenRouter(modelChatKey || "google/gemini-3-flash-preview", 900, systemPrompt, userPrompt, imageUrl);
+  return parseSceneMotionPlan(output, hint);
 }
 
 // Motion Timing Controller: model video chỉ nhận 1 trong các mức thời lượng rời rạc catalog cho phép
