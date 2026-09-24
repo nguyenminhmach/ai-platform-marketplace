@@ -89,10 +89,72 @@ Trả lời ĐÚNG 1 dòng JSON, không thêm chữ nào khác:
 {"ok": false, "issue": "<mô tả ngắn gọn tiếng Việt vấn đề tìm thấy>"} nếu phát hiện: bỏ sót hẳn 1 tình tiết chính, thứ tự bị đảo lộn vô lý, hoặc cảnh nào đó mâu thuẫn với truyện gốc.
 Không bắt lỗi vì thiếu chi tiết nhỏ/phong cách hành văn — chỉ báo lỗi khi thực sự ảnh hưởng tới việc kể đúng câu chuyện.`;
 
+// Cỡ cảnh (shot size) + góc máy (camera angle) + chuyển động máy (camera movement) — HOÀN TOÀN KHÁC
+// "camera_view" (hướng NHÂN VẬT quay mặt so với máy quay). Đây là 3 trục mô tả chính MÁY QUAY: khoảng
+// cách/cỡ khung hình, độ cao/góc nghiêng, và máy có di chuyển hay không trong lúc quay — theo đúng
+// thuật ngữ điện ảnh chuẩn (tra cứu StudioBinder "types-of-camera-shots-sizes-in-film" +
+// nitromediagroup "different-types-of-camera-angles-in-filmmaking-explained"). Dùng chung cho cả 4
+// luồng chia cảnh (mặc định + "Tạo kịch bản", 1 nhân vật + nhiều nhân vật).
+export const SHOT_SIZE_LABELS = ["close_up", "medium_close_up", "medium_shot", "full_shot", "wide_shot"] as const;
+export type ShotSize = (typeof SHOT_SIZE_LABELS)[number];
+export const CAMERA_ANGLE_LABELS = ["eye_level", "low_angle", "high_angle", "dutch_angle"] as const;
+export type CameraAngleKey = (typeof CAMERA_ANGLE_LABELS)[number];
+export const CAMERA_MOVEMENT_LABELS = ["static", "pan", "dolly_in", "dolly_out", "tracking"] as const;
+export type CameraMovement = (typeof CAMERA_MOVEMENT_LABELS)[number];
+
+const CAMERA_FRAMING_INSTRUCTION = `Với MỖI cảnh, xác định thêm 3 khoá về khung hình/chuyển động MÁY QUAY (bắt buộc, khác hẳn "camera_view" — camera_view là hướng NHÂN VẬT quay mặt, còn 3 khoá này là vị trí/khoảng cách/chuyển động của CHÍNH máy quay):
+- "shot_size" (cỡ cảnh, chọn ĐÚNG 1 trong 5 giá trị, viết y hệt): "close_up" (cận mặt/đầu-vai, đặc tả cảm xúc/chi tiết nhỏ), "medium_close_up" (từ ngực trở lên), "medium_shot" (từ thắt lưng trở lên, thấy 1 phần bối cảnh), "full_shot" (toàn thân, thấy rõ bối cảnh xung quanh), "wide_shot" (toàn cảnh rộng, nhấn không gian/bối cảnh hơn nhân vật). Đa dạng cỡ cảnh qua các cảnh giống phim thật (vd cảnh mở đầu dùng "wide_shot" giới thiệu bối cảnh, cảnh cảm xúc dùng "close_up") — KHÔNG lặp lại đúng 1 cỡ cảnh cho toàn bộ truyện trừ khi truyện chỉ có 1-2 cảnh.
+- "camera_angle" (góc máy, chọn ĐÚNG 1 trong 4 giá trị, viết y hệt): "eye_level" (ngang tầm mắt, trung tính — mặc định cho đa số cảnh), "low_angle" (máy đặt thấp chĩa lên — nhân vật trông mạnh mẽ/uy nghi/chiến thắng, dùng cho khoảnh khắc tự tin), "high_angle" (máy đặt cao chĩa xuống — nhân vật trông nhỏ bé/yếu thế/cô đơn, dùng cho khoảnh khắc dễ tổn thương), "dutch_angle" (máy nghiêng — tạo cảm giác bất ổn/căng thẳng, CHỈ dùng khi truyện có tình huống căng thẳng/bất an rõ rệt, không dùng tuỳ tiện).
+- "camera_movement" (chuyển động máy, chọn ĐÚNG 1 trong 5 giá trị, viết y hệt): "static" (máy đứng yên hoàn toàn — mặc định cho đa số cảnh, nhất là cảnh tĩnh/đối thoại), "pan" (máy lia ngang tại chỗ theo hành động, dùng khi nhân vật di chuyển ngang qua khung hình), "dolly_in" (máy tiến lại gần dần trong lúc quay — tăng cảm giác thân mật/căng thẳng, dùng cho khoảnh khắc cảm xúc cao trào), "dolly_out" (máy lùi ra xa dần — mở rộng bối cảnh/tạo khoảng cách, dùng khi nhân vật rời đi hoặc kết thúc 1 đoạn), "tracking" (máy di chuyển song song theo nhân vật, dùng khi nhân vật đi bộ/chạy 1 quãng dài). Chỉ chọn khác "static" khi hành động trong cảnh thực sự cần — không tự thêm chuyển động máy không cần thiết.`;
+
+// Validate mềm (không hard-fail cả job chỉ vì 3 field mới này) — Agent thiếu/trả sai thì rơi về mặc
+// định an toàn (trung tính/đứng yên), KHÔNG được để lỗi 3 field này chặn cả job như location/end_pose.
+function resolveShotSize(v: unknown): ShotSize {
+  return typeof v === "string" && (SHOT_SIZE_LABELS as readonly string[]).includes(v) ? (v as ShotSize) : "medium_shot";
+}
+function resolveCameraAngleKey(v: unknown): CameraAngleKey {
+  return typeof v === "string" && (CAMERA_ANGLE_LABELS as readonly string[]).includes(v) ? (v as CameraAngleKey) : "eye_level";
+}
+function resolveCameraMovement(v: unknown): CameraMovement {
+  return typeof v === "string" && (CAMERA_MOVEMENT_LABELS as readonly string[]).includes(v) ? (v as CameraMovement) : "static";
+}
+
+// Câu tả bằng tiếng Anh cho từng camera_movement — tiêm thẳng vào prompt tạo VIDEO bằng code (không
+// qua Agent viết motion_prompt, tránh phải sửa hệt system prompt riêng) khi khác "static".
+const CAMERA_MOVEMENT_PROMPT_TEXT: Record<CameraMovement, string> = {
+  static: "",
+  pan: " The camera pans smoothly to follow the action, staying in the same fixed position.",
+  dolly_in: " The camera slowly pushes in toward the subject as the action unfolds.",
+  dolly_out: " The camera slowly pulls back away from the subject as the action unfolds, revealing more of the surroundings.",
+  tracking: " The camera tracks alongside the subject, moving in parallel with their motion.",
+};
+
+// Câu tả cỡ cảnh + góc máy bằng tiếng Anh — tiêm vào prompt tạo ẢNH phân cảnh (khung hình bắt đầu),
+// dùng chung cho cả luồng 1 nhân vật và nhiều nhân vật.
+const SHOT_SIZE_PROMPT_TEXT: Record<ShotSize, string> = {
+  close_up: "a close-up shot, framing the face and head/shoulders",
+  medium_close_up: "a medium close-up shot, framing from the chest up",
+  medium_shot: "a medium shot, framing from the waist up",
+  full_shot: "a full shot, showing the entire body with some surrounding background",
+  wide_shot: "a wide shot, emphasizing the surrounding space and environment",
+};
+const CAMERA_ANGLE_PROMPT_TEXT: Record<CameraAngleKey, string> = {
+  eye_level: "at eye level, a neutral straight-on angle",
+  low_angle: "from a low angle looking up, making the subject appear powerful and commanding",
+  high_angle: "from a high angle looking down, making the subject appear small and vulnerable",
+  dutch_angle: "with a tilted, canted dutch angle, creating a sense of unease and tension",
+};
+function buildCameraFramingClause(shotSize: string | null, cameraAngle: string | null): string {
+  const shot = SHOT_SIZE_PROMPT_TEXT[resolveShotSize(shotSize)];
+  const angle = CAMERA_ANGLE_PROMPT_TEXT[resolveCameraAngleKey(cameraAngle)];
+  return ` Camera framing: ${shot}, shot ${angle}.`;
+}
+
 const SCENE_SPLIT_SYSTEM_PROMPT = `Bạn là đạo diễn dựng phân cảnh. Người dùng đưa 1 ý tưởng truyện/kịch bản ngắn.
 Nhiệm vụ: chia thành ĐÚNG N phân cảnh liên tục, mỗi cảnh là 1 khoảnh khắc hình ảnh cụ thể (nhân vật đang làm gì, ở đâu, bối cảnh gì), giữ nguyên nhân vật chính xuyên suốt các cảnh.
 Với MỖI cảnh, xác định thêm góc camera đang nhìn thấy nhân vật rõ nhất, chỉ được chọn ĐÚNG 1 trong 6 giá trị sau (viết y hệt, chữ thường): "front" (chính diện), "three_quarter_left" (nghiêng 3/4 trái), "three_quarter_right" (nghiêng 3/4 phải), "side" (nhìn ngang hẳn 1 bên), "back" (quay lưng lại camera), "face" (cận mặt).
 Quy tắc khi mô tả không nói rõ góc quay: nếu không nói gì đặc biệt về hướng, mặc định "front". Nếu chỉ nói "quay đầu"/"nhìn sang" (không nói "quay người"/"quay lưng"), coi là góc "three_quarter_left" hoặc "three_quarter_right" tương ứng hướng nhìn, KHÔNG phải "back". Chỉ chọn "back" khi mô tả rõ ràng nhân vật quay LƯNG/CẢ NGƯỜI lại camera.
+${CAMERA_FRAMING_INSTRUCTION}
 Khi viết "description" (tiếng Anh): viết như 1 đạo diễn hình ảnh thật sự — có thể thêm chi tiết điện ảnh phù hợp với bối cảnh gốc (ánh sáng, loại khung hình/shot size, không khí, chất liệu/kết cấu môi trường xung quanh) để ảnh tạo ra sống động hơn, nhưng KHÔNG bịa thêm tình tiết, hành động, hay địa điểm không có trong ý tưởng gốc.
 Rào chắn giữ đúng danh tính nhân vật (bắt buộc, không được vi phạm dù thêm chi tiết điện ảnh): giữ nguyên giới tính, độ tuổi, kiểu tóc, màu tóc của nhân vật chính xuyên suốt mọi cảnh (đây là phần KHÔNG BAO GIỜ được đổi); không tự thêm nhân vật phụ mới nếu ý tưởng gốc không nhắc; nếu ý tưởng gốc mô tả 1 địa điểm liên tục thì không tự đổi bối cảnh giữa các cảnh.
 Trang phục — TUYỆT ĐỐI KHÔNG tự mô tả cụ thể màu sắc/kiểu dáng/chất liệu trang phục trong "description" (ví dụ KHÔNG viết "a white blouse", "a red dress"...) trừ đúng lúc dùng "outfit_override" (xem mục "Đổi trang phục" bên dưới). Lý do: bạn KHÔNG nhìn thấy ảnh nhân vật thật — tự bịa màu/kiểu trang phục sẽ mâu thuẫn với trang phục thật trong ảnh tham chiếu, khiến ảnh tạo ra sai hẳn bộ đồ. Nếu cần nhắc tới trang phục để giữ liên tục giữa các cảnh (theo mục "Trạng thái liên tục" bên dưới), chỉ viết chung chung kiểu "wearing the same outfit as before" — KHÔNG bịa thêm chi tiết màu/kiểu.
@@ -106,8 +168,8 @@ Không tự bịa chi tiết không có trong ý tưởng gốc: nếu ý tưở
 Lời thoại (chỉ áp dụng khi ý tưởng gốc CÓ trích dẫn/thể hiện rõ ràng nhân vật đang NÓI THÀNH LỜI ở đúng cảnh đó, ví dụ có dấu ngoặc kép hoặc "X nói:"): thêm khoá "dialogue" (chuỗi tiếng Việt, giữ NGUYÊN VĂN đúng câu nhân vật nói, KHÔNG dịch/diễn giải lại, dưới khoảng 15 từ để vừa thời lượng clip ngắn của 1 cảnh — nếu câu gốc dài hơn thì rút gọn nhưng giữ đúng ý chính). Cảnh nào truyện gốc không thể hiện lời nói thì KHÔNG thêm khoá "dialogue" (bỏ hẳn khoá này, không để rỗng/null). Không tự bịa thêm lời thoại không có trong ý tưởng gốc.
 Bối cảnh vật lý (bắt buộc, MỌI cảnh): thêm khoá "location" (chuỗi tiếng Anh NGẮN GỌN, ví dụ "a cozy coffee shop interior, window table, soft morning light") mô tả nơi cảnh đang diễn ra, BAO GỒM cả ánh sáng/thời điểm trong ngày (sáng/trưa/chiều/tối, nắng/âm u...). QUAN TRỌNG: nếu nhiều cảnh liên tiếp cùng diễn ra ở 1 chỗ, "location" của những cảnh đó PHẢI viết Y HỆT NHAU, ĐÚNG TỪNG CHỮ (không diễn đạt lại khác đi dù cùng ý nghĩa) — áp dụng đúng quy tắc như "outfit_override": chỉ đổi "location" (kể cả phần ánh sáng) khi ý tưởng gốc nói RÕ RÀNG nhân vật di chuyển sang nơi khác hoặc thời gian trôi qua rõ rệt (vd "trời tối dần", "đến chiều"). TUYỆT ĐỐI không tự đổi tông sáng/thời điểm trong ngày để tạo kịch tính (vd tự thêm "hoàng hôn ấm áp" cho cảnh chia tay/rời đi) nếu truyện gốc không nói tới — kể cả khi nhân vật chuẩn bị đứng dậy/rời khỏi chỗ đó, ánh sáng vẫn phải giữ nguyên như các cảnh trước đó tại cùng địa điểm.
 Trạng thái kết thúc cảnh (bắt buộc, MỌI cảnh): thêm khoá "end_pose" (chuỗi tiếng Anh NGẮN GỌN, ví dụ "she has just turned to look out the window, smiling") mô tả tư thế/hành động của nhân vật ở khoảnh khắc KẾT THÚC cảnh đó (sau khi hành động trong "description" đã diễn ra) — dùng làm điểm nối sang cảnh kế tiếp.
-Chỉ trả về DUY NHẤT 1 mảng JSON hợp lệ gồm đúng N phần tử, mỗi phần tử là 1 object có khoá "description" (chuỗi tiếng Anh mô tả cảnh, dùng để tạo ảnh AI), "camera_view" (1 trong 6 giá trị ở trên), "outfit_override" (tuỳ chọn), "face_view" (tuỳ chọn), "dialogue" (tuỳ chọn), "location" (bắt buộc) và "end_pose" (bắt buộc) như hướng dẫn trên — không kèm markdown fence, không giải thích, không đánh số, không có dòng chú thích (comment) nào trong JSON.
-Ví dụ format: [{"description": "a young woman walking into a coffee shop, morning light", "camera_view": "front", "location": "a cozy coffee shop interior, window table", "end_pose": "she has just sat down and is looking around"}, {"description": "still at the coffee shop, she turns her head and looks outside the window, smiling", "camera_view": "three_quarter_left", "dialogue": "Quán này đẹp thật đấy", "location": "a cozy coffee shop interior, window table", "end_pose": "she is smiling, looking out the window"}, {"description": "later, standing by her front door at home, about to head out", "camera_view": "front", "outfit_override": "a beige knit cardigan over a white t-shirt", "location": "the front door of her home, entryway", "end_pose": "she is about to open the door and step outside"}]`;
+Chỉ trả về DUY NHẤT 1 mảng JSON hợp lệ gồm đúng N phần tử, mỗi phần tử là 1 object có khoá "description" (chuỗi tiếng Anh mô tả cảnh, dùng để tạo ảnh AI), "camera_view" (1 trong 6 giá trị ở trên), "shot_size" (bắt buộc), "camera_angle" (bắt buộc), "camera_movement" (bắt buộc), "outfit_override" (tuỳ chọn), "face_view" (tuỳ chọn), "dialogue" (tuỳ chọn), "location" (bắt buộc) và "end_pose" (bắt buộc) như hướng dẫn trên — không kèm markdown fence, không giải thích, không đánh số, không có dòng chú thích (comment) nào trong JSON.
+Ví dụ format: [{"description": "a young woman walking into a coffee shop, morning light", "camera_view": "front", "shot_size": "wide_shot", "camera_angle": "eye_level", "camera_movement": "static", "location": "a cozy coffee shop interior, window table", "end_pose": "she has just sat down and is looking around"}, {"description": "still at the coffee shop, she turns her head and looks outside the window, smiling", "camera_view": "three_quarter_left", "shot_size": "close_up", "camera_angle": "eye_level", "camera_movement": "static", "dialogue": "Quán này đẹp thật đấy", "location": "a cozy coffee shop interior, window table", "end_pose": "she is smiling, looking out the window"}, {"description": "later, standing by her front door at home, about to head out", "camera_view": "front", "shot_size": "medium_shot", "camera_angle": "eye_level", "camera_movement": "static", "outfit_override": "a beige knit cardigan over a white t-shirt", "location": "the front door of her home, entryway", "end_pose": "she is about to open the door and step outside"}]`;
 
 // Tính năng THỬ NGHIỆM, mặc định TẮT — bật qua model_config.allow_scene_padding (đổi trực tiếp trong
 // Supabase, không cần deploy lại code). Ngoại lệ CÓ PHẠM VI cho quy tắc "không bịa thêm tình tiết" ở
@@ -341,6 +403,9 @@ export type SceneRow = {
   scene_description: string | null;
   end_description: string | null;
   camera_view: string | null;
+  shot_size: string | null;
+  camera_angle: string | null;
+  camera_movement: string | null;
   outfit_override: string | null;
   face_view: string | null;
   motion_prompt: string | null;
@@ -849,6 +914,9 @@ export async function suggestSceneCount(storyDescription: string): Promise<numbe
 export type SceneSplitResult = {
   description: string;
   camera_view: CharacterAngleKey;
+  shot_size: ShotSize;
+  camera_angle: CameraAngleKey;
+  camera_movement: CameraMovement;
   outfit_override?: string;
   face_view?: CharacterAngleKey;
   dialogue?: string;
@@ -877,6 +945,7 @@ const STORY_SCRIPT_SYSTEM_PROMPT = `Bạn là đạo diễn dựng phân cảnh 
 Nhiệm vụ 1 — Tự quyết định số phân cảnh: KHÔNG có số cảnh cố định cho trước — bạn phải đếm số hành động/khoảnh khắc thay đổi tư thế LỚN của nhân vật chính (ví dụ: ngồi xuống, đứng dậy, quay người, bắt đầu đi, dừng lại, cầm/đặt đồ vật, đổi biểu cảm rõ rệt...) và tạo ĐÚNG 1 phân cảnh cho MỖI hành động lớn như vậy — không gộp 2 hành động lớn khác nhau vào chung 1 cảnh, không tách 1 hành động ra nhiều cảnh. Tối thiểu 1 cảnh, tối đa 8 cảnh — nếu truyện có nhiều hơn 8 hành động lớn, gộp bớt các hành động ít quan trọng nhất (không đổi tư thế lớn) lại cho vừa 8.
 Với MỖI cảnh, xác định thêm góc camera đang nhìn thấy nhân vật rõ nhất, chỉ được chọn ĐÚNG 1 trong 6 giá trị sau (viết y hệt, chữ thường): "front" (chính diện), "three_quarter_left" (nghiêng 3/4 trái), "three_quarter_right" (nghiêng 3/4 phải), "side" (nhìn ngang hẳn 1 bên), "back" (quay lưng lại camera), "face" (cận mặt).
 Quy tắc khi mô tả không nói rõ góc quay: nếu không nói gì đặc biệt về hướng, mặc định "front". Nếu chỉ nói "quay đầu"/"nhìn sang" (không nói "quay người"/"quay lưng"), coi là góc "three_quarter_left" hoặc "three_quarter_right" tương ứng hướng nhìn, KHÔNG phải "back". Chỉ chọn "back" khi mô tả rõ ràng nhân vật quay LƯNG/CẢ NGƯỜI lại camera.
+${CAMERA_FRAMING_INSTRUCTION}
 Khi viết "description" (tiếng Anh): viết như 1 đạo diễn hình ảnh thật sự — có thể thêm chi tiết điện ảnh phù hợp với bối cảnh gốc (ánh sáng, loại khung hình/shot size, không khí, chất liệu/kết cấu môi trường xung quanh) để ảnh tạo ra sống động hơn, nhưng KHÔNG bịa thêm tình tiết, hành động, hay địa điểm không có trong ý tưởng gốc.
 Rào chắn giữ đúng danh tính nhân vật (bắt buộc, không được vi phạm dù thêm chi tiết điện ảnh): giữ nguyên giới tính, độ tuổi, kiểu tóc, màu tóc của nhân vật chính xuyên suốt mọi cảnh (đây là phần KHÔNG BAO GIỜ được đổi); không tự thêm nhân vật phụ mới nếu ý tưởng gốc không nhắc; nếu ý tưởng gốc mô tả 1 địa điểm liên tục thì không tự đổi bối cảnh giữa các cảnh.
 Trang phục — TUYỆT ĐỐI KHÔNG tự mô tả cụ thể màu sắc/kiểu dáng/chất liệu trang phục trong "description" trừ đúng lúc dùng "outfit_override". Nếu cần nhắc trang phục để giữ liên tục, chỉ viết chung chung kiểu "wearing the same outfit as before".
@@ -902,8 +971,8 @@ Nhiệm vụ 3 — Nhịp độ chuyển động: thêm khoá "pace" ("fast"/"no
 
 Nhiệm vụ 4 — Số độ xoay thật (CHỈ khi cảnh có xoay người/quay người/quay đầu): thêm khoá "rotation_degrees" (số nguyên 0-360) — số độ xoay THẬT tính từ tư thế bắt đầu tới tư thế kết thúc của ĐÚNG cảnh này. Đây là số ĐỘC LẬP với "camera_view" (camera_view chỉ có 6 giá trị rời rạc, không phân biệt được "xoay trọn 1 vòng quay lại đúng hướng cũ" với "không xoay gì cả" — cả 2 đều có camera_view giống nhau ở đầu/cuối). Ví dụ: xoay nhẹ liếc qua vai ~30°, xoay hẳn người 90°, quay lưng lại 180°, xoay trọn 1 vòng về lại hướng cũ = 360° (KHÔNG phải 0, dù camera_view đầu/cuối giống nhau). Cảnh không có xoay thì bỏ hẳn khoá này.
 
-Chỉ trả về DUY NHẤT 1 mảng JSON hợp lệ, mỗi phần tử có khoá "description", "camera_view", "outfit_override" (tuỳ chọn), "face_view" (tuỳ chọn), "dialogue" (tuỳ chọn), "location" (bắt buộc), "end_pose" (bắt buộc), "duration_seconds" (bắt buộc), "pace" (bắt buộc), "rotation_degrees" (tuỳ chọn, chỉ khi có xoay) — không kèm markdown fence, không giải thích, không đánh số, không có dòng chú thích nào trong JSON.
-Ví dụ format: [{"description": "a young woman walking into a coffee shop, morning light", "camera_view": "front", "location": "a cozy coffee shop interior, window table", "end_pose": "she has just sat down and is looking around", "duration_seconds": 4, "pace": "normal"}, {"description": "still at the coffee shop, she turns her head and looks outside the window, smiling", "camera_view": "three_quarter_left", "location": "a cozy coffee shop interior, window table", "end_pose": "she is smiling, looking out the window", "duration_seconds": 2, "pace": "normal", "rotation_degrees": 30}]`;
+Chỉ trả về DUY NHẤT 1 mảng JSON hợp lệ, mỗi phần tử có khoá "description", "camera_view", "shot_size" (bắt buộc), "camera_angle" (bắt buộc), "camera_movement" (bắt buộc), "outfit_override" (tuỳ chọn), "face_view" (tuỳ chọn), "dialogue" (tuỳ chọn), "location" (bắt buộc), "end_pose" (bắt buộc), "duration_seconds" (bắt buộc), "pace" (bắt buộc), "rotation_degrees" (tuỳ chọn, chỉ khi có xoay) — không kèm markdown fence, không giải thích, không đánh số, không có dòng chú thích nào trong JSON.
+Ví dụ format: [{"description": "a young woman walking into a coffee shop, morning light", "camera_view": "front", "shot_size": "wide_shot", "camera_angle": "eye_level", "camera_movement": "static", "location": "a cozy coffee shop interior, window table", "end_pose": "she has just sat down and is looking around", "duration_seconds": 4, "pace": "normal"}, {"description": "still at the coffee shop, she turns her head and looks outside the window, smiling", "camera_view": "three_quarter_left", "shot_size": "close_up", "camera_angle": "eye_level", "camera_movement": "static", "location": "a cozy coffee shop interior, window table", "end_pose": "she is smiling, looking out the window", "duration_seconds": 2, "pace": "normal", "rotation_degrees": 30}]`;
 
 // Dùng chung cho 2 nơi: (1) parse JSON thô từ LLM (parseScriptSceneResult), (2) validate lại mảng
 // "actions" client gửi lên lúc submit thật — đảm bảo dù nguồn nào, dữ liệu vào planStoryVideoScenes()
@@ -931,6 +1000,9 @@ export function validateScriptSceneResult(parsed: unknown, storyDescription: str
     return {
       description: s.description.trim(),
       camera_view: s.camera_view as CharacterAngleKey,
+      shot_size: resolveShotSize(s.shot_size),
+      camera_angle: resolveCameraAngleKey(s.camera_angle),
+      camera_movement: resolveCameraMovement(s.camera_movement),
       outfit_override: typeof s.outfit_override === "string" && s.outfit_override.trim() ? s.outfit_override.trim() : undefined,
       face_view:
         typeof s.face_view === "string" && CHARACTER_ANGLE_LABELS.includes(s.face_view as CharacterAngleKey)
@@ -1005,6 +1077,9 @@ export async function generateStoryScript(
 export type ScriptSceneResultMulti = {
   description: string;
   characters: number[];
+  shot_size: ShotSize;
+  camera_angle: CameraAngleKey;
+  camera_movement: CameraMovement;
   dialogue?: { speaker: number; line: string } | null;
   location: string;
   end_pose: string;
@@ -1020,6 +1095,7 @@ Danh sách nhân vật trong video này (đánh số bắt đầu từ 0): ${lis
 
 Nhiệm vụ 1 — Tự quyết định số phân cảnh: KHÔNG có số cảnh cố định cho trước — đếm số hành động/khoảnh khắc thay đổi tư thế LỚN của (các) nhân vật (ngồi xuống, đứng dậy, quay người, bắt đầu đi, dừng lại, cầm/đặt đồ vật, đổi biểu cảm rõ rệt, có người bước vào/ra khung hình...) và tạo ĐÚNG 1 phân cảnh cho MỖI hành động lớn như vậy — không gộp 2 hành động lớn khác nhau vào chung 1 cảnh, không tách 1 hành động ra nhiều cảnh. Tối thiểu 1 cảnh, tối đa 8 cảnh — nếu truyện có nhiều hơn 8 hành động lớn, gộp bớt các hành động ít quan trọng nhất lại cho vừa 8.
 Với MỖI cảnh, xác định thêm khoá "characters": 1 mảng các SỐ (đúng chỉ số trong danh sách nhân vật ở trên) — liệt kê TẤT CẢ nhân vật thực sự xuất hiện trong khung hình của cảnh đó, có thể 1 người hoặc nhiều người cùng lúc. Không tự thêm số ngoài danh sách, không tự bỏ sót người rõ ràng có mặt theo mô tả.
+${CAMERA_FRAMING_INSTRUCTION}
 Khi viết "description" (tiếng Anh): mô tả rõ ai đang làm gì, có thể thêm chi tiết điện ảnh (ánh sáng, khung hình, không khí) phù hợp bối cảnh gốc, nhưng KHÔNG bịa thêm tình tiết/hành động/địa điểm không có trong ý tưởng gốc.
 Rào chắn giữ đúng danh tính (bắt buộc): không tự đổi giới tính/độ tuổi/kiểu tóc của bất kỳ nhân vật nào đã liệt kê ở trên; không tự thêm nhân vật phụ mới ngoài danh sách; nếu ý tưởng gốc mô tả 1 địa điểm liên tục thì không tự đổi bối cảnh giữa các cảnh.
 Trang phục — TUYỆT ĐỐI KHÔNG tự mô tả cụ thể màu sắc/kiểu dáng/chất liệu trang phục của bất kỳ ai trong "description" (bạn không nhìn thấy ảnh nhân vật thật — tự bịa sẽ mâu thuẫn với ảnh tham chiếu thật). Nếu cần nhắc trang phục để giữ liên tục, chỉ viết chung chung "wearing the same outfit as before".
@@ -1043,10 +1119,10 @@ Nhiệm vụ 3 — Nhịp độ chuyển động: thêm khoá "pace" ("fast"/"no
 
 Nhiệm vụ 4 — Số độ xoay thật (CHỈ khi cảnh có xoay người/quay người/quay đầu): thêm khoá "rotation_degrees" (số nguyên 0-360) — số độ xoay THẬT từ tư thế bắt đầu tới kết thúc của ĐÚNG cảnh này, ĐỘC LẬP với việc chọn góc camera. Cảnh không có xoay thì bỏ hẳn khoá này.
 
-Chỉ trả về DUY NHẤT 1 mảng JSON hợp lệ, mỗi phần tử có khoá "description", "characters" (mảng số, bắt buộc), "dialogue" (tuỳ chọn), "location" (bắt buộc), "end_pose" (bắt buộc), "duration_seconds" (bắt buộc), "pace" (bắt buộc), "rotation_degrees" (tuỳ chọn) — không kèm markdown fence, không giải thích, không đánh số, không có dòng chú thích nào trong JSON.
-Ví dụ format: [{"description": "${characterLabels[0]} stands alone by the entrance, waiting nervously, morning light", "characters": [0], "location": "a wedding venue entrance, morning", "end_pose": "she is glancing anxiously toward the road", "duration_seconds": 2, "pace": "normal"}${
+Chỉ trả về DUY NHẤT 1 mảng JSON hợp lệ, mỗi phần tử có khoá "description", "characters" (mảng số, bắt buộc), "shot_size" (bắt buộc), "camera_angle" (bắt buộc), "camera_movement" (bắt buộc), "dialogue" (tuỳ chọn), "location" (bắt buộc), "end_pose" (bắt buộc), "duration_seconds" (bắt buộc), "pace" (bắt buộc), "rotation_degrees" (tuỳ chọn) — không kèm markdown fence, không giải thích, không đánh số, không có dòng chú thích nào trong JSON.
+Ví dụ format: [{"description": "${characterLabels[0]} stands alone by the entrance, waiting nervously, morning light", "characters": [0], "shot_size": "wide_shot", "camera_angle": "eye_level", "camera_movement": "static", "location": "a wedding venue entrance, morning", "end_pose": "she is glancing anxiously toward the road", "duration_seconds": 2, "pace": "normal"}${
     characterLabels.length >= 2
-      ? `, {"description": "${characterLabels[0]} and ${characterLabels[1]} stand together, holding hands, smiling warmly", "characters": [0, 1], "location": "a wedding venue entrance, morning", "end_pose": "they are smiling at each other, hands still held", "duration_seconds": 3, "pace": "normal"}`
+      ? `, {"description": "${characterLabels[0]} and ${characterLabels[1]} stand together, holding hands, smiling warmly", "characters": [0, 1], "shot_size": "medium_shot", "camera_angle": "eye_level", "camera_movement": "static", "location": "a wedding venue entrance, morning", "end_pose": "they are smiling at each other, hands still held", "duration_seconds": 3, "pace": "normal"}`
       : ""
   }]`;
 }
@@ -1099,6 +1175,9 @@ export function validateScriptSceneResultMulti(
     return {
       description: s.description.trim(),
       characters,
+      shot_size: resolveShotSize(s.shot_size),
+      camera_angle: resolveCameraAngleKey(s.camera_angle),
+      camera_movement: resolveCameraMovement(s.camera_movement),
       dialogue,
       location: s.location.trim(),
       end_pose: s.end_pose.trim(),
@@ -1228,6 +1307,9 @@ export function planStoryVideoScenes(
     return {
       description: group.length === 1 ? primary.description : group.map((a) => a.description).join(" Then, "),
       camera_view: primary.camera_view,
+      shot_size: primary.shot_size,
+      camera_angle: primary.camera_angle,
+      camera_movement: primary.camera_movement,
       outfit_override: primary.outfit_override,
       face_view: primary.face_view,
       dialogue: group.find((a) => a.dialogue)?.dialogue,
@@ -1418,6 +1500,9 @@ export async function splitStoryIntoScenes(
     }
     return (parsed as SceneSplitResult[]).map((s) => ({
       ...s,
+      shot_size: resolveShotSize(s.shot_size),
+      camera_angle: resolveCameraAngleKey(s.camera_angle),
+      camera_movement: resolveCameraMovement(s.camera_movement),
       dialogue: s.dialogue && isVerbatimQuoteInStory(s.dialogue, storyDescription) ? s.dialogue : undefined,
     }));
   }
@@ -1440,6 +1525,9 @@ export async function splitStoryIntoScenes(
 export type MultiSceneSplitResult = {
   description: string;
   characters: number[];
+  shot_size: ShotSize;
+  camera_angle: CameraAngleKey;
+  camera_movement: CameraMovement;
   dialogue?: { speaker: number; line: string } | null;
   end_description?: string;
   end_characters?: number[];
@@ -1461,12 +1549,13 @@ function buildMultiSceneSplitPrompt(characterLabels: string[]): string {
   const list = characterLabels.map((label, i) => `${i}: ${label}`).join(", ");
   const example =
     characterLabels.length >= 2
-      ? `[{"description": "${characterLabels[0]} stands alone by the entrance, waiting nervously, morning light", "characters": [0], "dialogue": {"speaker": 0, "line": "Sao mãi chưa thấy ai đến vậy"}, "location": "a wedding venue entrance, evening", "end_pose": "she is glancing anxiously toward the road"}, {"description": "${characterLabels[0]} and ${characterLabels[1]} stand together, holding hands, smiling warmly", "characters": [0, 1], "location": "a wedding venue entrance, evening", "end_pose": "they are smiling at each other, hands still held"}]`
-      : `[{"description": "a scene description", "characters": [0], "location": "a scene location", "end_pose": "a brief pose description"}]`;
+      ? `[{"description": "${characterLabels[0]} stands alone by the entrance, waiting nervously, morning light", "characters": [0], "shot_size": "wide_shot", "camera_angle": "eye_level", "camera_movement": "static", "dialogue": {"speaker": 0, "line": "Sao mãi chưa thấy ai đến vậy"}, "location": "a wedding venue entrance, evening", "end_pose": "she is glancing anxiously toward the road"}, {"description": "${characterLabels[0]} and ${characterLabels[1]} stand together, holding hands, smiling warmly", "characters": [0, 1], "shot_size": "medium_shot", "camera_angle": "eye_level", "camera_movement": "static", "location": "a wedding venue entrance, evening", "end_pose": "they are smiling at each other, hands still held"}]`
+      : `[{"description": "a scene description", "characters": [0], "shot_size": "medium_shot", "camera_angle": "eye_level", "camera_movement": "static", "location": "a scene location", "end_pose": "a brief pose description"}]`;
   return `Bạn là đạo diễn dựng phân cảnh cho 1 video có NHIỀU nhân vật thật cùng xuất hiện. Người dùng đưa 1 ý tưởng truyện/kịch bản ngắn.
 Danh sách nhân vật trong video này (đánh số bắt đầu từ 0): ${list}.
 Nhiệm vụ: chia thành ĐÚNG N phân cảnh liên tục, mỗi cảnh là 1 khoảnh khắc hình ảnh cụ thể (ai đang làm gì, ở đâu, bối cảnh gì).
 Với MỖI cảnh, xác định thêm khoá "characters": 1 mảng các SỐ (đúng chỉ số trong danh sách nhân vật ở trên) — liệt kê TẤT CẢ nhân vật thực sự xuất hiện trong khung hình của cảnh đó, có thể là 1 người hoặc nhiều người cùng lúc. Không tự thêm số ngoài danh sách, không tự bỏ sót người rõ ràng có mặt theo mô tả.
+${CAMERA_FRAMING_INSTRUCTION}
 Khi viết "description" (tiếng Anh): mô tả rõ ai đang làm gì, có thể thêm chi tiết điện ảnh (ánh sáng, khung hình, không khí) phù hợp bối cảnh gốc, nhưng KHÔNG bịa thêm tình tiết/hành động/địa điểm không có trong ý tưởng gốc.
 Rào chắn giữ đúng danh tính (bắt buộc): không tự đổi giới tính/độ tuổi/kiểu tóc của bất kỳ nhân vật nào đã liệt kê ở trên; không tự thêm nhân vật phụ mới ngoài danh sách; nếu ý tưởng gốc mô tả 1 địa điểm liên tục thì không tự đổi bối cảnh giữa các cảnh.
 Trang phục — TUYỆT ĐỐI KHÔNG tự mô tả cụ thể màu sắc/kiểu dáng/chất liệu trang phục của bất kỳ ai trong "description" (ví dụ KHÔNG viết "a white blouse", "a red dress"...). Lý do: bạn KHÔNG nhìn thấy ảnh nhân vật thật — tự bịa màu/kiểu sẽ mâu thuẫn với ảnh tham chiếu thật. Nếu cần nhắc trang phục để giữ liên tục, chỉ viết chung chung "wearing the same outfit as before".
@@ -1478,7 +1567,7 @@ Không tự bịa phụ kiện/biểu cảm không có trong ý tưởng gốc n
 Lời thoại (chỉ áp dụng khi ý tưởng gốc CÓ trích dẫn/thể hiện rõ ràng 1 nhân vật đang NÓI THÀNH LỜI ở đúng cảnh đó): thêm khoá "dialogue" là 1 object {"speaker": số (đúng chỉ số nhân vật đang nói, phải nằm trong mảng "characters" của cảnh đó), "line": chuỗi tiếng Việt giữ NGUYÊN VĂN lời nói, KHÔNG dịch/diễn giải lại, dưới khoảng 15 từ}. Có thể thêm dù cảnh có nhiều người cùng khung hình — hệ thống lồng tiếng chỉ khớp môi đúng người được chỉ định qua "speaker", những người còn lại trong cảnh vẫn giữ nguyên. Cảnh không có lời nói thì KHÔNG thêm khoá "dialogue" (bỏ hẳn khoá này). Không tự bịa thêm lời thoại không có trong ý tưởng gốc.
 Bối cảnh vật lý (bắt buộc, MỌI cảnh): thêm khoá "location" (chuỗi tiếng Anh NGẮN GỌN) mô tả nơi cảnh đang diễn ra, BAO GỒM cả ánh sáng/thời điểm trong ngày. Nếu nhiều cảnh liên tiếp cùng diễn ra ở 1 chỗ, "location" của những cảnh đó PHẢI viết Y HỆT NHAU, ĐÚNG TỪNG CHỮ (kể cả phần ánh sáng) — chỉ đổi khi ý tưởng gốc nói RÕ RÀNG có sự di chuyển sang nơi khác hoặc thời gian trôi qua rõ rệt. TUYỆT ĐỐI không tự đổi tông sáng (vd tự thêm hoàng hôn cho cảnh chia tay/rời đi) nếu truyện gốc không nói tới.
 Trạng thái kết thúc cảnh (bắt buộc, MỌI cảnh): thêm khoá "end_pose" (chuỗi tiếng Anh NGẮN GỌN) mô tả tư thế/hành động của (các) nhân vật ở khoảnh khắc KẾT THÚC cảnh đó — dùng làm điểm nối sang cảnh kế tiếp.
-Chỉ trả về DUY NHẤT 1 mảng JSON hợp lệ gồm đúng N phần tử, mỗi phần tử có khoá "description" (chuỗi tiếng Anh), "characters" (mảng số), "dialogue" (tuỳ chọn), "location" (bắt buộc) và "end_pose" (bắt buộc) như hướng dẫn trên — không kèm markdown fence, không giải thích, không đánh số, không có dòng chú thích (comment) nào trong JSON.
+Chỉ trả về DUY NHẤT 1 mảng JSON hợp lệ gồm đúng N phần tử, mỗi phần tử có khoá "description" (chuỗi tiếng Anh), "characters" (mảng số), "shot_size" (bắt buộc), "camera_angle" (bắt buộc), "camera_movement" (bắt buộc), "dialogue" (tuỳ chọn), "location" (bắt buộc) và "end_pose" (bắt buộc) như hướng dẫn trên — không kèm markdown fence, không giải thích, không đánh số, không có dòng chú thích (comment) nào trong JSON.
 Ví dụ format: ${example}`;
 }
 
@@ -1551,6 +1640,9 @@ export async function splitStoryIntoScenesMulti(
     // văn truyện gốc (chặn Agent dịch sang tiếng Anh, xem isVerbatimQuoteInStory).
     return (parsed as MultiSceneSplitResult[]).map((s) => ({
       ...s,
+      shot_size: resolveShotSize(s.shot_size),
+      camera_angle: resolveCameraAngleKey(s.camera_angle),
+      camera_movement: resolveCameraMovement(s.camera_movement),
       dialogue:
         s.dialogue &&
         s.characters.includes(s.dialogue.speaker) &&
@@ -1624,6 +1716,8 @@ type ImageSceneRefRow = {
   id: number;
   scene_description: string | null;
   camera_view: string | null;
+  shot_size: string | null;
+  camera_angle: string | null;
   outfit_override: string | null;
   face_view: string | null;
   location: string | null;
@@ -1729,6 +1823,7 @@ async function submitSceneImageForRow(
     : chainedFrameUrl
       ? `${continuityPrefix}${row.scene_description}`
       : `${continuityPrefix}${row.scene_description} Keep the exact same clothing/outfit (garment type, color, style) shown in the character reference image(s) — do not substitute different clothing (e.g. a robe, a different top or bottom, different colors), even if the scene's mood or setting might otherwise suggest different attire.`;
+  scenePrompt += buildCameraFramingClause(row.shot_size, row.camera_angle);
   // 2 ảnh tham chiếu (thử nghiệm): ảnh 1 = hướng thân, ảnh 2 = mặt. Câu chỉ dẫn khác nhau tuỳ trường
   // hợp: Priority 3 (face_view lệch hướng camera_view) cần model đổi HƯỚNG mặt theo ảnh 2; Rule 28
   // (mặc định, mọi cảnh còn thấy mặt) chỉ cần model GIỮ ĐÚNG danh tính khuôn mặt theo ảnh 2, không đổi
@@ -1855,6 +1950,8 @@ type MultiCharacterSceneRefRow = {
   id: number;
   scene_description: string | null;
   character_positions: number[] | null;
+  shot_size: string | null;
+  camera_angle: string | null;
   location: string | null;
 };
 
@@ -1890,6 +1987,7 @@ async function submitMultiCharacterSceneImageForRow(
     ...(hasLocation ? [job.location_reference_url as string] : []),
   ];
   let scenePrompt = buildContinuityPrefix(row.location, previousEndPose) + (row.scene_description ?? "");
+  scenePrompt += buildCameraFramingClause(row.shot_size, row.camera_angle);
   if (refs.length >= 2) {
     const mapping = refs.map((r, i) => `Image ${i + 1} = ${r.label}`).join(", ");
     scenePrompt += ` Multiple reference images are provided, each showing a DIFFERENT real person: ${mapping}. Combine them so ALL of these people appear together in the scene as described — preserve each person's exact facial identity, hairstyle, and skin tone from their own reference image, do not blend or merge their faces into a single person, do not invent extra people.`;
@@ -2082,6 +2180,9 @@ async function runSceneStage(
           scene_description: scene.description,
           end_description: scene.end_description ?? null,
           camera_view: scene.camera_view,
+          shot_size: scene.shot_size,
+          camera_angle: scene.camera_angle,
+          camera_movement: scene.camera_movement,
           outfit_override: scene.outfit_override ?? null,
           face_view: scene.face_view ?? null,
           dialogue_line: scene.dialogue?.trim() || null,
@@ -2093,7 +2194,7 @@ async function runSceneStage(
           rotation_degrees: plannedScenes ? plannedScenes[index].rotation_degrees ?? null : null,
         }))
       )
-      .select("id, position, scene_description, camera_view, outfit_override, face_view, location");
+      .select("id, position, scene_description, camera_view, shot_size, camera_angle, camera_movement, outfit_override, face_view, location");
     if (sceneError || !sceneRows) throw new Error(sceneError?.message ?? "Không tạo được phân cảnh");
 
     if (job.frame_chain_mode) {
@@ -2775,6 +2876,9 @@ async function runMultiCharacterSceneStage(
           scene_description: scene.description,
           end_description: scene.end_description ?? null,
           character_positions: scene.characters,
+          shot_size: scene.shot_size,
+          camera_angle: scene.camera_angle,
+          camera_movement: scene.camera_movement,
           dialogue_line: scene.dialogue?.line?.trim() || null,
           dialogue_speaker_position: scene.dialogue ? scene.dialogue.speaker : null,
           location: scene.location,
@@ -2785,7 +2889,7 @@ async function runMultiCharacterSceneStage(
           rotation_degrees: plannedScenes ? plannedScenes[index].rotation_degrees ?? null : null,
         }))
       )
-      .select("id, position, scene_description, character_positions, location");
+      .select("id, position, scene_description, character_positions, shot_size, camera_angle, camera_movement, location");
     if (sceneError || !sceneRows) throw new Error(sceneError?.message ?? "Không tạo được phân cảnh");
 
     if (job.frame_chain_mode) {
@@ -3228,7 +3332,9 @@ export async function regenerateSceneImage(userId: string, sceneId: number, idem
   const supabase = getSupabaseAdmin();
   const { data: sceneData } = await supabase
     .from("story_video_scenes")
-    .select("id, job_id, position, scene_description, camera_view, outfit_override, face_view, character_positions, location")
+    .select(
+      "id, job_id, position, scene_description, camera_view, shot_size, camera_angle, outfit_override, face_view, character_positions, location"
+    )
     .eq("id", sceneId)
     .single();
   if (!sceneData) throw new Error("Không tìm thấy phân cảnh");
@@ -3845,6 +3951,7 @@ type VideoSceneRefRow = {
   natural_duration_seconds?: number | null;
   end_image_url?: string | null;
   dialogue_line?: string | null;
+  camera_movement?: string | null;
 };
 
 // Build prompt (ưu tiên motion_prompt đã sinh riêng cho video, fallback scene_description nếu thiếu —
@@ -3881,6 +3988,9 @@ async function submitSceneVideoForRow(
   if (!row.end_image_url && prompt && row.natural_duration_seconds && generationSeconds && generationSeconds > row.natural_duration_seconds) {
     prompt = `${prompt} Complete the entire described motion within the first ${row.natural_duration_seconds} seconds, then hold completely still in that final pose for the rest of the clip — no new movement, no repeated motion, no drifting.`;
   }
+  // Chuyển động máy quay (camera_movement) — Agent đã chọn lúc chia cảnh, tiêm thẳng bằng code (không
+  // qua LLM), bỏ qua khi "static" (không cần thêm câu gì).
+  if (prompt) prompt += CAMERA_MOVEMENT_PROMPT_TEXT[resolveCameraMovement(row.camera_movement)];
   // Model tự sinh giọng (H3 Max) — nhét THẲNG nguyên văn câu thoại tiếng Việt vào prompt bằng code (không
   // qua LLM viết lại, tránh rủi ro bị dịch/diễn đạt lại khác câu gốc — đúng triết lý isVerbatimQuoteInStory
   // đã áp dụng cho luồng TTS/LipSync cũ). Model tự tạo giọng + khớp môi theo đúng câu này, không cần
@@ -4067,6 +4177,7 @@ async function proceedToVideoStage(jobId: number, scenes: SceneRow[]) {
             natural_duration_seconds: naturalDurationSeconds,
             end_image_url: scene.end_image_url,
             dialogue_line: scene.dialogue_line,
+            camera_movement: scene.camera_movement,
           },
           false
         );
@@ -4097,7 +4208,7 @@ export async function regenerateSceneVideo(
   const supabase = getSupabaseAdmin();
   const { data: sceneData } = await supabase
     .from("story_video_scenes")
-    .select("id, job_id, image_url, end_image_url, scene_description, motion_prompt, motion_duration_key, dialogue_line")
+    .select("id, job_id, image_url, end_image_url, scene_description, motion_prompt, motion_duration_key, camera_movement, dialogue_line")
     .eq("id", sceneId)
     .single();
   if (!sceneData) throw new Error("Không tìm thấy phân cảnh");
@@ -4378,6 +4489,8 @@ async function checkFrameChainIdentity(
     scene_description: string | null;
     motion_prompt: string | null;
     camera_view: string | null;
+    shot_size: string | null;
+    camera_angle: string | null;
     face_view: string | null;
     outfit_override: string | null;
     location: string | null;
@@ -4487,7 +4600,7 @@ async function applyFrameChainImageResult(jobId: number, sceneId: number) {
   const { data: scene } = await supabase
     .from("story_video_scenes")
     .select(
-      "id, position, image_url, scene_description, motion_prompt, motion_duration_key, natural_duration_seconds, pace, rotation_degrees, camera_view, face_view, outfit_override, location, identity_retry_count"
+      "id, position, image_url, scene_description, motion_prompt, motion_duration_key, natural_duration_seconds, pace, rotation_degrees, camera_view, shot_size, camera_angle, camera_movement, face_view, outfit_override, location, identity_retry_count"
     )
     .eq("id", sceneId)
     .single();
@@ -4623,7 +4736,7 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
   const { data: nextScene } = await supabase
     .from("story_video_scenes")
     .select(
-      "id, position, image_url, scene_description, motion_prompt, motion_duration_key, natural_duration_seconds, pace, rotation_degrees, camera_view, outfit_override, face_view, location, identity_retry_count"
+      "id, position, image_url, scene_description, motion_prompt, motion_duration_key, natural_duration_seconds, pace, rotation_degrees, camera_view, shot_size, camera_angle, camera_movement, outfit_override, face_view, location, identity_retry_count"
     )
     .eq("job_id", jobId)
     .eq("position", scene.position + 1)
