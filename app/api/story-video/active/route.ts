@@ -21,7 +21,7 @@ export async function GET() {
   // lý đúng status "done" khi khôi phục (hiện video kết quả), nên bỏ hẳn điều kiện loại trừ này an toàn.
   const { data: job } = await supabase
     .from("story_video_jobs")
-    .select("id, story_description, character_image_urls, location_reference_url")
+    .select("id, story_description, character_image_urls, location_reference_url, location_reference_mask_url")
     .eq("user_id", userId)
     .gte("created_at", sevenDaysAgo)
     .order("created_at", { ascending: false })
@@ -35,6 +35,7 @@ export async function GET() {
       storyDescription: job.story_description,
       characterImageUrls: job.character_image_urls,
       locationReferenceUrl: job.location_reference_url,
+      locationReferenceMaskUrl: job.location_reference_mask_url,
     },
   });
 }

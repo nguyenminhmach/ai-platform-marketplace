@@ -231,6 +231,16 @@ export default function MiniAppDetailPage() {
   // Ảnh THẬT của 1 địa điểm (sân vườn, nhà, cửa hàng...) — tuỳ chọn, dùng chung cho cả job, để ảnh
   // phân cảnh AI vẽ diễn ra đúng tại khung cảnh thật đó thay vì AI tự bịa bối cảnh.
   const [storyLocationReference, setStoryLocationReference] = useState<string | null>(null);
+  // Vị trí đứng chính xác trong ảnh Bối cảnh (mask trắng/đen do khách khoanh vùng) — tuỳ chọn, chỉ có
+  // tác dụng khi model ảnh đang chọn là GPT Image 2 Edit (model duy nhất hỗ trợ mask_url thật sự, xem
+  // buildImageRequestBody trong lib/story-video.ts). storyLocationMaskRect là vùng khách đang
+  // chọn/đã chọn (toạ độ chuẩn hoá 0..1 theo ảnh gốc); storyLocationReferenceMaskUrl là ảnh mask
+  // đen/trắng đã sinh ra từ vùng đó (data URL trước khi upload, URL thật sau khi khôi phục job cũ).
+  const [storyLocationReferenceMaskUrl, setStoryLocationReferenceMaskUrl] = useState<string | null>(null);
+  const [storyLocationMaskRect, setStoryLocationMaskRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const [storyLocationMaskEditorOpen, setStoryLocationMaskEditorOpen] = useState(false);
+  const [storyLocationImageNaturalSize, setStoryLocationImageNaturalSize] = useState<{ w: number; h: number } | null>(null);
+  const storyLocationMaskDragStartRef = useRef<{ x: number; y: number } | null>(null);
   // Ảnh THẬT của tối đa MAX_ITEM_REFERENCES vật phẩm riêng của nhân vật #1 (đôi giày, túi xách, đồng
   // hồ...) — tuỳ chọn, mỗi nhân vật (kể cả nhân vật #2+ trong storyExtraCharacters) có ô riêng, không
   // dùng chung cho cả job như địa điểm — xem chú thích itemReferenceUrls trong lib/story-video.ts.
@@ -249,6 +259,9 @@ export default function MiniAppDetailPage() {
     aspect_ratios?: string[];
     resolution_price_vnd?: Record<string, number>;
     duration_price_vnd?: Record<string, number>;
+    // Fal model id thật (vd "fal-ai/gpt-image-2/edit") — dùng để lọc đúng model hỗ trợ mask_url khi
+    // khách đã khoanh vùng đặt nhân vật (xem storyLocationReferenceMaskUrl).
+    model?: string;
   };
   const [storyImageModels, setStoryImageModels] = useState<StoryModel[]>([]);
   const [storyVideoModels, setStoryVideoModels] = useState<StoryModel[]>([]);
@@ -795,13 +808,30 @@ export default function MiniAppDetailPage() {
   // nhân vật/địa điểm) âm thầm bỏ qua hẳn ảnh vật phẩm vì vẫn ở model 1-ảnh mặc định (xác nhận qua
   // job thật #127: item_reference_urls có dữ liệu nhưng image_model vẫn là flux-pro/kontext).
   useEffect(() => {
+    // Đã khoanh vùng đặt nhân vật (mask) — CHỈ GPT Image 2 Edit thật sự hỗ trợ mask_url, ưu tiên điều
+    // kiện này trước cả multi_image (GPT Image 2 Edit vốn cũng multi_image nên không xung đột).
+    if (storyLocationReferenceMaskUrl) {
+      const current = storyImageModels.find((m) => m.key === storyImageModelKey);
+      if (current && current.model !== "fal-ai/gpt-image-2/edit") {
+        const fallback = storyImageModels.find((m) => m.model === "fal-ai/gpt-image-2/edit");
+        if (fallback) setStoryImageModelKey(fallback.key);
+      }
+      return;
+    }
     if (storyExtraCharacters.length === 0 && !storyLocationReference && storyPrimaryItemReferences.length === 0) return;
     const current = storyImageModels.find((m) => m.key === storyImageModelKey);
     if (current && !current.multi_image) {
       const fallback = storyImageModels.find((m) => m.multi_image);
       if (fallback) setStoryImageModelKey(fallback.key);
     }
-  }, [storyExtraCharacters.length, storyLocationReference, storyPrimaryItemReferences.length, storyImageModels, storyImageModelKey]);
+  }, [
+    storyExtraCharacters.length,
+    storyLocationReference,
+    storyLocationReferenceMaskUrl,
+    storyPrimaryItemReferences.length,
+    storyImageModels,
+    storyImageModelKey,
+  ]);
 
   // "Video từ ý tưởng truyện": tự khôi phục job gần nhất còn dở dang khi khách quay lại trang (đóng
   // tab/tắt máy giữa chừng) — trước đây mọi tiến trình chỉ nằm trong state trình duyệt nên tắt đi là
@@ -820,6 +850,7 @@ export default function MiniAppDetailPage() {
           setStoryCharacterImages(job.characterImageUrls);
         }
         if (job.locationReferenceUrl) setStoryLocationReference(job.locationReferenceUrl);
+        if (job.locationReferenceMaskUrl) setStoryLocationReferenceMaskUrl(job.locationReferenceMaskUrl);
         setStoryRunning(true);
         setStoryStatusText("Đang khôi phục công việc đang làm dở...");
         try {
@@ -1043,6 +1074,56 @@ export default function MiniAppDetailPage() {
     }
   }
 
+  // Sinh ảnh mask đen/trắng cùng kích thước ẢNH GỐC (naturalW/naturalH) từ 1 vùng chữ nhật đã khoanh
+  // (toạ độ chuẩn hoá 0..1) — trắng = đặt nhân vật vào đây, đen = giữ nguyên (đúng quy ước mask_url của
+  // GPT Image 2 Edit). Dùng PNG (không nén mất dữ liệu) để giữ đúng biên trắng/đen sắc nét.
+  function generateLocationMaskDataUrl(rect: { x: number; y: number; w: number; h: number }, naturalW: number, naturalH: number): string {
+    const canvas = document.createElement("canvas");
+    canvas.width = naturalW;
+    canvas.height = naturalH;
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, naturalW, naturalH);
+    ctx.fillStyle = "white";
+    ctx.fillRect(rect.x * naturalW, rect.y * naturalH, rect.w * naturalW, rect.h * naturalH);
+    return canvas.toDataURL("image/png");
+  }
+
+  function handleLocationMaskPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    const bounds = e.currentTarget.getBoundingClientRect();
+    const x = Math.min(Math.max((e.clientX - bounds.left) / bounds.width, 0), 1);
+    const y = Math.min(Math.max((e.clientY - bounds.top) / bounds.height, 0), 1);
+    storyLocationMaskDragStartRef.current = { x, y };
+    setStoryLocationMaskRect({ x, y, w: 0, h: 0 });
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function handleLocationMaskPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    const start = storyLocationMaskDragStartRef.current;
+    if (!start) return;
+    const bounds = e.currentTarget.getBoundingClientRect();
+    const x = Math.min(Math.max((e.clientX - bounds.left) / bounds.width, 0), 1);
+    const y = Math.min(Math.max((e.clientY - bounds.top) / bounds.height, 0), 1);
+    setStoryLocationMaskRect({ x: Math.min(start.x, x), y: Math.min(start.y, y), w: Math.abs(x - start.x), h: Math.abs(y - start.y) });
+  }
+
+  function handleLocationMaskPointerUp() {
+    storyLocationMaskDragStartRef.current = null;
+  }
+
+  function handleConfirmLocationMask() {
+    if (!storyLocationMaskRect || !storyLocationImageNaturalSize) return;
+    if (storyLocationMaskRect.w < 0.02 || storyLocationMaskRect.h < 0.02) return; // vùng quá nhỏ, coi như chưa chọn
+    const dataUrl = generateLocationMaskDataUrl(storyLocationMaskRect, storyLocationImageNaturalSize.w, storyLocationImageNaturalSize.h);
+    setStoryLocationReferenceMaskUrl(dataUrl);
+    setStoryLocationMaskEditorOpen(false);
+  }
+
+  function handleClearLocationMask() {
+    setStoryLocationReferenceMaskUrl(null);
+    setStoryLocationMaskRect(null);
+  }
+
   async function uploadOutfitSwapImage(dataUrl: string): Promise<string> {
     const res = await fetch("/api/outfit-swap/upload", {
       method: "POST",
@@ -1174,6 +1255,7 @@ export default function MiniAppDetailPage() {
         if (data.characterSource) setStoryCharacterSource(data.characterSource);
         setStoryJobCharacters(Array.isArray(data.characters) ? data.characters : null);
         if (data.locationReferenceUrl) setStoryLocationReference(data.locationReferenceUrl);
+        if (data.locationReferenceMaskUrl) setStoryLocationReferenceMaskUrl(data.locationReferenceMaskUrl);
 
         if (data.status === "done" && data.outputUrl) {
           if (storyPollRef.current) clearInterval(storyPollRef.current);
@@ -1714,6 +1796,7 @@ export default function MiniAppDetailPage() {
         }[]
       | undefined;
     let locationReferenceUrl: string | undefined;
+    let locationReferenceMaskUrl: string | undefined;
     if (!reuseId || storyPrimaryItemReferences.length > 0 || hasMultipleCharacters || storyLocationReference) {
       setStoryStatusText("Đang tải ảnh lên...");
       try {
@@ -1722,7 +1805,8 @@ export default function MiniAppDetailPage() {
         // trước xong mới bắt đầu dù hoàn toàn độc lập với nhau, cộng dồn thời gian chờ (vd 4 khối x
         // ~2-3s = 8-12s+), khiến khách cảm thấy "tải ảnh lâu". Giờ chạy song song, tổng thời gian chỉ
         // còn bằng khối chậm nhất thay vì tổng cả 4 khối.
-        const [characterImageUrlsResult, primaryItemReferenceUrlsResult, extraUploaded, locationReferenceUrlResult] = await Promise.all([
+        const [characterImageUrlsResult, primaryItemReferenceUrlsResult, extraUploaded, locationReferenceUrlResult, locationReferenceMaskUrlResult] =
+          await Promise.all([
           // Ảnh đã có URL thật (vd job dở dang được khôi phục) thì dùng thẳng, chỉ upload ảnh base64 mới.
           !reuseId
             ? Promise.all(images.map((img) => (img.startsWith("http") ? img : uploadOutfitSwapImage(img))))
@@ -1759,6 +1843,14 @@ export default function MiniAppDetailPage() {
               ? Promise.resolve(storyLocationReference)
               : uploadOutfitSwapImage(storyLocationReference)
             : Promise.resolve(undefined),
+          // Vị trí đứng chính xác (mask đen/trắng, xem storyLocationReferenceMaskUrl) — mirror đúng cách
+          // tải ảnh Bối cảnh ở trên: dùng thẳng nếu đã là URL thật (job khôi phục dở dang), tải lên nếu
+          // là data URL PNG vừa sinh ra ở trình duyệt.
+          storyLocationReferenceMaskUrl
+            ? storyLocationReferenceMaskUrl.startsWith("http")
+              ? Promise.resolve(storyLocationReferenceMaskUrl)
+              : uploadOutfitSwapImage(storyLocationReferenceMaskUrl)
+            : Promise.resolve(undefined),
         ]);
         characterImageUrls = characterImageUrlsResult;
         primaryItemReferenceUrls = primaryItemReferenceUrlsResult;
@@ -1776,6 +1868,7 @@ export default function MiniAppDetailPage() {
           ];
         }
         locationReferenceUrl = locationReferenceUrlResult;
+        locationReferenceMaskUrl = locationReferenceMaskUrlResult;
       } catch (err) {
         setStoryError(err instanceof Error ? err.message : "Không tải được ảnh lên, thử lại");
         setStoryRunning(false);
@@ -1811,6 +1904,7 @@ export default function MiniAppDetailPage() {
           genreKey: storyGenreKey !== "default" ? storyGenreKey : undefined,
           characters,
           locationReferenceUrl,
+          locationReferenceMaskUrl,
           itemReferenceUrls: primaryItemReferenceUrls,
           continuousMotion: storyContinuousMotion,
           frameChainMode: storyFrameChainMode,
@@ -3764,9 +3858,16 @@ export default function MiniAppDetailPage() {
                           Đang có ảnh vật phẩm — chỉ hiện model hỗ trợ nhiều ảnh tham chiếu (nếu không, vật phẩm sẽ bị bỏ qua).
                         </p>
                       )}
+                      {storyLocationReferenceMaskUrl && (
+                        <p className="mb-2 text-sm text-zinc-400 dark:text-zinc-500">
+                          Đã chọn vị trí đứng chính xác trong ảnh Bối cảnh — chỉ hiện model hỗ trợ đặt đúng vị trí (GPT Image 2
+                          Edit).
+                        </p>
+                      )}
                       {(() => {
-                        const availableImageModels =
-                          storyExtraCharacters.length > 0 || storyPrimaryItemReferences.length > 0
+                        const availableImageModels = storyLocationReferenceMaskUrl
+                          ? storyImageModels.filter((m) => m.model === "fal-ai/gpt-image-2/edit")
+                          : storyExtraCharacters.length > 0 || storyPrimaryItemReferences.length > 0
                             ? storyImageModels.filter((m) => m.multi_image)
                             : storyImageModels;
                         const selected = availableImageModels.find((m) => m.key === storyImageModelKey);
@@ -4058,15 +4159,28 @@ export default function MiniAppDetailPage() {
                         src={storyLocationReference}
                         alt="Bối cảnh/Địa điểm"
                         onClick={() => setStoryQuickZoomUrl(storyLocationReference)}
+                        onLoad={(e) => {
+                          const el = e.currentTarget;
+                          setStoryLocationImageNaturalSize({ w: el.naturalWidth, h: el.naturalHeight });
+                        }}
                         className="h-full w-full cursor-zoom-in rounded-lg object-cover"
                         title="Bấm để xem to"
                       />
                       <button
-                        onClick={() => setStoryLocationReference(null)}
+                        onClick={() => {
+                          setStoryLocationReference(null);
+                          handleClearLocationMask();
+                          setStoryLocationImageNaturalSize(null);
+                        }}
                         className="absolute -right-2 -top-2 rounded-full bg-black/70 px-2 py-1 text-xs font-medium text-white hover:bg-black/90"
                       >
                         ✕
                       </button>
+                      {storyLocationReferenceMaskUrl && (
+                        <span className="absolute bottom-1 left-1 rounded-full bg-emerald-600/90 px-2 py-0.5 text-xs font-medium text-white">
+                          ✓ Đã chọn vị trí
+                        </span>
+                      )}
                     </div>
                   ) : (
                     <label
@@ -4082,12 +4196,86 @@ export default function MiniAppDetailPage() {
                           const file = e.target.files?.[0];
                           e.target.value = "";
                           if (!file) return;
+                          handleClearLocationMask();
+                          setStoryLocationImageNaturalSize(null);
                           compressImageFile(file).then((dataUrl) => setStoryLocationReference(dataUrl));
                         }}
                       />
                     </label>
                   )}
                 </div>
+
+                {storyLocationReference && (
+                  <div className="mt-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => setStoryLocationMaskEditorOpen((v) => !v)}
+                        className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                      >
+                        {storyLocationMaskEditorOpen ? "Đóng" : storyLocationReferenceMaskUrl ? "🎯 Chọn lại vị trí đứng" : "🎯 Chọn vị trí đứng"}
+                      </button>
+                      {storyLocationReferenceMaskUrl && (
+                        <button
+                          onClick={handleClearLocationMask}
+                          className="text-sm font-medium text-zinc-500 hover:text-red-600 dark:text-zinc-400 dark:hover:text-red-400"
+                        >
+                          Bỏ vị trí đã chọn
+                        </button>
+                      )}
+                    </div>
+                    <p className="mt-1 text-sm text-zinc-400 dark:text-zinc-500">
+                      Tuỳ chọn — kéo chuột chọn đúng chỗ muốn nhân vật đứng trong ảnh Bối cảnh (chỉ hoạt động với model GPT
+                      Image 2 Edit, app sẽ tự chuyển model nếu cần).
+                    </p>
+                    {storyLocationMaskEditorOpen && (
+                      <div className="mt-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800">
+                        <div
+                          className="relative mx-auto w-full max-w-md cursor-crosshair touch-none select-none overflow-hidden rounded-lg bg-black/10"
+                          style={{
+                            aspectRatio: storyLocationImageNaturalSize
+                              ? `${storyLocationImageNaturalSize.w} / ${storyLocationImageNaturalSize.h}`
+                              : storyAspectRatio.replace(":", " / "),
+                          }}
+                          onPointerDown={handleLocationMaskPointerDown}
+                          onPointerMove={handleLocationMaskPointerMove}
+                          onPointerUp={handleLocationMaskPointerUp}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={storyLocationReference} alt="Chọn vị trí đứng" className="pointer-events-none h-full w-full object-contain" draggable={false} />
+                          {storyLocationMaskRect && (
+                            <div
+                              className="pointer-events-none absolute border-2 border-emerald-400 bg-emerald-400/25"
+                              style={{
+                                left: `${storyLocationMaskRect.x * 100}%`,
+                                top: `${storyLocationMaskRect.y * 100}%`,
+                                width: `${storyLocationMaskRect.w * 100}%`,
+                                height: `${storyLocationMaskRect.h * 100}%`,
+                              }}
+                            />
+                          )}
+                        </div>
+                        <div className="mt-2 flex items-center gap-2">
+                          <button
+                            onClick={handleConfirmLocationMask}
+                            disabled={!storyLocationMaskRect || storyLocationMaskRect.w < 0.02 || storyLocationMaskRect.h < 0.02}
+                            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-40"
+                          >
+                            Xác nhận vị trí
+                          </button>
+                          <button
+                            onClick={() => {
+                              setStoryLocationMaskRect(null);
+                              setStoryLocationMaskEditorOpen(false);
+                            }}
+                            className="text-sm font-medium text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100"
+                          >
+                            Huỷ
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Hàng 6: Ảnh phân cảnh (full width) */}

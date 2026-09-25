@@ -460,6 +460,10 @@ type JobRow = {
   character_angle_urls: CharacterAngleUrls | null;
   genre_key: string | null;
   location_reference_url: string | null;
+  // Vị trí đứng chính xác trong ảnh location_reference_url — ảnh mask cùng kích thước (trắng = đặt nhân
+  // vật vào đây, đen = giữ nguyên) do khách khoanh vùng ở frontend. Chỉ có tác dụng khi image_model là
+  // "fal-ai/gpt-image-2/edit" (model duy nhất hỗ trợ mask_url, xem buildImageRequestBody).
+  location_reference_mask_url: string | null;
   item_reference_url: string | null;
   item_reference_urls: string[] | null;
   continuous_motion: boolean;
@@ -667,13 +671,20 @@ function buildImageRequestBody(
   characterImageUrls: string[],
   multiImage: boolean,
   aspectRatio: string,
-  resolutionKey?: string
+  resolutionKey?: string,
+  // Vị trí đứng chính xác trong ảnh Bối cảnh/Địa điểm (xem resolveCharacterPhotoDirectlyUrl-style chú
+  // thích ở nơi gọi) — CHỈ có tác dụng thật với "fal-ai/gpt-image-2/edit" (model DUY NHẤT trong catalog
+  // hỗ trợ tham số mask_url theo tài liệu fal.ai đã tra: vùng TRẮNG = được sửa/đặt nhân vật vào, vùng
+  // ĐEN = giữ nguyên pixel gốc, mask phải cùng kích thước ảnh gốc). Model khác im lặng bỏ qua tham số
+  // này (không throw lỗi) — nơi gọi đã tự kiểm tra đúng model trước khi truyền vào.
+  maskUrl?: string
 ): Record<string, unknown> {
   const body: Record<string, unknown> = { prompt };
   if (multiImage) body.image_urls = characterImageUrls;
   else body.image_url = characterImageUrls[0];
 
   if (model === "fal-ai/gpt-image-2/edit") {
+    if (maskUrl) body.mask_url = maskUrl;
     if (resolutionKey === "4K") {
       if (aspectRatio === "16:9") body.image_size = { width: 3840, height: 2160 };
       else if (aspectRatio === "9:16") body.image_size = { width: 2160, height: 3840 };
@@ -1680,6 +1691,7 @@ type SceneStageInput = Pick<
   | "character_angle_urls"
   | "genre_key"
   | "location_reference_url"
+  | "location_reference_mask_url"
   | "item_reference_urls"
   | "continuous_motion"
   | "frame_chain_mode"
@@ -1754,6 +1766,7 @@ async function submitSceneImageForRow(
     | "aspect_ratio"
     | "image_resolution_key"
     | "location_reference_url"
+    | "location_reference_mask_url"
     | "item_reference_urls"
   >,
   row: ImageSceneRefRow,
@@ -1797,6 +1810,10 @@ async function submitSceneImageForRow(
   const itemUrls = (imageEntry?.multi_image ?? false) ? (job.item_reference_urls ?? []) : [];
   const hasItem = itemUrls.length > 0;
   const hasLocation = !chainedFrameUrl && !!job.location_reference_url && (imageEntry?.multi_image ?? false);
+  // Vị trí đứng chính xác (mask) — chỉ áp dụng khi có ảnh Bối cảnh + đã khoanh vùng + model đang chọn
+  // THẬT SỰ hỗ trợ mask_url (chỉ "fal-ai/gpt-image-2/edit", xem buildImageRequestBody). Model khác vẫn
+  // dùng ảnh Bối cảnh như tham chiếu chung (hasLocation), chỉ là không có mask định vị chính xác.
+  const hasLocationMask = hasLocation && !!job.location_reference_mask_url && job.image_model === "fal-ai/gpt-image-2/edit";
   const referenceImages = [...characterImages];
   if (hasItem) referenceImages.push(...itemUrls);
   if (hasLocation) referenceImages.push(job.location_reference_url as string);
@@ -1875,7 +1892,9 @@ async function submitSceneImageForRow(
   });
   if (hasLocation) {
     const idx = characterImages.length + itemUrls.length + 1;
-    scenePrompt += ` Reference image #${idx} shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
+    scenePrompt += hasLocationMask
+      ? ` Reference image #${idx} shows a REAL physical location, together with an inpainting mask (provided via mask_url) that marks EXACTLY where to place the character within that location: the WHITE area of the mask is where the character must stand/be positioned, the BLACK area must remain pixel-identical to reference image #${idx} — do not alter, redraw, move, or crop anything outside the white masked area. Preserve the real location's appearance (layout, colors, decor, lighting) accurately everywhere outside the masked area.`
+      : ` Reference image #${idx} shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
   }
   // Ép ảnh chụp thật — model dễ ngả sang phong cách minh hoạ/tranh vẽ khi scene_description dùng
   // ngôn từ giàu chất thơ (hoàng hôn, khu vườn hoa...) mà không có chỉ dẫn phong cách hình ảnh rõ ràng.
@@ -1908,7 +1927,8 @@ async function submitSceneImageForRow(
     referenceImages,
     imageEntry?.multi_image ?? false,
     job.aspect_ratio ?? "9:16",
-    job.image_resolution_key ?? undefined
+    job.image_resolution_key ?? undefined,
+    hasLocationMask ? (job.location_reference_mask_url as string) : undefined
   );
   return submitFalJob(
     job.image_model as string,
@@ -1961,7 +1981,10 @@ type MultiCharacterSceneRefRow = {
 // previousEndPose (Scene State — chỉ nhánh không continuousMotion mới truyền vào): xem
 // buildContinuityPrefix() ở submitSceneImageForRow (cùng cơ chế, dùng chung).
 async function submitMultiCharacterSceneImageForRow(
-  job: Pick<JobRow, "id" | "mini_app_id" | "image_model" | "aspect_ratio" | "image_resolution_key" | "location_reference_url">,
+  job: Pick<
+    JobRow,
+    "id" | "mini_app_id" | "image_model" | "aspect_ratio" | "image_resolution_key" | "location_reference_url" | "location_reference_mask_url"
+  >,
   row: MultiCharacterSceneRefRow,
   jobCharacters: JobCharacterRefRow[],
   imageEntry: ImageModelEntry | undefined,
@@ -1982,6 +2005,9 @@ async function submitMultiCharacterSceneImageForRow(
   // Ảnh Bối cảnh/Địa điểm (tuỳ chọn, dùng chung cho cả job) — nối THÊM vào cuối cùng, sau ảnh vật
   // phẩm. Chỉ gửi khi model thật sự hỗ trợ đa ảnh, không thì im lặng bỏ qua.
   const hasLocation = !!job.location_reference_url && supportsMultiImage;
+  // Vị trí đứng chính xác (mask) — mirror đúng logic đã thêm cho luồng 1 nhân vật (xem
+  // submitSceneImageForRow), chỉ áp dụng khi model đang chọn THẬT SỰ hỗ trợ mask_url.
+  const hasLocationMask = hasLocation && !!job.location_reference_mask_url && job.image_model === "fal-ai/gpt-image-2/edit";
   const referenceImages = [
     ...refs.map((r) => r.url),
     ...itemRefs.map((r) => r.url),
@@ -2004,7 +2030,9 @@ async function submitMultiCharacterSceneImageForRow(
     scenePrompt += ` Reference image #${idx} is a REAL photo of one of ${r.label}'s own physical items — this is not a generic example, it is the customer's actual item. ${r.label} should be shown wearing/holding/using this exact item throughout this scene (e.g. on their feet if it's shoes, on their shoulder if it's a bag) — do NOT omit it just because the scene description does not explicitly mention it in words; only leave it out if the scene description explicitly describes a contrary situation (e.g. barefoot, item set aside). When shown, you MUST copy this exact real item's appearance precisely: same color, same shape/silhouette, same pattern/design details, same material/texture — exactly as shown in reference image #${idx}. Do NOT substitute a different color, a different style, a generic or similar-looking version, or any item that merely resembles it. If it is worn (e.g. shoes, a hat, an accessory), render it properly fitted and positioned on ${r.label}'s body at the correct real-world size and angle — not floating, not misaligned, not oversized or undersized — as if actually and naturally worn.`;
   });
   if (hasLocation) {
-    scenePrompt += ` The LAST reference image shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
+    scenePrompt += hasLocationMask
+      ? ` The LAST reference image shows a REAL physical location, together with an inpainting mask (provided via mask_url) that marks EXACTLY where to place the character(s) within that location: the WHITE area of the mask is where the character(s) must stand/be positioned, the BLACK area must remain pixel-identical to that reference image — do not alter, redraw, move, or crop anything outside the white masked area. Preserve the real location's appearance (layout, colors, decor, lighting) accurately everywhere outside the masked area.`
+      : ` The LAST reference image shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
   }
   // Mirror đúng 2 câu chỉ dẫn đã thêm cho luồng 1 nhân vật (xem submitSceneImageForRow) — cùng nguyên
   // nhân lỗi (model tự bịa trang phục khác/gương vẽ sai mặt) cũng có thể xảy ra ở luồng nhiều nhân vật.
@@ -2027,7 +2055,8 @@ async function submitMultiCharacterSceneImageForRow(
     referenceImages,
     imageEntry?.multi_image ?? false,
     job.aspect_ratio ?? "9:16",
-    job.image_resolution_key ?? undefined
+    job.image_resolution_key ?? undefined,
+    hasLocationMask ? (job.location_reference_mask_url as string) : undefined
   );
   return submitFalJob(
     job.image_model as string,
@@ -2286,6 +2315,10 @@ export async function submitStoryVideoJob(
   genreKey?: string,
   characters?: MultiCharacterInput[],
   locationReferenceUrl?: string,
+  // Vị trí đứng chính xác (mask) — chỉ có tác dụng khi có locationReferenceUrl VÀ model ảnh đang chọn
+  // hỗ trợ mask_url (xem buildImageRequestBody). Khách khoanh vùng ở frontend, tự sinh ảnh mask cùng
+  // kích thước ảnh Bối cảnh gốc rồi tải lên, gửi URL đó vào đây.
+  locationReferenceMaskUrl?: string,
   continuousMotion?: boolean,
   // Frame-chaining (chỉ luồng 1 nhân vật ở v1, xem applyFrameChainVideoResult) — bỏ qua hoàn toàn nếu
   // job rơi vào nhánh nhiều nhân vật bên dưới.
@@ -2339,6 +2372,7 @@ export async function submitStoryVideoJob(
       idempotencyKey,
       resolvedGenreKey,
       locationReferenceUrl,
+      locationReferenceMaskUrl,
       continuousMotion,
       frameChainMode,
       preplannedActionsMulti
@@ -2391,6 +2425,7 @@ export async function submitStoryVideoJob(
       video_provider_cost_vnd_per_scene: videoProviderCostVnd,
       genre_key: resolvedGenreKey,
       location_reference_url: locationReferenceUrl ?? null,
+      location_reference_mask_url: locationReferenceMaskUrl ?? null,
       item_reference_urls: normalizeItemReferenceUrls(itemReferenceUrls),
       continuous_motion: continuousMotion === true,
       frame_chain_mode: frameChainMode === true,
@@ -2419,6 +2454,7 @@ export async function submitStoryVideoJob(
     character_angle_urls: null,
     genre_key: resolvedGenreKey,
     location_reference_url: locationReferenceUrl ?? null,
+    location_reference_mask_url: locationReferenceMaskUrl ?? null,
     item_reference_urls: normalizeItemReferenceUrls(itemReferenceUrls),
     continuous_motion: continuousMotion === true,
     frame_chain_mode: frameChainMode === true,
@@ -2579,6 +2615,8 @@ async function submitMultiCharacterStoryVideoJob(
   idempotencyKey: string,
   resolvedGenreKey: string | null,
   locationReferenceUrl?: string,
+  // Mirror đúng tham số cùng tên của submitStoryVideoJob (luồng 1 nhân vật) — xem submitStoryVideoJob.
+  locationReferenceMaskUrl?: string,
   continuousMotion?: boolean,
   // Frame-chaining (dẫn trạng thái qua khung hình THẬT) — mirror đúng tham số cùng tên của
   // submitStoryVideoJob (luồng 1 nhân vật). applyFrameChainImageResult/applyFrameChainVideoResult ở
@@ -2695,6 +2733,7 @@ async function submitMultiCharacterStoryVideoJob(
       video_provider_cost_vnd_per_scene: videoProviderCostVnd,
       genre_key: resolvedGenreKey,
       location_reference_url: locationReferenceUrl ?? null,
+      location_reference_mask_url: locationReferenceMaskUrl ?? null,
       continuous_motion: continuousMotion === true,
       frame_chain_mode: frameChainMode === true,
       // Lưu lại để continueStoryVideoToSceneStage (chạy sau, khi Character phải tạo mới qua webhook)
@@ -4514,6 +4553,7 @@ async function checkFrameChainIdentity(
     | "character_sheet_url"
     | "character_angle_urls"
     | "location_reference_url"
+    | "location_reference_mask_url"
     | "item_reference_urls"
   >
 ): Promise<boolean> {
@@ -4601,7 +4641,7 @@ async function applyFrameChainImageResult(jobId: number, sceneId: number) {
   const { data: job } = await supabase
     .from("story_video_jobs")
     .select(
-      "id, user_id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url, item_reference_urls, story_description, genre_key, video_provider_cost_vnd_per_scene"
+      "id, user_id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url, location_reference_mask_url, item_reference_urls, story_description, genre_key, video_provider_cost_vnd_per_scene"
     )
     .eq("id", jobId)
     .single();
@@ -4756,7 +4796,7 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
     const { data: job } = await supabase
       .from("story_video_jobs")
       .select(
-        "id, user_id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url, item_reference_urls, story_description, genre_key, video_provider_cost_vnd_per_scene"
+        "id, user_id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url, location_reference_mask_url, item_reference_urls, story_description, genre_key, video_provider_cost_vnd_per_scene"
       )
       .eq("id", jobId)
       .single();

@@ -49,6 +49,7 @@ export async function POST(req: Request) {
     genreKey,
     characters,
     locationReferenceUrl,
+    locationReferenceMaskUrl,
     itemReferenceUrls,
     continuousMotion,
     frameChainMode,
@@ -188,6 +189,7 @@ export async function POST(req: Request) {
       typeof genreKey === "string" ? genreKey : undefined,
       parsedCharacters,
       typeof locationReferenceUrl === "string" && locationReferenceUrl ? locationReferenceUrl : undefined,
+      typeof locationReferenceMaskUrl === "string" && locationReferenceMaskUrl ? locationReferenceMaskUrl : undefined,
       // Frame-chaining và chuyển động liên tục (FLFV) loại trừ nhau — 2 cơ chế nối cảnh khác nhau,
       // không thể bật cùng lúc. frameChainMode ưu tiên nếu khách lỡ bật cả 2. Áp dụng cho cả luồng 1
       // lẫn nhiều nhân vật (submitMultiCharacterStoryVideoJob/runMultiCharacterSceneStage đã hỗ trợ).
