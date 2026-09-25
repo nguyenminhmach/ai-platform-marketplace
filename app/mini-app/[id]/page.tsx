@@ -241,6 +241,16 @@ export default function MiniAppDetailPage() {
   const [storyLocationMaskEditorOpen, setStoryLocationMaskEditorOpen] = useState(false);
   const [storyLocationImageNaturalSize, setStoryLocationImageNaturalSize] = useState<{ w: number; h: number } | null>(null);
   const storyLocationMaskDragStartRef = useRef<{ x: number; y: number } | null>(null);
+  // NHIỀU nhân vật, NHIỀU vị trí trong CÙNG 1 ảnh Bối cảnh — mỗi phần tử gán 1 vùng cho đúng 1 nhân
+  // vật (characterPosition khớp story_video_job_characters.position). storyLocationReferenceMaskUrl
+  // vẫn là ẢNH MASK DUY NHẤT (gộp mọi vùng trắng lại) — mảng này chỉ để biết vùng nào của ai, dùng
+  // sinh mask tổng hợp + gửi lên server viết chỉ dẫn văn bản (xem lib/story-video.ts:
+  // describeMaskZonePosition). Chỉ có ý nghĩa khi có từ 2 nhân vật trở lên (storyExtraCharacters.length>0).
+  const [storyLocationMaskAssignments, setStoryLocationMaskAssignments] = useState<
+    { characterPosition: number; rect: { x: number; y: number; w: number; h: number } }[]
+  >([]);
+  const [storyLocationMaskActiveCharacter, setStoryLocationMaskActiveCharacter] = useState<number>(0);
+  const STORY_MASK_ZONE_COLORS = ["#10b981", "#0ea5e9", "#f59e0b", "#d946ef"]; // emerald/sky/amber/fuchsia, theo đúng thứ tự position 0..3
   // Ảnh THẬT của tối đa MAX_ITEM_REFERENCES vật phẩm riêng của nhân vật #1 (đôi giày, túi xách, đồng
   // hồ...) — tuỳ chọn, mỗi nhân vật (kể cả nhân vật #2+ trong storyExtraCharacters) có ô riêng, không
   // dùng chung cho cả job như địa điểm — xem chú thích itemReferenceUrls trong lib/story-video.ts.
@@ -851,6 +861,7 @@ export default function MiniAppDetailPage() {
         }
         if (job.locationReferenceUrl) setStoryLocationReference(job.locationReferenceUrl);
         if (job.locationReferenceMaskUrl) setStoryLocationReferenceMaskUrl(job.locationReferenceMaskUrl);
+        restoreLocationMaskZones(job.locationReferenceMaskZones);
         setStoryRunning(true);
         setStoryStatusText("Đang khôi phục công việc đang làm dở...");
         try {
@@ -1074,10 +1085,16 @@ export default function MiniAppDetailPage() {
     }
   }
 
-  // Sinh ảnh mask đen/trắng cùng kích thước ẢNH GỐC (naturalW/naturalH) từ 1 vùng chữ nhật đã khoanh
-  // (toạ độ chuẩn hoá 0..1) — trắng = đặt nhân vật vào đây, đen = giữ nguyên (đúng quy ước mask_url của
-  // GPT Image 2 Edit). Dùng PNG (không nén mất dữ liệu) để giữ đúng biên trắng/đen sắc nét.
-  function generateLocationMaskDataUrl(rect: { x: number; y: number; w: number; h: number }, naturalW: number, naturalH: number): string {
+  // Sinh ảnh mask đen/trắng cùng kích thước ẢNH GỐC (naturalW/naturalH) từ N vùng chữ nhật đã khoanh
+  // (toạ độ chuẩn hoá 0..1, mỗi vùng ứng với 1 nhân vật) — TẤT CẢ vùng đều tô trắng chung 1 ảnh (mask
+  // không tự phân biệt vùng nào cho ai, xem lib/story-video.ts: describeMaskZonePosition dùng toạ độ
+  // riêng để viết chỉ dẫn văn bản gán từng vùng cho đúng người). Dùng PNG (không nén mất dữ liệu) để
+  // giữ đúng biên trắng/đen sắc nét.
+  function generateLocationMaskDataUrl(
+    rects: { x: number; y: number; w: number; h: number }[],
+    naturalW: number,
+    naturalH: number
+  ): string {
     const canvas = document.createElement("canvas");
     canvas.width = naturalW;
     canvas.height = naturalH;
@@ -1085,7 +1102,7 @@ export default function MiniAppDetailPage() {
     ctx.fillStyle = "black";
     ctx.fillRect(0, 0, naturalW, naturalH);
     ctx.fillStyle = "white";
-    ctx.fillRect(rect.x * naturalW, rect.y * naturalH, rect.w * naturalW, rect.h * naturalH);
+    rects.forEach((rect) => ctx.fillRect(rect.x * naturalW, rect.y * naturalH, rect.w * naturalW, rect.h * naturalH));
     return canvas.toDataURL("image/png");
   }
 
@@ -1111,10 +1128,49 @@ export default function MiniAppDetailPage() {
     storyLocationMaskDragStartRef.current = null;
   }
 
+  // 1 nhân vật (mặc định) — giữ đúng luồng cũ, đơn giản: vẽ xong 1 vùng, bấm là xong ngay, không cần
+  // bước "Lưu vị trí" trung gian như luồng nhiều nhân vật bên dưới.
   function handleConfirmLocationMask() {
     if (!storyLocationMaskRect || !storyLocationImageNaturalSize) return;
     if (storyLocationMaskRect.w < 0.02 || storyLocationMaskRect.h < 0.02) return; // vùng quá nhỏ, coi như chưa chọn
-    const dataUrl = generateLocationMaskDataUrl(storyLocationMaskRect, storyLocationImageNaturalSize.w, storyLocationImageNaturalSize.h);
+    const dataUrl = generateLocationMaskDataUrl([storyLocationMaskRect], storyLocationImageNaturalSize.w, storyLocationImageNaturalSize.h);
+    setStoryLocationReferenceMaskUrl(dataUrl);
+    setStoryLocationMaskEditorOpen(false);
+  }
+
+  // NHIỀU nhân vật — lưu vùng vừa vẽ cho ĐÚNG nhân vật đang chọn (storyLocationMaskActiveCharacter),
+  // ghi đè nếu người đó đã có vùng trước đó, rồi tự chuyển sang nhân vật kế tiếp CHƯA có vùng (nếu
+  // còn) để khách không phải tự bấm chọn từng người theo đúng thứ tự.
+  function handleSaveLocationMaskAssignment(characterOptions: { position: number; label: string }[]) {
+    if (!storyLocationMaskRect) return;
+    if (storyLocationMaskRect.w < 0.02 || storyLocationMaskRect.h < 0.02) return;
+    const rect = storyLocationMaskRect;
+    setStoryLocationMaskAssignments((prev) => [
+      ...prev.filter((a) => a.characterPosition !== storyLocationMaskActiveCharacter),
+      { characterPosition: storyLocationMaskActiveCharacter, rect },
+    ]);
+    setStoryLocationMaskRect(null);
+    const assignedPositions = new Set([...storyLocationMaskAssignments.map((a) => a.characterPosition), storyLocationMaskActiveCharacter]);
+    const next = characterOptions.find((c) => !assignedPositions.has(c.position));
+    if (next) setStoryLocationMaskActiveCharacter(next.position);
+  }
+
+  function handleRemoveLocationMaskAssignment(characterPosition: number) {
+    setStoryLocationMaskAssignments((prev) => prev.filter((a) => a.characterPosition !== characterPosition));
+  }
+
+  // Gộp mọi vùng đã "Lưu vị trí" thành 1 ảnh mask duy nhất, đóng khung chọn — dùng cho luồng NHIỀU
+  // nhân vật (nút "Xong"). Không làm gì nếu chưa gán vùng nào (giữ nguyên mask cũ nếu có, hoặc vẫn null).
+  function handleFinishLocationMask() {
+    if (storyLocationMaskAssignments.length === 0 || !storyLocationImageNaturalSize) {
+      setStoryLocationMaskEditorOpen(false);
+      return;
+    }
+    const dataUrl = generateLocationMaskDataUrl(
+      storyLocationMaskAssignments.map((a) => a.rect),
+      storyLocationImageNaturalSize.w,
+      storyLocationImageNaturalSize.h
+    );
     setStoryLocationReferenceMaskUrl(dataUrl);
     setStoryLocationMaskEditorOpen(false);
   }
@@ -1122,6 +1178,21 @@ export default function MiniAppDetailPage() {
   function handleClearLocationMask() {
     setStoryLocationReferenceMaskUrl(null);
     setStoryLocationMaskRect(null);
+    setStoryLocationMaskAssignments([]);
+    setStoryLocationMaskActiveCharacter(0);
+  }
+
+  // Khôi phục job dở dang — dựng lại storyLocationMaskAssignments từ dữ liệu server (chỉ có ở job
+  // nhiều nhân vật) để khách "Chọn lại vị trí đứng" vẫn thấy đúng các vùng đã gán trước đó.
+  function restoreLocationMaskZones(zones: unknown) {
+    if (!Array.isArray(zones)) return;
+    const assignments = zones
+      .filter(
+        (z): z is { position: number; xPct: number; yPct: number; wPct: number; hPct: number } =>
+          !!z && typeof z === "object" && typeof (z as Record<string, unknown>).position === "number"
+      )
+      .map((z) => ({ characterPosition: z.position, rect: { x: z.xPct, y: z.yPct, w: z.wPct, h: z.hPct } }));
+    if (assignments.length > 0) setStoryLocationMaskAssignments(assignments);
   }
 
   async function uploadOutfitSwapImage(dataUrl: string): Promise<string> {
@@ -1256,6 +1327,7 @@ export default function MiniAppDetailPage() {
         setStoryJobCharacters(Array.isArray(data.characters) ? data.characters : null);
         if (data.locationReferenceUrl) setStoryLocationReference(data.locationReferenceUrl);
         if (data.locationReferenceMaskUrl) setStoryLocationReferenceMaskUrl(data.locationReferenceMaskUrl);
+        restoreLocationMaskZones(data.locationReferenceMaskZones);
 
         if (data.status === "done" && data.outputUrl) {
           if (storyPollRef.current) clearInterval(storyPollRef.current);
@@ -1905,6 +1977,18 @@ export default function MiniAppDetailPage() {
           characters,
           locationReferenceUrl,
           locationReferenceMaskUrl,
+          // Nhiều nhân vật, nhiều vị trí — chỉ có ý nghĩa khi job nhiều nhân vật (server tự bỏ qua khi
+          // không phải nhánh đó). Dữ liệu thuần toạ độ, không cần upload — gửi thẳng trong JSON.
+          locationReferenceMaskZones:
+            hasMultipleCharacters && storyLocationMaskAssignments.length > 0
+              ? storyLocationMaskAssignments.map((a) => ({
+                  position: a.characterPosition,
+                  xPct: a.rect.x,
+                  yPct: a.rect.y,
+                  wPct: a.rect.w,
+                  hPct: a.rect.h,
+                }))
+              : undefined,
           itemReferenceUrls: primaryItemReferenceUrls,
           continuousMotion: storyContinuousMotion,
           frameChainMode: storyFrameChainMode,
@@ -4227,53 +4311,150 @@ export default function MiniAppDetailPage() {
                       Tuỳ chọn — kéo chuột chọn đúng chỗ muốn nhân vật đứng trong ảnh Bối cảnh (chỉ hoạt động với model GPT
                       Image 2 Edit, app sẽ tự chuyển model nếu cần).
                     </p>
-                    {storyLocationMaskEditorOpen && (
-                      <div className="mt-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800">
-                        <div
-                          className="relative mx-auto w-full max-w-md cursor-crosshair touch-none select-none overflow-hidden rounded-lg bg-black/10"
-                          style={{
-                            aspectRatio: storyLocationImageNaturalSize
-                              ? `${storyLocationImageNaturalSize.w} / ${storyLocationImageNaturalSize.h}`
-                              : storyAspectRatio.replace(":", " / "),
-                          }}
-                          onPointerDown={handleLocationMaskPointerDown}
-                          onPointerMove={handleLocationMaskPointerMove}
-                          onPointerUp={handleLocationMaskPointerUp}
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={storyLocationReference} alt="Chọn vị trí đứng" className="pointer-events-none h-full w-full object-contain" draggable={false} />
-                          {storyLocationMaskRect && (
+                    {storyLocationMaskEditorOpen &&
+                      (() => {
+                        const maskCharacterOptions =
+                          storyExtraCharacters.length > 0
+                            ? [
+                                { position: 0, label: storyPrimaryCharacterLabel.trim() || "Nhân vật 1" },
+                                ...storyExtraCharacters.map((c, i) => ({ position: i + 1, label: c.label.trim() || `Nhân vật ${i + 2}` })),
+                              ]
+                            : [];
+                        const isMulti = maskCharacterOptions.length > 0;
+                        return (
+                          <div className="mt-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800">
+                            {isMulti && (
+                              <div className="mb-2 flex flex-wrap gap-2">
+                                {maskCharacterOptions.map((c) => {
+                                  const color = STORY_MASK_ZONE_COLORS[c.position % STORY_MASK_ZONE_COLORS.length];
+                                  const assigned = storyLocationMaskAssignments.some((a) => a.characterPosition === c.position);
+                                  const active = storyLocationMaskActiveCharacter === c.position;
+                                  return (
+                                    <button
+                                      key={c.position}
+                                      onClick={() => {
+                                        setStoryLocationMaskActiveCharacter(c.position);
+                                        setStoryLocationMaskRect(
+                                          storyLocationMaskAssignments.find((a) => a.characterPosition === c.position)?.rect ?? null
+                                        );
+                                      }}
+                                      className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-sm font-medium"
+                                      style={{
+                                        borderColor: color,
+                                        backgroundColor: active ? `${color}30` : "transparent",
+                                        color: active ? color : undefined,
+                                      }}
+                                    >
+                                      <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
+                                      {c.label}
+                                      {assigned && " ✓"}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
                             <div
-                              className="pointer-events-none absolute border-2 border-emerald-400 bg-emerald-400/25"
+                              className="relative mx-auto w-full max-w-md cursor-crosshair touch-none select-none overflow-hidden rounded-lg bg-black/10"
                               style={{
-                                left: `${storyLocationMaskRect.x * 100}%`,
-                                top: `${storyLocationMaskRect.y * 100}%`,
-                                width: `${storyLocationMaskRect.w * 100}%`,
-                                height: `${storyLocationMaskRect.h * 100}%`,
+                                aspectRatio: storyLocationImageNaturalSize
+                                  ? `${storyLocationImageNaturalSize.w} / ${storyLocationImageNaturalSize.h}`
+                                  : storyAspectRatio.replace(":", " / "),
                               }}
-                            />
-                          )}
-                        </div>
-                        <div className="mt-2 flex items-center gap-2">
-                          <button
-                            onClick={handleConfirmLocationMask}
-                            disabled={!storyLocationMaskRect || storyLocationMaskRect.w < 0.02 || storyLocationMaskRect.h < 0.02}
-                            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-40"
-                          >
-                            Xác nhận vị trí
-                          </button>
-                          <button
-                            onClick={() => {
-                              setStoryLocationMaskRect(null);
-                              setStoryLocationMaskEditorOpen(false);
-                            }}
-                            className="text-sm font-medium text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100"
-                          >
-                            Huỷ
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                              onPointerDown={handleLocationMaskPointerDown}
+                              onPointerMove={handleLocationMaskPointerMove}
+                              onPointerUp={handleLocationMaskPointerUp}
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={storyLocationReference}
+                                alt="Chọn vị trí đứng"
+                                className="pointer-events-none h-full w-full object-contain"
+                                draggable={false}
+                              />
+                              {isMulti &&
+                                storyLocationMaskAssignments
+                                  .filter((a) => a.characterPosition !== storyLocationMaskActiveCharacter)
+                                  .map((a) => (
+                                    <div
+                                      key={a.characterPosition}
+                                      className="pointer-events-none absolute border-2"
+                                      style={{
+                                        left: `${a.rect.x * 100}%`,
+                                        top: `${a.rect.y * 100}%`,
+                                        width: `${a.rect.w * 100}%`,
+                                        height: `${a.rect.h * 100}%`,
+                                        borderColor: STORY_MASK_ZONE_COLORS[a.characterPosition % STORY_MASK_ZONE_COLORS.length],
+                                        backgroundColor: `${STORY_MASK_ZONE_COLORS[a.characterPosition % STORY_MASK_ZONE_COLORS.length]}25`,
+                                      }}
+                                    />
+                                  ))}
+                              {storyLocationMaskRect && (
+                                <div
+                                  className="pointer-events-none absolute border-2"
+                                  style={{
+                                    left: `${storyLocationMaskRect.x * 100}%`,
+                                    top: `${storyLocationMaskRect.y * 100}%`,
+                                    width: `${storyLocationMaskRect.w * 100}%`,
+                                    height: `${storyLocationMaskRect.h * 100}%`,
+                                    borderColor: isMulti
+                                      ? STORY_MASK_ZONE_COLORS[storyLocationMaskActiveCharacter % STORY_MASK_ZONE_COLORS.length]
+                                      : "#34d399",
+                                    backgroundColor: isMulti
+                                      ? `${STORY_MASK_ZONE_COLORS[storyLocationMaskActiveCharacter % STORY_MASK_ZONE_COLORS.length]}40`
+                                      : "#34d39940",
+                                  }}
+                                />
+                              )}
+                            </div>
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                              {isMulti ? (
+                                <>
+                                  <button
+                                    onClick={() => handleSaveLocationMaskAssignment(maskCharacterOptions)}
+                                    disabled={!storyLocationMaskRect || storyLocationMaskRect.w < 0.02 || storyLocationMaskRect.h < 0.02}
+                                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-40"
+                                  >
+                                    Lưu vị trí cho{" "}
+                                    {maskCharacterOptions.find((c) => c.position === storyLocationMaskActiveCharacter)?.label}
+                                  </button>
+                                  <button
+                                    onClick={handleFinishLocationMask}
+                                    disabled={storyLocationMaskAssignments.length === 0}
+                                    className="rounded-lg border border-emerald-600 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-40 dark:text-emerald-400 dark:hover:bg-emerald-950"
+                                  >
+                                    Xong ({storyLocationMaskAssignments.length}/{maskCharacterOptions.length})
+                                  </button>
+                                  {storyLocationMaskAssignments.some((a) => a.characterPosition === storyLocationMaskActiveCharacter) && (
+                                    <button
+                                      onClick={() => handleRemoveLocationMaskAssignment(storyLocationMaskActiveCharacter)}
+                                      className="text-sm font-medium text-zinc-500 hover:text-red-600 dark:text-zinc-400 dark:hover:text-red-400"
+                                    >
+                                      Xoá vị trí người này
+                                    </button>
+                                  )}
+                                </>
+                              ) : (
+                                <button
+                                  onClick={handleConfirmLocationMask}
+                                  disabled={!storyLocationMaskRect || storyLocationMaskRect.w < 0.02 || storyLocationMaskRect.h < 0.02}
+                                  className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-40"
+                                >
+                                  Xác nhận vị trí
+                                </button>
+                              )}
+                              <button
+                                onClick={() => {
+                                  setStoryLocationMaskRect(null);
+                                  setStoryLocationMaskEditorOpen(false);
+                                }}
+                                className="text-sm font-medium text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100"
+                              >
+                                {isMulti ? "Đóng (không lưu thêm)" : "Huỷ"}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })()}
                   </div>
                 )}
               </div>

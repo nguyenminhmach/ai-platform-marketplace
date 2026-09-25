@@ -13,6 +13,7 @@ import {
   type MultiCharacterInput,
   type ScriptSceneResult,
   type ScriptSceneResultMulti,
+  type LocationMaskZone,
 } from "@/lib/story-video";
 import { InsufficientCreditError } from "@/lib/credit-system";
 import { getAuthenticatedUserId } from "@/lib/auth-server";
@@ -24,6 +25,32 @@ const CHARACTER_APPEARANCE_DESCRIPTION_MAX_LENGTH = 500;
 function parseItemReferenceUrls(raw: unknown): string[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const filtered = raw.filter((u): u is string => typeof u === "string" && u.trim().length > 0).slice(0, MAX_ITEM_REFERENCES);
+  return filtered.length > 0 ? filtered : undefined;
+}
+
+// Nhiều nhân vật, nhiều vị trí trong 1 ảnh Bối cảnh — lọc mềm (không throw): bỏ qua bất kỳ phần tử nào
+// sai định dạng/toạ độ ngoài [0,1]/position ngoài phạm vi số nhân vật thay vì chặn cả request, đúng
+// tinh thần các field toạ độ tuỳ chọn khác trong app (vd item_reference_urls) — 1 vị trí lỗi không nên
+// làm hỏng cả job.
+function parseLocationMaskZones(raw: unknown, characterCount: number): LocationMaskZone[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const inRange01 = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1;
+  const filtered = raw.filter((z): z is LocationMaskZone => {
+    if (!z || typeof z !== "object") return false;
+    const zone = z as Record<string, unknown>;
+    return (
+      typeof zone.position === "number" &&
+      Number.isInteger(zone.position) &&
+      zone.position >= 0 &&
+      zone.position < characterCount &&
+      inRange01(zone.xPct) &&
+      inRange01(zone.yPct) &&
+      inRange01(zone.wPct) &&
+      inRange01(zone.hPct) &&
+      (zone.wPct as number) > 0 &&
+      (zone.hPct as number) > 0
+    );
+  });
   return filtered.length > 0 ? filtered : undefined;
 }
 
@@ -50,6 +77,7 @@ export async function POST(req: Request) {
     characters,
     locationReferenceUrl,
     locationReferenceMaskUrl,
+    locationReferenceMaskZones,
     itemReferenceUrls,
     continuousMotion,
     frameChainMode,
@@ -190,6 +218,7 @@ export async function POST(req: Request) {
       parsedCharacters,
       typeof locationReferenceUrl === "string" && locationReferenceUrl ? locationReferenceUrl : undefined,
       typeof locationReferenceMaskUrl === "string" && locationReferenceMaskUrl ? locationReferenceMaskUrl : undefined,
+      parseLocationMaskZones(locationReferenceMaskZones, isMultiCharacter ? (parsedCharacters?.length ?? 0) : 1),
       // Frame-chaining và chuyển động liên tục (FLFV) loại trừ nhau — 2 cơ chế nối cảnh khác nhau,
       // không thể bật cùng lúc. frameChainMode ưu tiên nếu khách lỡ bật cả 2. Áp dụng cho cả luồng 1
       // lẫn nhiều nhân vật (submitMultiCharacterStoryVideoJob/runMultiCharacterSceneStage đã hỗ trợ).

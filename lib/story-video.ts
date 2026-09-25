@@ -431,6 +431,11 @@ export type SceneRow = {
   last_frame_url: string | null;
 };
 
+// Vị trí đứng chính xác (mask) khi cảnh có NHIỀU nhân vật cùng chung 1 ảnh Bối cảnh — mỗi zone gán
+// đúng 1 nhân vật (theo "position" trong story_video_job_characters) với toạ độ chuẩn hoá 0..1 của
+// vùng khách khoanh (relative to ảnh gốc). Xem giải thích đầy đủ tại JobRow.location_reference_mask_zones.
+export type LocationMaskZone = { position: number; xPct: number; yPct: number; wPct: number; hPct: number };
+
 type JobRow = {
   id: number;
   user_id: string;
@@ -464,6 +469,13 @@ type JobRow = {
   // vật vào đây, đen = giữ nguyên) do khách khoanh vùng ở frontend. Chỉ có tác dụng khi image_model là
   // "fal-ai/gpt-image-2/edit" (model duy nhất hỗ trợ mask_url, xem buildImageRequestBody).
   location_reference_mask_url: string | null;
+  // Nhiều nhân vật, nhiều vị trí trong CÙNG 1 ảnh Bối cảnh — mỗi phần tử là 1 vùng (toạ độ chuẩn hoá
+  // 0..1) khách đã gán cho đúng 1 "position" (chỉ số nhân vật trong story_video_job_characters). Chỉ
+  // dùng ở nhánh nhiều nhân vật (submitMultiCharacterSceneImageForRow) — location_reference_mask_url
+  // vẫn là ẢNH MASK DUY NHẤT gộp tất cả vùng trắng lại (mask_url không tự phân biệt vùng nào cho ai),
+  // mảng này chỉ để BIẾT vùng nào ứng với nhân vật nào, dùng viết chỉ dẫn văn bản mô tả từng vùng theo
+  // vị trí tương đối (trái/phải/giữa...) trong prompt — xem describeMaskZonePosition().
+  location_reference_mask_zones: LocationMaskZone[] | null;
   item_reference_url: string | null;
   item_reference_urls: string[] | null;
   continuous_motion: boolean;
@@ -1749,6 +1761,20 @@ function buildContinuityPrefix(location: string | null | undefined, previousEndP
   return location ? `Setting: ${location}. ` : "";
 }
 
+// Mô tả bằng chữ vị trí 1 vùng mask (theo tâm vùng, chia lưới 3x3) — dùng để viết chỉ dẫn "nhân vật X
+// đứng ở vùng bên trái/giữa/phải..." khi cảnh có NHIỀU nhân vật cùng chung 1 ảnh Bối cảnh, vì mask_url
+// tự nó không phân biệt được vùng trắng nào ứng với ai (xem JobRow.location_reference_mask_zones).
+function describeMaskZonePosition(zone: LocationMaskZone): string {
+  const cx = zone.xPct + zone.wPct / 2;
+  const cy = zone.yPct + zone.hPct / 2;
+  const h = cx < 0.34 ? "left" : cx > 0.66 ? "right" : "center";
+  const v = cy < 0.34 ? "upper" : cy > 0.66 ? "lower" : "middle";
+  if (h === "center" && v === "middle") return "center";
+  if (v === "middle") return `${h} side`;
+  if (h === "center") return `${v} center`;
+  return `${v}-${h}`;
+}
+
 // Build prompt + chọn ảnh tham chiếu + submit Fal.ai cho ĐÚNG 1 cảnh — dùng chung cho batch tạo lần
 // đầu (runSceneStage) và tạo lại riêng lẻ 1 cảnh (regenerateSceneImage), tránh lặp logic ở 2 nơi
 // (từng gây lệch bug multi_image trước đây khi chỉ sửa 1 chỗ). regen=true thêm cờ &regen=1 vào
@@ -1955,16 +1981,16 @@ type JobCharacterRefRow = {
 function selectReferenceImagesForMultiScene(
   characterPositions: number[],
   jobCharacters: JobCharacterRefRow[]
-): { url: string; label: string; itemUrls: string[] }[] {
+): { position: number; url: string; label: string; itemUrls: string[] }[] {
   return characterPositions
     .map((pos) => {
       const jc = jobCharacters.find((c) => c.position === pos);
       if (!jc) return null;
       const url = jc.character_angle_urls?.front || jc.character_sheet_url || "";
       if (!url) return null;
-      return { url, label: jc.label || `Nhân vật ${pos + 1}`, itemUrls: jc.item_reference_urls ?? [] };
+      return { position: pos, url, label: jc.label || `Nhân vật ${pos + 1}`, itemUrls: jc.item_reference_urls ?? [] };
     })
-    .filter((r): r is { url: string; label: string; itemUrls: string[] } => !!r);
+    .filter((r): r is { position: number; url: string; label: string; itemUrls: string[] } => !!r);
 }
 
 type MultiCharacterSceneRefRow = {
@@ -1983,7 +2009,14 @@ type MultiCharacterSceneRefRow = {
 async function submitMultiCharacterSceneImageForRow(
   job: Pick<
     JobRow,
-    "id" | "mini_app_id" | "image_model" | "aspect_ratio" | "image_resolution_key" | "location_reference_url" | "location_reference_mask_url"
+    | "id"
+    | "mini_app_id"
+    | "image_model"
+    | "aspect_ratio"
+    | "image_resolution_key"
+    | "location_reference_url"
+    | "location_reference_mask_url"
+    | "location_reference_mask_zones"
   >,
   row: MultiCharacterSceneRefRow,
   jobCharacters: JobCharacterRefRow[],
@@ -2005,9 +2038,19 @@ async function submitMultiCharacterSceneImageForRow(
   // Ảnh Bối cảnh/Địa điểm (tuỳ chọn, dùng chung cho cả job) — nối THÊM vào cuối cùng, sau ảnh vật
   // phẩm. Chỉ gửi khi model thật sự hỗ trợ đa ảnh, không thì im lặng bỏ qua.
   const hasLocation = !!job.location_reference_url && supportsMultiImage;
-  // Vị trí đứng chính xác (mask) — mirror đúng logic đã thêm cho luồng 1 nhân vật (xem
-  // submitSceneImageForRow), chỉ áp dụng khi model đang chọn THẬT SỰ hỗ trợ mask_url.
-  const hasLocationMask = hasLocation && !!job.location_reference_mask_url && job.image_model === "fal-ai/gpt-image-2/edit";
+  // Vị trí đứng chính xác (mask) — mirror logic đã thêm cho luồng 1 nhân vật (xem
+  // submitSceneImageForRow), nhưng nhiều nhân vật cần thêm 1 điều kiện: MỌI nhân vật có mặt trong
+  // CẢNH NÀY đều phải có vùng đã gán (location_reference_mask_zones) — nếu thiếu dù chỉ 1 người, ảnh
+  // mask (đã cố định cho cả job) sẽ không có chỗ hợp lệ nào để đặt người đó (vùng đen phải giữ nguyên
+  // pixel, không thể chèn người vào đó), nên phải bỏ hẳn mask cho cảnh này, để model tự do đặt như
+  // hasLocation thường (an toàn hơn là ép mask sai).
+  const maskZonesForScene = (job.location_reference_mask_zones ?? []).filter((z) => (row.character_positions ?? []).includes(z.position));
+  const hasLocationMask =
+    hasLocation &&
+    !!job.location_reference_mask_url &&
+    job.image_model === "fal-ai/gpt-image-2/edit" &&
+    maskZonesForScene.length > 0 &&
+    maskZonesForScene.length === (row.character_positions ?? []).length;
   const referenceImages = [
     ...refs.map((r) => r.url),
     ...itemRefs.map((r) => r.url),
@@ -2030,9 +2073,21 @@ async function submitMultiCharacterSceneImageForRow(
     scenePrompt += ` Reference image #${idx} is a REAL photo of one of ${r.label}'s own physical items — this is not a generic example, it is the customer's actual item. ${r.label} should be shown wearing/holding/using this exact item throughout this scene (e.g. on their feet if it's shoes, on their shoulder if it's a bag) — do NOT omit it just because the scene description does not explicitly mention it in words; only leave it out if the scene description explicitly describes a contrary situation (e.g. barefoot, item set aside). When shown, you MUST copy this exact real item's appearance precisely: same color, same shape/silhouette, same pattern/design details, same material/texture — exactly as shown in reference image #${idx}. Do NOT substitute a different color, a different style, a generic or similar-looking version, or any item that merely resembles it. If it is worn (e.g. shoes, a hat, an accessory), render it properly fitted and positioned on ${r.label}'s body at the correct real-world size and angle — not floating, not misaligned, not oversized or undersized — as if actually and naturally worn.`;
   });
   if (hasLocation) {
-    scenePrompt += hasLocationMask
-      ? ` The LAST reference image shows a REAL physical location, together with an inpainting mask (provided via mask_url) that marks EXACTLY where to place the character(s) within that location: the WHITE area of the mask is where the character(s) must stand/be positioned, the BLACK area must remain pixel-identical to that reference image — do not alter, redraw, move, or crop anything outside the white masked area. Preserve the real location's appearance (layout, colors, decor, lighting) accurately everywhere outside the masked area.`
-      : ` The LAST reference image shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
+    if (hasLocationMask) {
+      // Mask gộp CHUNG 1 ảnh cho cả job — nhiều vùng trắng cùng lúc, tự nó KHÔNG phân biệt được vùng
+      // nào cho ai (xem JobRow.location_reference_mask_zones), nên phải bù bằng câu chỉ dẫn văn bản
+      // gán rõ từng người vào đúng vùng theo vị trí tương đối (trái/phải/giữa...).
+      const placementLines = refs
+        .map((r) => {
+          const zone = maskZonesForScene.find((z) => z.position === r.position);
+          return zone ? `${r.label} must be placed in the ${describeMaskZonePosition(zone)} of the white masked region` : null;
+        })
+        .filter((s): s is string => !!s)
+        .join("; ");
+      scenePrompt += ` The LAST reference image shows a REAL physical location, together with an inpainting mask (provided via mask_url) that marks the area(s) where characters may be placed within that location: the WHITE area(s) of the mask are editable, the BLACK area must remain pixel-identical to that reference image — do not alter, redraw, move, or crop anything outside the white area(s). Within the white area(s): ${placementLines}. Preserve the real location's appearance (layout, colors, decor, lighting) accurately everywhere outside the masked area(s).`;
+    } else {
+      scenePrompt += ` The LAST reference image shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
+    }
   }
   // Mirror đúng 2 câu chỉ dẫn đã thêm cho luồng 1 nhân vật (xem submitSceneImageForRow) — cùng nguyên
   // nhân lỗi (model tự bịa trang phục khác/gương vẽ sai mặt) cũng có thể xảy ra ở luồng nhiều nhân vật.
@@ -2319,6 +2374,10 @@ export async function submitStoryVideoJob(
   // hỗ trợ mask_url (xem buildImageRequestBody). Khách khoanh vùng ở frontend, tự sinh ảnh mask cùng
   // kích thước ảnh Bối cảnh gốc rồi tải lên, gửi URL đó vào đây.
   locationReferenceMaskUrl?: string,
+  // Nhiều nhân vật, nhiều vị trí trong CÙNG 1 ảnh Bối cảnh — chỉ có ý nghĩa khi rẽ sang nhánh nhiều
+  // nhân vật bên dưới (characters.length>=2); nhánh 1 nhân vật bỏ qua (không cần, chỉ 1 vị trí duy
+  // nhất, dùng đúng locationReferenceMaskUrl như hiện có). Xem JobRow.location_reference_mask_zones.
+  locationReferenceMaskZones?: LocationMaskZone[],
   continuousMotion?: boolean,
   // Frame-chaining (chỉ luồng 1 nhân vật ở v1, xem applyFrameChainVideoResult) — bỏ qua hoàn toàn nếu
   // job rơi vào nhánh nhiều nhân vật bên dưới.
@@ -2373,6 +2432,7 @@ export async function submitStoryVideoJob(
       resolvedGenreKey,
       locationReferenceUrl,
       locationReferenceMaskUrl,
+      locationReferenceMaskZones,
       continuousMotion,
       frameChainMode,
       preplannedActionsMulti
@@ -2617,6 +2677,7 @@ async function submitMultiCharacterStoryVideoJob(
   locationReferenceUrl?: string,
   // Mirror đúng tham số cùng tên của submitStoryVideoJob (luồng 1 nhân vật) — xem submitStoryVideoJob.
   locationReferenceMaskUrl?: string,
+  locationReferenceMaskZones?: LocationMaskZone[],
   continuousMotion?: boolean,
   // Frame-chaining (dẫn trạng thái qua khung hình THẬT) — mirror đúng tham số cùng tên của
   // submitStoryVideoJob (luồng 1 nhân vật). applyFrameChainImageResult/applyFrameChainVideoResult ở
@@ -2734,6 +2795,7 @@ async function submitMultiCharacterStoryVideoJob(
       genre_key: resolvedGenreKey,
       location_reference_url: locationReferenceUrl ?? null,
       location_reference_mask_url: locationReferenceMaskUrl ?? null,
+      location_reference_mask_zones: locationReferenceMaskZones ?? null,
       continuous_motion: continuousMotion === true,
       frame_chain_mode: frameChainMode === true,
       // Lưu lại để continueStoryVideoToSceneStage (chạy sau, khi Character phải tạo mới qua webhook)
