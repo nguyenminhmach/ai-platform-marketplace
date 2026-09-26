@@ -12,6 +12,10 @@ const STAGE_LABEL: Record<string, string> = {
   stitching: "Đang ghép các phân cảnh lại thành video hoàn chỉnh...",
 };
 
+// resolveStoryVideoJob() có thể tự gọi lại stitchAndFinish() khi job kẹt ở "stitching" — video dài nhiều
+// chương cần tới vài phút (xem MAX_JOB_SCENES), giống route webhook.
+export const maxDuration = 300;
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const jobId = searchParams.get("jobId");

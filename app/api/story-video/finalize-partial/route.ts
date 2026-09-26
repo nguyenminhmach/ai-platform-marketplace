@@ -3,6 +3,9 @@ import { getAuthenticatedUserId } from "@/lib/auth-server";
 
 // Khách chấp nhận bỏ qua cảnh mãi không tạo video được (vd bị model chặn nội dung, đã thử nhiều lần
 // vẫn lỗi) — ghép video cuối chỉ từ các cảnh đã có video, không chờ đủ N/N cảnh nữa.
+// Chạy stitchAndFinish() trực tiếp — video dài nhiều chương cần tới vài phút.
+export const maxDuration = 300;
+
 export async function POST(req: Request) {
   const { jobId } = await req.json();
 

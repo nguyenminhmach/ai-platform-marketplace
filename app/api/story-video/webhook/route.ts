@@ -6,7 +6,9 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 // story_video_scenes, bỏ trống với stage=character) và stage (character/image/video). Bước ghép video
 // cuối (ffmpeg) chạy ngay trong request này khi cảnh cuối cùng xong video, nên cần thời gian chờ dài
 // hơn mặc định.
-export const maxDuration = 60;
+// 300s (trước là 60s): webhook nhận video cảnh CUỐI chạy luôn stitchAndFinish() — video dài nhiều chương
+// (tới MAX_JOB_SCENES cảnh) cần vài phút để tải + mã hoá + ghép clip, 60s không đủ.
+export const maxDuration = 300;
 
 export async function POST(req: Request) {
   try {

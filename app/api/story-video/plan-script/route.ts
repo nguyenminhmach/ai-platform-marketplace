@@ -7,6 +7,7 @@ import {
   validateScriptSceneResult,
   validateScriptSceneResultMulti,
   MAX_SCENES,
+  MAX_JOB_SCENES,
 } from "@/lib/story-video";
 import type { VideoModelEntry } from "@/lib/story-video";
 import { computeDynamicCreditCost, getMediaPricingSettings } from "@/lib/pricing";
@@ -64,7 +65,7 @@ export async function POST(req: Request) {
     const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
     if (isMulti) {
       const actions = rawActionsMulti
-        ? validateScriptSceneResultMulti(rawActionsMulti, storyDescription.trim(), characterLabels)
+        ? validateScriptSceneResultMulti(rawActionsMulti, storyDescription.trim(), characterLabels, MAX_JOB_SCENES)
         : await generateStoryScriptMulti(
             storyDescription.trim(),
             characterLabels,
@@ -83,7 +84,7 @@ export async function POST(req: Request) {
       });
     }
     const actions = rawActions
-      ? validateScriptSceneResult(rawActions, storyDescription.trim())
+      ? validateScriptSceneResult(rawActions, storyDescription.trim(), MAX_JOB_SCENES)
       : await generateStoryScript(
           storyDescription.trim(),
           typeof modelChatKey === "string" ? modelChatKey : undefined,
