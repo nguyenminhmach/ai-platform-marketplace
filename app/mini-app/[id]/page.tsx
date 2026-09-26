@@ -4618,8 +4618,7 @@ export default function MiniAppDetailPage() {
                       </button>
                       {/* Vẽ ĐÈ vùng đã chọn lên ảnh để khách thấy ngay nhân vật sẽ đứng ở đâu (mỗi nhân vật 1
                           màu + tên khi nhiều người; 1 nhân vật thì 1 khung xanh "Vị trí đứng"). */}
-                      {storyLocationReferenceMaskUrl &&
-                        storyLocationMaskAssignments.map((a) => {
+                      {storyLocationMaskAssignments.map((a) => {
                           const color = STORY_MASK_ZONE_COLORS[a.characterPosition % STORY_MASK_ZONE_COLORS.length];
                           const label =
                             storyExtraCharacters.length === 0
@@ -4718,6 +4717,11 @@ export default function MiniAppDetailPage() {
                         const isMulti = maskCharacterOptions.length > 0;
                         return (
                           <div className="mt-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800">
+                            <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
+                              {isMulti
+                                ? "Bấm chọn từng nhân vật bên dưới → kéo chuột khoanh vùng người đó đứng → bấm \"Lưu vị trí cho…\". Xong tất cả bấm \"Xong\"."
+                                : "Hiện chỉ có 1 nhân vật nên chọn được 1 vị trí. Muốn 2 người đứng 2 chỗ riêng: thêm nhân vật ở khung \"Ảnh nhân vật\" (nút \"+ Thêm nhân vật\"), rồi mở lại \"Chọn vị trí đứng\"."}
+                            </p>
                             {isMulti && (
                               <div className="mb-2 flex flex-wrap gap-2">
                                 {maskCharacterOptions.map((c) => {
