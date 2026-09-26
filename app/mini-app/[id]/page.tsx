@@ -1140,6 +1140,12 @@ export default function MiniAppDetailPage() {
   function handleLocationMaskPointerMove(e: React.PointerEvent<HTMLDivElement>) {
     const start = storyLocationMaskDragStartRef.current;
     if (!start) return;
+    // Không còn nút chuột nào đang giữ = lượt kéo đã kết thúc (sự kiện nhả chuột bị mất, vd nhả ngoài khung
+    // hoặc kéo nhanh) — nếu không dừng ở đây, cờ kéo bị kẹt và vùng tự chạy theo chuột khi chỉ rê qua ảnh.
+    if (e.buttons === 0) {
+      storyLocationMaskDragStartRef.current = null;
+      return;
+    }
     const bounds = e.currentTarget.getBoundingClientRect();
     const x = Math.min(Math.max((e.clientX - bounds.left) / bounds.width, 0), 1);
     const y = Math.min(Math.max((e.clientY - bounds.top) / bounds.height, 0), 1);
@@ -1212,8 +1218,9 @@ export default function MiniAppDetailPage() {
     if (!storyLocationMaskRect) return;
     if (storyLocationMaskRect.w < 0.02 || storyLocationMaskRect.h < 0.02) return;
     const rect = storyLocationMaskRect;
-    setStoryLocationMaskAssignments((prev) => [
-      ...prev.filter((a) => a.characterPosition !== storyLocationMaskActiveCharacter),
+    storyLocationMaskDragStartRef.current = null;
+    commitLocationMaskAssignments([
+      ...storyLocationMaskAssignments.filter((a) => a.characterPosition !== storyLocationMaskActiveCharacter),
       { characterPosition: storyLocationMaskActiveCharacter, rect },
     ]);
     setStoryLocationMaskRect(null);
@@ -1222,8 +1229,26 @@ export default function MiniAppDetailPage() {
     if (next) setStoryLocationMaskActiveCharacter(next.position);
   }
 
+  // Đặt danh sách vị trí mới VÀ sinh lại ảnh mask ngay (không chờ bấm "Xong") — mask gửi lên server luôn khớp
+  // đúng các vị trí đang hiện trên ảnh, không có tình trạng "đã lưu vị trí nhưng mask cũ/thiếu".
+  function commitLocationMaskAssignments(next: { characterPosition: number; rect: { x: number; y: number; w: number; h: number } }[]) {
+    setStoryLocationMaskAssignments(next);
+    if (next.length === 0 || !storyLocationImageNaturalSize) {
+      setStoryLocationReferenceMaskUrl(null);
+      return;
+    }
+    setStoryLocationReferenceMaskUrl(
+      generateLocationMaskDataUrl(
+        next.map((a) => a.rect),
+        storyLocationImageNaturalSize.w,
+        storyLocationImageNaturalSize.h
+      )
+    );
+  }
+
   function handleRemoveLocationMaskAssignment(characterPosition: number) {
-    setStoryLocationMaskAssignments((prev) => prev.filter((a) => a.characterPosition !== characterPosition));
+    commitLocationMaskAssignments(storyLocationMaskAssignments.filter((a) => a.characterPosition !== characterPosition));
+    if (characterPosition === storyLocationMaskActiveCharacter) setStoryLocationMaskRect(null);
   }
 
   // Gộp mọi vùng đã "Lưu vị trí" thành 1 ảnh mask duy nhất, đóng khung chọn — dùng cho luồng NHIỀU
@@ -4729,9 +4754,10 @@ export default function MiniAppDetailPage() {
                                   const assigned = storyLocationMaskAssignments.some((a) => a.characterPosition === c.position);
                                   const active = storyLocationMaskActiveCharacter === c.position;
                                   return (
+                                    <span key={c.position} className="inline-flex items-center gap-1">
                                     <button
-                                      key={c.position}
                                       onClick={() => {
+                                        storyLocationMaskDragStartRef.current = null;
                                         setStoryLocationMaskActiveCharacter(c.position);
                                         setStoryLocationMaskRect(
                                           storyLocationMaskAssignments.find((a) => a.characterPosition === c.position)?.rect ?? null
@@ -4748,6 +4774,17 @@ export default function MiniAppDetailPage() {
                                       {c.label}
                                       {assigned && " ✓"}
                                     </button>
+                                    {assigned && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoveLocationMaskAssignment(c.position)}
+                                        title={`Bỏ vị trí của ${c.label}`}
+                                        className="rounded-full px-1.5 text-sm font-semibold text-zinc-500 hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-950"
+                                      >
+                                        ✕
+                                      </button>
+                                    )}
+                                    </span>
                                   );
                                 })}
                               </div>
@@ -4762,6 +4799,8 @@ export default function MiniAppDetailPage() {
                               onPointerDown={handleLocationMaskPointerDown}
                               onPointerMove={handleLocationMaskPointerMove}
                               onPointerUp={handleLocationMaskPointerUp}
+                              onPointerCancel={handleLocationMaskPointerUp}
+                              onLostPointerCapture={handleLocationMaskPointerUp}
                             >
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img
