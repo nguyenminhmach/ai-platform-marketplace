@@ -1821,16 +1821,32 @@ export default function MiniAppDetailPage() {
     }
     setStoryMultiChapter(true);
     setStoryActiveChapter(0);
-    if (storyProjectId !== null) return;
     try {
-      const res = await fetch("/api/story-video/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ miniAppId: app!.id }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Không tạo được dự án");
-      setStoryProjectId(data.projectId);
+      let projectId = storyProjectId;
+      if (projectId === null) {
+        const res = await fetch("/api/story-video/projects", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ miniAppId: app!.id }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Không tạo được dự án");
+        projectId = data.projectId as number;
+        setStoryProjectId(projectId);
+      }
+      // Trang đã có sẵn 1 job (vd job vừa khôi phục sau khi tải lại trang, hoặc đang chạy dở) — gắn luôn làm
+      // Chương 1 để khách không phải bỏ nó đi làm lại từ đầu.
+      if (storyJobId !== null) {
+        const res = await fetch("/api/story-video/projects/attach", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId, jobId: storyJobId, chapterIndex: 0 }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error ?? "Không gắn được video hiện tại vào dự án");
+        }
+      }
     } catch (err) {
       setStoryMultiChapter(false);
       setStoryProjectError(err instanceof Error ? err.message : "Không tạo được dự án");
@@ -3501,7 +3517,7 @@ export default function MiniAppDetailPage() {
                   <input
                     type="checkbox"
                     checked={storyMultiChapter}
-                    disabled={storyProjectChapters.length > 0 || storyJobId !== null}
+                    disabled={storyProjectChapters.length > 0}
                     onChange={(e) => handleToggleMultiChapter(e.target.checked)}
                   />
                   📚 Video nhiều chương — mỗi chương là 1 đoạn video ngắn (ý tưởng, ảnh nhân vật, bối cảnh riêng), cuối cùng ghép các chương lại
