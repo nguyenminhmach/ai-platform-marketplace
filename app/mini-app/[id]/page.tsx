@@ -879,6 +879,10 @@ export default function MiniAppDetailPage() {
         if (job.locationReferenceUrl) setStoryLocationReference(job.locationReferenceUrl);
         if (job.locationReferenceMaskUrl) setStoryLocationReferenceMaskUrl(job.locationReferenceMaskUrl);
         restoreLocationMaskZones(job.locationReferenceMaskZones);
+        // Job 1 nhân vật không có toạ độ vùng (chỉ có ảnh mask) — dò lại từ ảnh mask để vẽ đè lên ảnh Bối cảnh.
+        if (job.locationReferenceMaskUrl && !(Array.isArray(job.locationReferenceMaskZones) && job.locationReferenceMaskZones.length > 0)) {
+          restoreSingleMaskRect(job.locationReferenceMaskUrl);
+        }
         setStoryRunning(true);
         setStoryStatusText("Đang khôi phục công việc đang làm dở...");
         try {
@@ -1125,6 +1129,7 @@ export default function MiniAppDetailPage() {
 
   function handleLocationMaskPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     const bounds = e.currentTarget.getBoundingClientRect();
+    if (bounds.width === 0 || bounds.height === 0) return; // khung chưa có kích thước (đang ẩn) — tránh chia cho 0 ra NaN
     const x = Math.min(Math.max((e.clientX - bounds.left) / bounds.width, 0), 1);
     const y = Math.min(Math.max((e.clientY - bounds.top) / bounds.height, 0), 1);
     storyLocationMaskDragStartRef.current = { x, y };
@@ -1152,7 +1157,52 @@ export default function MiniAppDetailPage() {
     if (storyLocationMaskRect.w < 0.02 || storyLocationMaskRect.h < 0.02) return; // vùng quá nhỏ, coi như chưa chọn
     const dataUrl = generateLocationMaskDataUrl([storyLocationMaskRect], storyLocationImageNaturalSize.w, storyLocationImageNaturalSize.h);
     setStoryLocationReferenceMaskUrl(dataUrl);
+    // Lưu vùng đã chọn thành "vị trí của nhân vật #1" để vẽ đè lên ảnh Bối cảnh (cùng cơ chế nhiều nhân vật).
+    setStoryLocationMaskAssignments([{ characterPosition: 0, rect: storyLocationMaskRect }]);
     setStoryLocationMaskEditorOpen(false);
+  }
+
+  // Khôi phục job 1 nhân vật: server chỉ lưu ẢNH mask (không lưu toạ độ) — dò lại hình chữ nhật trắng từ chính
+  // ảnh mask để vẽ đè lên ảnh Bối cảnh. Lỗi (vd trình duyệt chặn đọc ảnh khác nguồn) thì bỏ qua, chỉ mất khung
+  // vẽ đè, mask vẫn dùng bình thường.
+  function restoreSingleMaskRect(maskUrl: string) {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      try {
+        const scale = Math.min(1, 240 / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        ctx.drawImage(img, 0, 0, w, h);
+        const { data } = ctx.getImageData(0, 0, w, h);
+        let minX = w;
+        let minY = h;
+        let maxX = -1;
+        let maxY = -1;
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            if (data[(y * w + x) * 4] > 200) {
+              if (x < minX) minX = x;
+              if (x > maxX) maxX = x;
+              if (y < minY) minY = y;
+              if (y > maxY) maxY = y;
+            }
+          }
+        }
+        if (maxX < 0) return;
+        setStoryLocationMaskAssignments((prev) =>
+          prev.length > 0
+            ? prev
+            : [{ characterPosition: 0, rect: { x: minX / w, y: minY / h, w: (maxX - minX + 1) / w, h: (maxY - minY + 1) / h } }]
+        );
+      } catch {}
+    };
+    img.src = maskUrl;
   }
 
   // NHIỀU nhân vật — lưu vùng vừa vẽ cho ĐÚNG nhân vật đang chọn (storyLocationMaskActiveCharacter),
@@ -4534,7 +4584,16 @@ export default function MiniAppDetailPage() {
                 </p>
                 <div className="grid grid-cols-4 gap-3">
                   {storyLocationReference ? (
-                    <div className="relative w-full" style={{ aspectRatio: storyAspectRatio.replace(":", " / ") }}>
+                    <div
+                      className="relative w-full"
+                      // Theo đúng tỉ lệ ẢNH THẬT (không ép theo tỉ lệ video) để không bị cắt xén — khung vị trí đã
+                      // chọn vẽ đè lên bằng toạ độ % theo ảnh gốc, chỉ khớp chính xác khi ảnh hiện đủ, không crop.
+                      style={{
+                        aspectRatio: storyLocationImageNaturalSize
+                          ? `${storyLocationImageNaturalSize.w} / ${storyLocationImageNaturalSize.h}`
+                          : storyAspectRatio.replace(":", " / "),
+                      }}
+                    >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={storyLocationReference}
@@ -4557,6 +4616,39 @@ export default function MiniAppDetailPage() {
                       >
                         ✕
                       </button>
+                      {/* Vẽ ĐÈ vùng đã chọn lên ảnh để khách thấy ngay nhân vật sẽ đứng ở đâu (mỗi nhân vật 1
+                          màu + tên khi nhiều người; 1 nhân vật thì 1 khung xanh "Vị trí đứng"). */}
+                      {storyLocationReferenceMaskUrl &&
+                        storyLocationMaskAssignments.map((a) => {
+                          const color = STORY_MASK_ZONE_COLORS[a.characterPosition % STORY_MASK_ZONE_COLORS.length];
+                          const label =
+                            storyExtraCharacters.length === 0
+                              ? "Vị trí đứng"
+                              : a.characterPosition === 0
+                                ? storyPrimaryCharacterLabel.trim() || "Nhân vật 1"
+                                : storyExtraCharacters[a.characterPosition - 1]?.label.trim() || `Nhân vật ${a.characterPosition + 1}`;
+                          return (
+                            <div
+                              key={a.characterPosition}
+                              className="pointer-events-none absolute border-2"
+                              style={{
+                                left: `${a.rect.x * 100}%`,
+                                top: `${a.rect.y * 100}%`,
+                                width: `${a.rect.w * 100}%`,
+                                height: `${a.rect.h * 100}%`,
+                                borderColor: color,
+                                backgroundColor: `${color}33`,
+                              }}
+                            >
+                              <span
+                                className="absolute left-0 top-0 max-w-full -translate-y-full truncate rounded-t px-1 text-[10px] font-semibold leading-4 text-white"
+                                style={{ backgroundColor: color }}
+                              >
+                                {label}
+                              </span>
+                            </div>
+                          );
+                        })}
                       {storyLocationReferenceMaskUrl && (
                         <span className="absolute bottom-1 left-1 rounded-full bg-emerald-600/90 px-2 py-0.5 text-xs font-medium text-white">
                           ✓ Đã chọn vị trí
@@ -4590,7 +4682,13 @@ export default function MiniAppDetailPage() {
                   <div className="mt-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <button
-                        onClick={() => setStoryLocationMaskEditorOpen((v) => !v)}
+                        onClick={() => {
+                          // 1 nhân vật: mở lại khung chọn thì hiện sẵn vùng đã chọn lần trước để chỉnh tiếp.
+                          if (!storyLocationMaskEditorOpen && storyExtraCharacters.length === 0 && storyLocationMaskAssignments[0]) {
+                            setStoryLocationMaskRect(storyLocationMaskAssignments[0].rect);
+                          }
+                          setStoryLocationMaskEditorOpen((v) => !v);
+                        }}
                         className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                       >
                         {storyLocationMaskEditorOpen ? "Đóng" : storyLocationReferenceMaskUrl ? "🎯 Chọn lại vị trí đứng" : "🎯 Chọn vị trí đứng"}
