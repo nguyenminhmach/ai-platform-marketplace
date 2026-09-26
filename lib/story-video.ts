@@ -32,13 +32,6 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://ai-platform-market
 
 export const MIN_SCENES = 1;
 export const MAX_SCENES = 8;
-// Video DÀI nhiều chương (vd đám cưới vài phút, xem generateStoryChapters) — MAX_SCENES vẫn là trần số
-// cảnh của MỖI LƯỢT gọi Agent (mỗi chương tự có tối đa MAX_SCENES cảnh, không đổi), còn tổng số cảnh
-// của CẢ JOB (nhiều chương cộng lại) dùng trần riêng này. Giới hạn thật nằm ở bước ghép ffmpeg cuối
-// (stitchAndFinish) chạy trong 1 lượt hàm serverless — 48 cảnh ~ vài phút video là mức đã tính toán, không
-// phải con số tuỳ tiện; muốn nâng cao hơn phải kiểm tra lại thời gian ghép + dung lượng file thật.
-export const MAX_JOB_SCENES = 48;
-export const MAX_STORY_CHAPTERS = 8;
 // Catalog key của các model video mà API Fal.ai BẮT BUỘC cả ảnh đầu lẫn ảnh cuối (không tuỳ chọn như
 // Kling O1) — chọn 1 trong các key này thì continuousMotion phải luôn = true, không phụ thuộc checkbox
 // người dùng. Dùng ở app/api/story-video/submit + price route để tự ép, tránh submit thiếu last_frame.
@@ -970,10 +963,6 @@ export type ScriptSceneResult = SceneSplitResult & {
   // không phân biệt nổi "xoay 360 độ" với "không xoay", cả 2 đều trả về cùng camera_view).
   pace?: "fast" | "normal" | "slow";
   rotation_degrees?: number;
-  // Video dài nhiều chương — chỉ số chương (0-based) hành động này thuộc về. Chỉ dùng để planStoryVideoScenes
-  // KHÔNG gộp 2 hành động khác chương vào chung 1 cảnh (giữa 2 chương là cắt cứng, khác bối cảnh/thời
-  // điểm) — không lưu DB, không ảnh hưởng gì khác. undefined = luồng không chia chương (như cũ).
-  chapter?: number;
 };
 
 const STORY_SCRIPT_SYSTEM_PROMPT = `Bạn là đạo diễn dựng phân cảnh kiêm lên lịch trình quay. Người dùng đưa 1 ý tưởng truyện/kịch bản ngắn.
@@ -1012,11 +1001,9 @@ Ví dụ format: [{"description": "a young woman walking into a coffee shop, mor
 // Dùng chung cho 2 nơi: (1) parse JSON thô từ LLM (parseScriptSceneResult), (2) validate lại mảng
 // "actions" client gửi lên lúc submit thật — đảm bảo dù nguồn nào, dữ liệu vào planStoryVideoScenes()
 // luôn đúng hình dạng (không tin field giá/duration_key nào từ client, chỉ tin các field mô tả này).
-// maxScenes: mặc định MAX_SCENES (mỗi lượt gọi Agent / mỗi chương); nơi validate lại CẢ JOB nhiều chương
-// (submit, plan-script/plan-chapters) truyền MAX_JOB_SCENES.
-export function validateScriptSceneResult(parsed: unknown, storyDescription: string, maxScenes: number = MAX_SCENES): ScriptSceneResult[] {
+export function validateScriptSceneResult(parsed: unknown, storyDescription: string): ScriptSceneResult[] {
   if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("Danh sách hành động không hợp lệ");
-  if (parsed.length > maxScenes) throw new Error(`Quá nhiều hành động (${parsed.length}), vượt giới hạn ${maxScenes} cảnh`);
+  if (parsed.length > MAX_SCENES) throw new Error(`Quá nhiều hành động (${parsed.length}), vượt giới hạn ${MAX_SCENES} cảnh`);
   return parsed.map((s: Record<string, unknown>) => {
     if (typeof s.description !== "string" || !s.description.trim()) throw new Error("Thiếu description ở 1 hành động");
     if (typeof s.camera_view !== "string" || !CHARACTER_ANGLE_LABELS.includes(s.camera_view as CharacterAngleKey)) {
@@ -1054,15 +1041,8 @@ export function validateScriptSceneResult(parsed: unknown, storyDescription: str
       duration_seconds: Math.round(durationSeconds * 100) / 100,
       pace,
       rotation_degrees: rotationDegrees,
-      chapter: parseChapterIndex(s.chapter),
     };
   });
-}
-
-// "chapter" do CODE gắn vào sau khi Agent trả về (không tin Agent tự viết) và client gửi lại nguyên vẹn
-// lúc submit — lọc mềm: không phải số nguyên không âm thì coi như không có (luồng không chia chương).
-function parseChapterIndex(raw: unknown): number | undefined {
-  return typeof raw === "number" && Number.isInteger(raw) && raw >= 0 && raw < MAX_STORY_CHAPTERS ? raw : undefined;
 }
 
 function parseScriptSceneResult(output: string, storyDescription: string): ScriptSceneResult[] {
@@ -1087,13 +1067,10 @@ export async function generateStoryScript(
   // Tên nhân vật chính (ô "Tên nhân vật", để trống ở frontend fallback "Nhân vật 1") — cho Agent 1 cái
   // tên cụ thể để gọi thay vì phải tự bịa mô tả ngoại hình cho "tự đầy đủ ngữ cảnh" (xem rào chắn ngoại
   // hình trong STORY_SCRIPT_SYSTEM_PROMPT — quy tắc đó tự nó đã đủ chặn bịa, câu này chỉ hỗ trợ thêm).
-  characterLabel?: string,
-  // Chỉ dẫn thêm nối vào cuối system prompt (video nhiều chương — xem CHAPTER_SCRIPT_EXTRA_INSTRUCTION).
-  extraInstruction?: string
+  characterLabel?: string
 ): Promise<ScriptSceneResult[]> {
   const chatModel = modelChatKey && ALLOWED_CHAT_MODELS.includes(modelChatKey) ? modelChatKey : ALLOWED_CHAT_MODELS[0];
   let systemPrompt = STORY_SCRIPT_SYSTEM_PROMPT;
-  if (extraInstruction?.trim()) systemPrompt += `\n\n${extraInstruction.trim()}`;
   if (characterLabel?.trim()) {
     systemPrompt += `\n\nNhân vật chính trong truyện này tên là "${characterLabel.trim()}" — gọi nhân vật bằng đúng tên này trong "description" thay vì "the character"/"a woman"/"a man" chung chung.`;
   }
@@ -1133,8 +1110,6 @@ export type ScriptSceneResultMulti = {
   duration_seconds: number;
   pace?: "fast" | "normal" | "slow";
   rotation_degrees?: number;
-  // Xem ScriptSceneResult.chapter.
-  chapter?: number;
 };
 
 function buildStoryScriptPromptMulti(characterLabels: string[]): string {
@@ -1182,11 +1157,10 @@ Ví dụ format: [{"description": "${characterLabels[0]} stands alone by the ent
 export function validateScriptSceneResultMulti(
   parsed: unknown,
   storyDescription: string,
-  characterLabels: string[],
-  maxScenes: number = MAX_SCENES
+  characterLabels: string[]
 ): ScriptSceneResultMulti[] {
   if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("Danh sách hành động không hợp lệ");
-  if (parsed.length > maxScenes) throw new Error(`Quá nhiều hành động (${parsed.length}), vượt giới hạn ${maxScenes} cảnh`);
+  if (parsed.length > MAX_SCENES) throw new Error(`Quá nhiều hành động (${parsed.length}), vượt giới hạn ${MAX_SCENES} cảnh`);
   const maxIndex = characterLabels.length - 1;
   return parsed.map((s: Record<string, unknown>) => {
     if (typeof s.description !== "string" || !s.description.trim()) throw new Error("Thiếu description ở 1 hành động");
@@ -1237,7 +1211,6 @@ export function validateScriptSceneResultMulti(
       duration_seconds: Math.round(durationSeconds * 100) / 100,
       pace,
       rotation_degrees: rotationDegrees,
-      chapter: parseChapterIndex(s.chapter),
     };
   });
 }
@@ -1258,13 +1231,10 @@ export async function generateStoryScriptMulti(
   storyDescription: string,
   characterLabels: string[],
   modelChatKey?: string,
-  miniAppId?: string,
-  // Xem tham số cùng tên của generateStoryScript().
-  extraInstruction?: string
+  miniAppId?: string
 ): Promise<ScriptSceneResultMulti[]> {
   const chatModel = modelChatKey && ALLOWED_CHAT_MODELS.includes(modelChatKey) ? modelChatKey : ALLOWED_CHAT_MODELS[0];
   let systemPrompt = buildStoryScriptPromptMulti(characterLabels);
-  if (extraInstruction?.trim()) systemPrompt += `\n\n${extraInstruction.trim()}`;
   if (miniAppId) {
     const miniApp = await getMiniAppModelConfig(miniAppId);
     const override = miniApp.model_config.prompt_helper_instructions;
@@ -1282,127 +1252,6 @@ export async function generateStoryScriptMulti(
     );
     return parseScriptSceneResultMulti(retryOutput, storyDescription, characterLabels);
   }
-}
-
-// ---------------------------------------------------------------------------------------------------
-// VIDEO DÀI NHIỀU CHƯƠNG (vd đám cưới dài vài phút) — kịch bản 2 CẤP: CHƯƠNG -> CẢNH.
-// Cấp 1 (generateStoryChapters): 1 lượt gọi Agent chia ý tưởng thành các chương theo trình tự thời gian,
-// đúng cách người biên tập phim thật chia các phần lớn của 1 video dài (chỉ tiêu đề + tóm tắt, chưa có
-// camera/thời lượng). Cấp 2 (generateStoryScriptsByChapter): chạy ĐÚNG bước "Tạo kịch bản" hiện có
-// (generateStoryScript/Multi) nhưng RIÊNG cho từng chương, song song — mỗi lượt gọi chỉ phải "nhớ" nội
-// dung 1 chương (không phải cả video vài phút cùng lúc), trần MAX_SCENES cảnh áp dụng cho từng chương.
-// Ghép các chương lại = nối mảng theo thứ tự chương, gắn "chapter" vào từng hành động để
-// planStoryVideoScenes không gộp cảnh xuyên ranh giới chương.
-// ---------------------------------------------------------------------------------------------------
-export type StoryChapter = { title: string; summary: string };
-
-const STORY_CHAPTER_SYSTEM_PROMPT = `Bạn là biên kịch kiêm đạo diễn dựng phim, chuyên dựng video DÀI nhiều phút từ nhiều đoạn quay ghép lại (vd video đám cưới, kỷ niệm, du lịch, giới thiệu...). Người dùng đưa 1 ý tưởng/kịch bản có thể khá dài.
-Nhiệm vụ: chia ý tưởng thành các CHƯƠNG — mỗi chương là 1 phần lớn của câu chuyện (1 giai đoạn/sự kiện chính), xếp ĐÚNG THEO TRÌNH TỰ THỜI GIAN như người biên tập phim thật chia các phần lớn của 1 video dài. Bên trong 1 chương có thể có NHIỀU cảnh ở NHIỀU địa điểm khác nhau nếu giai đoạn đó diễn ra qua nhiều nơi (vd chương "Ngày cưới": nhà cô dâu -> xe hoa -> lễ đường) — KHÔNG cần ép mỗi chương chỉ ở 1 chỗ. Ví dụ với đám cưới: "Đón dâu", "Lễ cưới", "Tiệc chào khách", "Nghi thức gia đình", "Khiêu vũ"... — nhưng CHỈ dùng đúng những phần ý tưởng gốc thật sự có, tuyệt đối không tự thêm chương khách không nhắc tới.
-Quy tắc:
-- Tối thiểu 1 chương, tối đa ${MAX_STORY_CHAPTERS} chương. Ý tưởng chỉ có 1 khối sự kiện liền mạch thì trả đúng 1 chương. Mỗi chương nên đủ nội dung để dựng khoảng 3-8 cảnh ngắn.
-- "title": tên chương ngắn gọn bằng tiếng Việt (tối đa 8 từ).
-- "summary": tiếng Việt, 1-4 câu, mô tả đúng những gì xảy ra trong chương này (ai làm gì, ở đâu, lúc nào, không khí; nếu chương đi qua nhiều địa điểm thì nêu rõ thứ tự các nơi) — CHỈ dùng thông tin có trong ý tưởng gốc, KHÔNG bịa thêm sự kiện/địa điểm/nhân vật. Nếu ý tưởng gốc có lời thoại trích trong dấu ngoặc kép thuộc chương này, chép lại NGUYÊN VĂN vào summary của đúng chương đó.
-- Không lặp 1 sự kiện ở 2 chương, không bỏ sót phần nào của ý tưởng gốc.
-Chỉ trả về DUY NHẤT 1 mảng JSON hợp lệ, mỗi phần tử có đúng 2 khoá "title" và "summary" — không kèm markdown fence, không giải thích.
-Ví dụ format: [{"title": "Đón dâu", "summary": "Buổi sáng, chú rể Minh tới nhà đón cô dâu Lan, trao hoa cưới, hai gia đình chụp ảnh chung trước cửa nhà."}, {"title": "Lễ cưới", "summary": "Lan bước vào lễ đường, Minh đón tại bục lễ, hai người trao nhẫn và hôn nhau trước quan khách."}]`;
-
-// Dùng chung cho 2 nơi: (1) parse JSON thô từ Agent, (2) validate lại danh sách chương client gửi lên
-// (khách được sửa tiêu đề/tóm tắt trước khi tạo cảnh) — không tin độ dài/kiểu dữ liệu client gửi.
-export function validateStoryChapters(parsed: unknown): StoryChapter[] {
-  if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("Danh sách chương không hợp lệ");
-  if (parsed.length > MAX_STORY_CHAPTERS) throw new Error(`Quá nhiều chương (${parsed.length}), tối đa ${MAX_STORY_CHAPTERS}`);
-  return parsed.map((c: Record<string, unknown>) => {
-    const title = typeof c?.title === "string" ? c.title.trim() : "";
-    const summary = typeof c?.summary === "string" ? c.summary.trim() : "";
-    if (!title || !summary) throw new Error("Mỗi chương cần có tiêu đề và tóm tắt");
-    return { title: title.slice(0, 80), summary: summary.slice(0, 1500) };
-  });
-}
-
-function parseStoryChapters(output: string): StoryChapter[] {
-  const cleaned = output.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
-  return validateStoryChapters(JSON.parse(cleaned));
-}
-
-export async function generateStoryChapters(
-  storyDescription: string,
-  modelChatKey?: string,
-  miniAppId?: string,
-  characterLabels?: string[]
-): Promise<StoryChapter[]> {
-  const chatModel = modelChatKey && ALLOWED_CHAT_MODELS.includes(modelChatKey) ? modelChatKey : ALLOWED_CHAT_MODELS[0];
-  let systemPrompt = STORY_CHAPTER_SYSTEM_PROMPT;
-  if (characterLabels && characterLabels.length > 0) {
-    systemPrompt += `\n\nCác nhân vật trong video này: ${characterLabels.join(", ")} — dùng đúng các tên này khi viết "summary".`;
-  }
-  if (miniAppId) {
-    const miniApp = await getMiniAppModelConfig(miniAppId);
-    const override = miniApp.model_config.prompt_helper_instructions;
-    if (override?.trim()) systemPrompt += `\n\nGhi chú thêm từ admin: ${override.trim()}`;
-  }
-  // Model "thinking" (gemini-3-flash-preview) tốn token suy luận ẩn TRƯỚC khi ra chữ — trần token quá sát từng
-  // làm cắt cụt JSON giữa chừng ở nhiều lượt gọi khác trong file này, nên để dư hẳn cho 1 mảng tối đa 8 chương.
-  const { output } = await callOpenRouter(chatModel, 3000, systemPrompt, storyDescription);
-  try {
-    return parseStoryChapters(output);
-  } catch (err) {
-    const { output: retryOutput } = await callOpenRouter(
-      chatModel,
-      3000,
-      systemPrompt,
-      `${storyDescription}\n\n(Lưu ý: lần trước bạn trả sai định dạng: ${err instanceof Error ? err.message : String(err)}. Chỉ trả về mảng JSON hợp lệ đúng theo hướng dẫn.)`
-    );
-    return parseStoryChapters(retryOutput);
-  }
-}
-
-// Người dùng gửi cho Agent cấp Cảnh: TOÀN BỘ ý tưởng gốc (chỉ để hiểu bối cảnh chung + để kiểm tra lời thoại
-// nguyên văn — validateScriptSceneResult đối chiếu câu thoại với đúng chuỗi này) + chương cần dựng.
-function buildChapterScriptInput(fullStory: string, chapter: StoryChapter, index: number, total: number): { text: string; extra: string } {
-  return {
-    text: `TOÀN BỘ ý tưởng gốc của video (chỉ để hiểu bối cảnh chung — KHÔNG dựng phần nằm ngoài chương dưới đây):\n${fullStory}\n\nCHƯƠNG CẦN DỰNG PHÂN CẢNH (chương ${index + 1}/${total} — "${chapter.title}"): ${chapter.summary}`,
-    extra: `CHẾ ĐỘ VIDEO NHIỀU CHƯƠNG — đang dựng chương ${index + 1}/${total} ("${chapter.title}"): bạn CHỈ được dựng phân cảnh cho ĐÚNG phần chương này mô tả, TUYỆT ĐỐI không dựng lại sự kiện thuộc chương khác. Các chương nối nhau bằng cắt cứng như các phần của 1 video dài, nên cảnh ĐẦU TIÊN của chương KHÔNG cần nối tiếp tư thế từ chương trước — viết "description" cảnh đầu tự đầy đủ bối cảnh (địa điểm, thời điểm, ai đang ở đâu). Trong chương này các cảnh CÓ THỂ ở nhiều địa điểm khác nhau nếu phần mô tả chương nói vậy: mỗi cảnh ghi đúng "location" của riêng nó (cảnh liền kề cùng chỗ thì "location" viết Y HỆT nhau), chỉ đổi địa điểm khi mô tả chương có nói. Giới hạn "tối đa 8 cảnh" ở Nhiệm vụ 1 áp dụng cho RIÊNG chương này.`,
-  };
-}
-
-export type ChapterScriptResult = {
-  index: number;
-  actions?: ScriptSceneResult[];
-  actionsMulti?: ScriptSceneResultMulti[];
-  error?: string;
-};
-
-// Tạo cảnh cho các chương ở "indexes" SONG SONG (mỗi chương 1 lượt Agent, tự thử lại 1 lần nếu sai định
-// dạng như generateStoryScript) — 1 chương lỗi KHÔNG làm hỏng cả loạt, trả error riêng để khách bấm tạo
-// lại đúng chương đó. characterLabels (>=2 phần tử) -> nhánh nhiều nhân vật. Mỗi hành động được gắn
-// "chapter" = chỉ số chương để planStoryVideoScenes không gộp xuyên ranh giới chương.
-export async function generateStoryScriptsByChapter(args: {
-  storyDescription: string;
-  chapters: StoryChapter[];
-  indexes: number[];
-  modelChatKey?: string;
-  miniAppId?: string;
-  characterLabel?: string;
-  characterLabels?: string[];
-}): Promise<ChapterScriptResult[]> {
-  const { storyDescription, chapters, indexes, modelChatKey, miniAppId, characterLabel, characterLabels } = args;
-  const isMulti = !!characterLabels && characterLabels.length >= 2;
-  return Promise.all(
-    indexes.map(async (index): Promise<ChapterScriptResult> => {
-      const { text, extra } = buildChapterScriptInput(storyDescription, chapters[index], index, chapters.length);
-      try {
-        if (isMulti) {
-          const actionsMulti = await generateStoryScriptMulti(text, characterLabels!, modelChatKey, miniAppId, extra);
-          return { index, actionsMulti: actionsMulti.map((a) => ({ ...a, chapter: index })) };
-        }
-        const actions = await generateStoryScript(text, modelChatKey, miniAppId, characterLabel, extra);
-        return { index, actions: actions.map((a) => ({ ...a, chapter: index })) };
-      } catch (err) {
-        console.error(`[story-video] Lỗi tạo cảnh cho chương #${index + 1}:`, err);
-        return { index, error: err instanceof Error ? err.message : String(err) };
-      }
-    })
-  );
 }
 
 // So sánh địa điểm 2 hành động liền kề (Agent được dặn viết Y HỆT khi cùng chỗ) — bỏ qua khác biệt hoa/thường
@@ -1461,8 +1310,6 @@ export function planStoryVideoScenes(
       let bestIdx = -1;
       let bestSum = Infinity;
       for (let i = 0; i < groups.length - 1; i++) {
-        // Video nhiều chương: ranh giới giữa 2 chương là cắt cứng (khác bối cảnh/thời điểm), không gộp.
-        if (groups[i][0].chapter !== groups[i + 1][0].chapter) continue;
         // Khác địa điểm cũng không gộp — 1 cảnh gộp chỉ có 1 ảnh tĩnh, không thể vừa ở nơi này vừa ở nơi kia.
         if (!sameLocation(groups[i][0].location, groups[i + 1][0].location)) continue;
         const sum = groupSeconds(groups[i]) + groupSeconds(groups[i + 1]);
@@ -1503,7 +1350,6 @@ export function planStoryVideoScenes(
       duration_seconds: naturalSeconds,
       pace: primary.pace,
       rotation_degrees: primary.rotation_degrees,
-      chapter: primary.chapter,
       merged_from: group,
       duration_key: durationKey,
       provider_cost_vnd: providerCostVnd,
@@ -1550,8 +1396,6 @@ export function planStoryVideoScenesMulti(actions: ScriptSceneResultMulti[], vid
       let bestSum = Infinity;
       for (let i = 0; i < groups.length - 1; i++) {
         if (!sameCharacterSet(groups[i][0].characters, groups[i + 1][0].characters)) continue;
-        // Video nhiều chương: ranh giới giữa 2 chương là cắt cứng (khác bối cảnh/thời điểm), không gộp.
-        if (groups[i][0].chapter !== groups[i + 1][0].chapter) continue;
         // Khác địa điểm cũng không gộp (xem bản 1 nhân vật).
         if (!sameLocation(groups[i][0].location, groups[i + 1][0].location)) continue;
         const sum = groupSeconds(groups[i]) + groupSeconds(groups[i + 1]);
@@ -2567,10 +2411,8 @@ export async function submitStoryVideoJob(
   characterAppearanceDescription?: string
 ): Promise<{ jobId: number; newBalance: number }> {
   const resolvedNumScenes = preplannedActions ? preplannedActions.length : numScenes;
-  // Luồng có kịch bản (preplannedActions/Multi, có thể nhiều chương) dùng trần cả JOB; luồng cũ giữ MAX_SCENES.
-  const sceneCap = preplannedActions || preplannedActionsMulti ? MAX_JOB_SCENES : MAX_SCENES;
-  if (resolvedNumScenes < MIN_SCENES || resolvedNumScenes > sceneCap) {
-    throw new Error(`Cần từ ${MIN_SCENES} đến ${sceneCap} phân cảnh`);
+  if (resolvedNumScenes < MIN_SCENES || resolvedNumScenes > MAX_SCENES) {
+    throw new Error(`Cần từ ${MIN_SCENES} đến ${MAX_SCENES} phân cảnh`);
   }
   // Whitelist qua tra bảng GENRE_STYLE_GUIDES — key lạ/không hợp lệ thì coi như không chọn thể loại
   // (an toàn hơn validate chặn cứng, giữ app luôn chạy được).
@@ -2581,8 +2423,8 @@ export async function submitStoryVideoJob(
   // chạy nguyên luồng cũ phía dưới, không có rủi ro regression.
   if (characters && characters.length >= 2) {
     if (characters.length > MAX_STORY_CHARACTERS) throw new Error(`Tối đa ${MAX_STORY_CHARACTERS} nhân vật`);
-    if (preplannedActionsMulti && (preplannedActionsMulti.length < MIN_SCENES || preplannedActionsMulti.length > MAX_JOB_SCENES)) {
-      throw new Error(`Cần từ ${MIN_SCENES} đến ${MAX_JOB_SCENES} phân cảnh`);
+    if (preplannedActionsMulti && (preplannedActionsMulti.length < MIN_SCENES || preplannedActionsMulti.length > MAX_SCENES)) {
+      throw new Error(`Cần từ ${MIN_SCENES} đến ${MAX_SCENES} phân cảnh`);
     }
     return submitMultiCharacterStoryVideoJob(
       userId,
@@ -5225,6 +5067,74 @@ async function extractLastFrame(videoUrl: string, jobId: number, sceneId: number
   }
 }
 
+// Lõi ghép: chuẩn hoá từng clip (scale/pad về khung chuẩn + đồng bộ âm thanh) rồi nối cứng bằng concat demuxer.
+// Dùng chung cho ghép các cảnh của 1 job (stitchAndFinish) và ghép video các CHƯƠNG của 1 dự án nhiều chương
+// (stitchChapterVideos) — tách ra để 2 nơi không lệch logic. clipPaths bị xoá dần trong lúc chạy (tiết kiệm /tmp).
+async function normalizeAndConcatClips(
+  clipPaths: string[],
+  workDir: string,
+  outputPath: string,
+  canvas: { width: number; height: number }
+): Promise<void> {
+  const ffmpeg = ffmpegPath as string;
+  const scaleFilter = `scale=${canvas.width}:${canvas.height}:force_original_aspect_ratio=decrease,pad=${canvas.width}:${canvas.height}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
+
+  if (clipPaths.length === 1) {
+    // Chỉ 1 cảnh (vd khách dùng "Ghép video, bỏ cảnh lỗi" chỉ còn đúng 1 cảnh) — không có điểm ghép
+    // nào để chuyển mờ, chỉ cần chuẩn hoá kích thước.
+    await execFileAsync(ffmpeg, [
+      "-i", clipPaths[0], "-vf", scaleFilter, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-y", outputPath,
+    ]);
+  } else {
+    // Nối CỨNG (hard cut) giữa các cảnh — trước đây dùng chuyển mờ (crossfade) STITCH_FADE_SECONDS,
+    // nhưng người dùng test thật (job story-121/123, nối cứng vs 0.6s vs 0.1s) xác nhận nối cứng nhìn
+    // tốt hơn — bỏ hẳn crossfade. Mỗi clip chỉ scale + encode ĐÚNG 1 LẦN rồi nối bằng concat demuxer +
+    // "-c copy" (không re-encode lần 2, gần như tức thời) — đơn giản và rẻ hơn nhiều so với cơ chế
+    // core+transition trước đây (vốn chỉ tồn tại để làm mượt điểm nối chuyển mờ, giờ không cần nữa).
+    const clipInfo = await Promise.all(clipPaths.map((p) => probeClip(p)));
+    const anyHasAudio = clipInfo.some((c) => c.hasAudio);
+    // Video DÀI (nhiều chương): Supabase Storage gói free giới hạn 50MB/file, video ghép ở chất lượng mặc
+    // định ~0.4MB/giây (đo từ các job thật) nên quá ~105 giây sẽ vượt và upload thất bại. Chỉ khi tổng thời
+    // lượng đủ dài để có nguy cơ vượt mới ép trần bitrate (VBV maxrate) cho vừa ngân sách dung lượng —
+    // video ngắn giữ nguyên chất lượng cũ, không đổi gì. Sàn 500kbps để không nát hình quá mức.
+    const totalSeconds = clipInfo.reduce((sum, c) => sum + c.durationSeconds, 0);
+    const audioBps = anyHasAudio ? 128_000 : 0;
+    const videoBudgetBps = Math.max(500_000, Math.floor((STITCH_MAX_OUTPUT_BYTES * 8) / Math.max(totalSeconds, 1)) - audioBps);
+    const rateCapArgs = videoBudgetBps < 3_500_000 ? ["-maxrate", String(videoBudgetBps), "-bufsize", String(videoBudgetBps * 2)] : [];
+    const encodeArgs = ["-c:v", "libx264", "-preset", "veryfast", ...rateCapArgs, "-pix_fmt", "yuv420p", ...(anyHasAudio ? ["-c:a", "aac"] : ["-an"])];
+
+    const scaledPaths: string[] = [];
+    for (let i = 0; i < clipPaths.length; i++) {
+      const outPath = path.join(workDir, `scene-${i}.mp4`);
+      const filterParts = [`[0:v]${scaleFilter}[vout]`];
+      const mapArgs = ["-map", "[vout]"];
+      if (anyHasAudio) {
+        if (clipInfo[i].hasAudio) {
+          filterParts.push(`[0:a]aformat=sample_rates=44100:channel_layouts=stereo[aout]`);
+        } else {
+          filterParts.push(`anullsrc=channel_layout=stereo:sample_rate=44100:d=${clipInfo[i].durationSeconds.toFixed(3)}[aout]`);
+        }
+        mapArgs.push("-map", "[aout]");
+      }
+      await execFileAsync(ffmpeg, [
+        "-i", clipPaths[i],
+        "-filter_complex", filterParts.join(";"),
+        ...mapArgs,
+        ...encodeArgs,
+        "-y", outPath,
+      ]);
+      scaledPaths[i] = outPath;
+      // Video dài nhiều clip: xoá ngay clip gốc đã mã hoá xong để /tmp của hàm serverless không phình lên.
+      await rm(clipPaths[i], { force: true }).catch(() => {});
+    }
+
+    const listPath = path.join(workDir, "concat-list.txt");
+    const listLines = scaledPaths.map((p) => `file '${p.replace(/'/g, "'\\''")}'`);
+    await writeFile(listPath, listLines.join("\n"));
+    await execFileAsync(ffmpeg, ["-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", "-y", outputPath]);
+  }
+}
+
 async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
   const supabase = getSupabaseAdmin();
   const { data: job } = await supabase.from("story_video_jobs").select("user_id, mini_app_id, aspect_ratio").eq("id", jobId).single();
@@ -5273,62 +5183,7 @@ async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
       })
     );
 
-    const scaleFilter = `scale=${canvas.width}:${canvas.height}:force_original_aspect_ratio=decrease,pad=${canvas.width}:${canvas.height}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
-
-    if (clipPaths.length === 1) {
-      // Chỉ 1 cảnh (vd khách dùng "Ghép video, bỏ cảnh lỗi" chỉ còn đúng 1 cảnh) — không có điểm ghép
-      // nào để chuyển mờ, chỉ cần chuẩn hoá kích thước.
-      await execFileAsync(ffmpegPath, [
-        "-i", clipPaths[0], "-vf", scaleFilter, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-y", outputPath,
-      ]);
-    } else {
-      // Nối CỨNG (hard cut) giữa các cảnh — trước đây dùng chuyển mờ (crossfade) STITCH_FADE_SECONDS,
-      // nhưng người dùng test thật (job story-121/123, nối cứng vs 0.6s vs 0.1s) xác nhận nối cứng nhìn
-      // tốt hơn — bỏ hẳn crossfade. Mỗi clip chỉ scale + encode ĐÚNG 1 LẦN rồi nối bằng concat demuxer +
-      // "-c copy" (không re-encode lần 2, gần như tức thời) — đơn giản và rẻ hơn nhiều so với cơ chế
-      // core+transition trước đây (vốn chỉ tồn tại để làm mượt điểm nối chuyển mờ, giờ không cần nữa).
-      const clipInfo = await Promise.all(clipPaths.map((p) => probeClip(p)));
-      const anyHasAudio = clipInfo.some((c) => c.hasAudio);
-      // Video DÀI (nhiều chương): Supabase Storage gói free giới hạn 50MB/file, video ghép ở chất lượng mặc
-      // định ~0.4MB/giây (đo từ các job thật) nên quá ~105 giây sẽ vượt và upload thất bại. Chỉ khi tổng thời
-      // lượng đủ dài để có nguy cơ vượt mới ép trần bitrate (VBV maxrate) cho vừa ngân sách dung lượng —
-      // video ngắn giữ nguyên chất lượng cũ, không đổi gì. Sàn 500kbps để không nát hình quá mức.
-      const totalSeconds = clipInfo.reduce((sum, c) => sum + c.durationSeconds, 0);
-      const audioBps = anyHasAudio ? 128_000 : 0;
-      const videoBudgetBps = Math.max(500_000, Math.floor((STITCH_MAX_OUTPUT_BYTES * 8) / Math.max(totalSeconds, 1)) - audioBps);
-      const rateCapArgs = videoBudgetBps < 3_500_000 ? ["-maxrate", String(videoBudgetBps), "-bufsize", String(videoBudgetBps * 2)] : [];
-      const encodeArgs = ["-c:v", "libx264", "-preset", "veryfast", ...rateCapArgs, "-pix_fmt", "yuv420p", ...(anyHasAudio ? ["-c:a", "aac"] : ["-an"])];
-
-      const scaledPaths: string[] = [];
-      for (let i = 0; i < clipPaths.length; i++) {
-        const outPath = path.join(workDir, `scene-${i}.mp4`);
-        const filterParts = [`[0:v]${scaleFilter}[vout]`];
-        const mapArgs = ["-map", "[vout]"];
-        if (anyHasAudio) {
-          if (clipInfo[i].hasAudio) {
-            filterParts.push(`[0:a]aformat=sample_rates=44100:channel_layouts=stereo[aout]`);
-          } else {
-            filterParts.push(`anullsrc=channel_layout=stereo:sample_rate=44100:d=${clipInfo[i].durationSeconds.toFixed(3)}[aout]`);
-          }
-          mapArgs.push("-map", "[aout]");
-        }
-        await execFileAsync(ffmpegPath, [
-          "-i", clipPaths[i],
-          "-filter_complex", filterParts.join(";"),
-          ...mapArgs,
-          ...encodeArgs,
-          "-y", outPath,
-        ]);
-        scaledPaths[i] = outPath;
-        // Video dài nhiều clip: xoá ngay clip gốc đã mã hoá xong để /tmp của hàm serverless không phình lên.
-        await rm(clipPaths[i], { force: true }).catch(() => {});
-      }
-
-      const listPath = path.join(workDir, "concat-list.txt");
-      const listLines = scaledPaths.map((p) => `file '${p.replace(/'/g, "'\\''")}'`);
-      await writeFile(listPath, listLines.join("\n"));
-      await execFileAsync(ffmpegPath, ["-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", "-y", outputPath]);
-    }
+    await normalizeAndConcatClips(clipPaths, workDir, outputPath, canvas);
 
     const outputBuffer = await readFile(outputPath);
     const filePath = `${job.user_id}/story-${jobId}-${randomUUID()}.mp4`;
@@ -5345,6 +5200,34 @@ async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
     // video còn xuất hiện trong Vercel error tracking, tránh lặp lại việc dò lỗi mù như lần ffmpeg ENOENT.
     console.error(`[story-video-stitch] Job #${jobId} lỗi ghép video:`, err);
     await failJob(jobId, err instanceof Error ? err.message : String(err));
+  } finally {
+    await rm(workDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+// Video NHIỀU CHƯƠNG: ghép video hoàn chỉnh của từng chương (đã là mp4 ghép xong sẵn, theo đúng thứ tự
+// truyền vào) thành 1 video cuối — dùng lại đúng lõi ghép của stitchAndFinish (chuẩn hoá khung + âm thanh
+// im lặng cho chương không có tiếng + trần bitrate theo tổng thời lượng để vừa giới hạn 50MB/file).
+export async function stitchChapterVideos(videoUrls: string[], aspectRatio: string): Promise<Buffer> {
+  if (!ffmpegPath) throw new Error("Máy chủ chưa hỗ trợ ghép video (thiếu ffmpeg)");
+  try {
+    chmodSync(ffmpegPath, 0o755);
+  } catch {}
+  const canvas = STITCH_CANVAS_BY_ASPECT_RATIO[aspectRatio] ?? STITCH_CANVAS_BY_ASPECT_RATIO["9:16"];
+  const workDir = await mkdtemp(path.join(tmpdir(), "story-project-"));
+  try {
+    const clipPaths = await Promise.all(
+      videoUrls.map(async (url, i) => {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Không tải được video chương ${i + 1}`);
+        const clipPath = path.join(workDir, `chapter-${i}.mp4`);
+        await writeFile(clipPath, Buffer.from(await res.arrayBuffer()));
+        return clipPath;
+      })
+    );
+    const outputPath = path.join(workDir, "output.mp4");
+    await normalizeAndConcatClips(clipPaths, workDir, outputPath, canvas);
+    return await readFile(outputPath);
   } finally {
     await rm(workDir, { recursive: true, force: true }).catch(() => {});
   }

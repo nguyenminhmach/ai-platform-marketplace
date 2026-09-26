@@ -5,7 +5,6 @@ import {
   validateScriptSceneResultMulti,
   MIN_SCENES,
   MAX_SCENES,
-  MAX_JOB_SCENES,
   MIN_CHARACTER_IMAGES,
   MAX_CHARACTER_IMAGES,
   MAX_STORY_CHARACTERS,
@@ -18,9 +17,9 @@ import {
 } from "@/lib/story-video";
 import { InsufficientCreditError } from "@/lib/credit-system";
 import { getAuthenticatedUserId } from "@/lib/auth-server";
+import { attachJobToProject } from "@/lib/story-video-projects";
 
-// 6000 (trước là 2000): video dài nhiều chương (vd đám cưới vài phút) cần mô tả dài hơn hẳn 1 truyện ngắn.
-const STORY_MAX_LENGTH = 6000;
+const STORY_MAX_LENGTH = 2000;
 const CHARACTER_APPEARANCE_DESCRIPTION_MAX_LENGTH = 500;
 
 // Không tin số lượng/nội dung client tự gửi — lọc chuỗi hợp lệ + cắt về đúng cận trên cho an toàn.
@@ -86,6 +85,8 @@ export async function POST(req: Request) {
     preplannedActions,
     preplannedActionsMulti,
     characterAppearanceDescription,
+    projectId,
+    chapterIndex,
   } = await req.json();
 
   const userId = await getAuthenticatedUserId();
@@ -99,10 +100,8 @@ export async function POST(req: Request) {
   if (storyDescription.length > STORY_MAX_LENGTH) {
     return Response.json({ error: `Ý tưởng truyện quá dài (tối đa ${STORY_MAX_LENGTH} ký tự)` }, { status: 400 });
   }
-  // Luồng có kịch bản (có thể nhiều chương) dùng trần cả job, luồng cũ giữ MAX_SCENES.
-  const numScenesCap = preplannedActions !== undefined || preplannedActionsMulti !== undefined ? MAX_JOB_SCENES : MAX_SCENES;
-  if (typeof numScenes !== "number" || numScenes < MIN_SCENES || numScenes > numScenesCap) {
-    return Response.json({ error: `Cần từ ${MIN_SCENES} đến ${numScenesCap} phân cảnh` }, { status: 400 });
+  if (typeof numScenes !== "number" || numScenes < MIN_SCENES || numScenes > MAX_SCENES) {
+    return Response.json({ error: `Cần từ ${MIN_SCENES} đến ${MAX_SCENES} phân cảnh` }, { status: 400 });
   }
 
   // Nhiều nhân vật (>=2) — validate riêng, bỏ qua hẳn validate 1-nhân-vật bên dưới (characterImageUrls
@@ -178,7 +177,7 @@ export async function POST(req: Request) {
   let parsedPreplannedActions: ScriptSceneResult[] | undefined;
   if (!isMultiCharacter && preplannedActions !== undefined) {
     try {
-      parsedPreplannedActions = validateScriptSceneResult(preplannedActions, storyDescription, MAX_JOB_SCENES);
+      parsedPreplannedActions = validateScriptSceneResult(preplannedActions, storyDescription);
     } catch (err) {
       return Response.json(
         { error: `Kịch bản không hợp lệ, vui lòng bấm "Tạo kịch bản" lại: ${err instanceof Error ? err.message : String(err)}` },
@@ -192,7 +191,7 @@ export async function POST(req: Request) {
   if (isMultiCharacter && preplannedActionsMulti !== undefined) {
     const characterLabels = parsedCharacters!.map((c, i) => c.label?.trim() || `Nhân vật ${i + 1}`);
     try {
-      parsedPreplannedActionsMulti = validateScriptSceneResultMulti(preplannedActionsMulti, storyDescription, characterLabels, MAX_JOB_SCENES);
+      parsedPreplannedActionsMulti = validateScriptSceneResultMulti(preplannedActionsMulti, storyDescription, characterLabels);
     } catch (err) {
       return Response.json(
         { error: `Kịch bản không hợp lệ, vui lòng bấm "Tạo kịch bản" lại: ${err instanceof Error ? err.message : String(err)}` },
@@ -235,6 +234,12 @@ export async function POST(req: Request) {
       parsedPreplannedActionsMulti,
       hasAppearanceDescription ? trimmedAppearanceDescription : undefined
     );
+    // Video nhiều chương: gắn job vào dự án ở đúng chương. Lỗi ở đây không làm hỏng job (credit đã trừ, job đã chạy).
+    if (typeof projectId === "number" && typeof chapterIndex === "number") {
+      await attachJobToProject(userId, projectId, result.jobId, chapterIndex).catch((e) =>
+        console.error("[story-video] Không gắn được job vào dự án:", e)
+      );
+    }
     return Response.json({ success: true, jobId: result.jobId, newBalance: result.newBalance });
   } catch (err) {
     if (err instanceof InsufficientCreditError) {

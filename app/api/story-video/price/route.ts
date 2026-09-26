@@ -2,7 +2,7 @@ import {
   computeStoryVideoCreditCost,
   computeCharacterCreditCost,
   MIN_SCENES,
-  MAX_JOB_SCENES,
+  MAX_SCENES,
   REQUIRES_CONTINUOUS_MOTION_VIDEO_KEYS,
 } from "@/lib/story-video";
 
@@ -20,9 +20,8 @@ export async function GET(req: Request) {
     searchParams.get("continuousMotion") === "1" || (!!videoModelKey && REQUIRES_CONTINUOUS_MOTION_VIDEO_KEYS.has(videoModelKey));
 
   if (!miniAppId) return Response.json({ error: "Thiếu miniAppId" }, { status: 400 });
-  // Trần cả JOB (video nhiều chương), không phải trần mỗi lượt Agent — xem MAX_JOB_SCENES trong lib.
-  if (!numScenes || numScenes < MIN_SCENES || numScenes > MAX_JOB_SCENES) {
-    return Response.json({ error: `numScenes phải từ ${MIN_SCENES} đến ${MAX_JOB_SCENES}` }, { status: 400 });
+  if (!numScenes || numScenes < MIN_SCENES || numScenes > MAX_SCENES) {
+    return Response.json({ error: `numScenes phải từ ${MIN_SCENES} đến ${MAX_SCENES}` }, { status: 400 });
   }
 
   try {

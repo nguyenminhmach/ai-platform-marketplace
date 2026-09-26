@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getAuthenticatedUserId } from "@/lib/auth-server";
+import { getProjectView } from "@/lib/story-video-projects";
 
 // Tự khôi phục job story-video gần nhất còn dở dang khi khách quay lại trang (đóng tab/tắt máy giữa
 // chừng) — mirror cơ chế /api/video/latest ở các app video đơn giản, nhưng dùng route riêng vì
@@ -22,7 +23,7 @@ export async function GET() {
   const { data: job } = await supabase
     .from("story_video_jobs")
     .select(
-      "id, story_description, character_image_urls, location_reference_url, location_reference_mask_url, location_reference_mask_zones"
+      "id, story_description, character_image_urls, location_reference_url, location_reference_mask_url, location_reference_mask_zones, project_id, chapter_index"
     )
     .eq("user_id", userId)
     .gte("created_at", sevenDaysAgo)
@@ -31,7 +32,14 @@ export async function GET() {
     .maybeSingle();
 
   if (!job) return Response.json({ job: null });
+  // Video nhiều chương: job thuộc 1 dự án -> trả kèm dự án (các chương + video đã xong) để giao diện dựng lại tab chương.
+  let project = null;
+  if (job.project_id) {
+    project = await getProjectView(userId, job.project_id).catch(() => null);
+  }
   return Response.json({
+    project,
+    chapterIndex: job.chapter_index ?? null,
     job: {
       id: job.id,
       storyDescription: job.story_description,

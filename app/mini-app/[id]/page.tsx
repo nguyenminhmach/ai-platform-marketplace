@@ -196,18 +196,24 @@ export default function MiniAppDetailPage() {
     face_view?: string;
     dialogue?: string | { speaker: number; line: string } | null;
     characters?: number[];
-    // Video nhiều chương: chỉ số chương (0-based) hành động thuộc về — server gắn, giữ nguyên khi gửi lại.
-    chapter?: number;
   };
   type StoryScriptScene = StoryScriptAction & { duration_key: string | null; provider_cost_vnd: number };
-  // Video DÀI nhiều chương (vd đám cưới vài phút): kịch bản 2 cấp CHƯƠNG -> CẢNH (xem
-  // generateStoryChapters trong lib/story-video.ts). Chương do Agent chia, khách sửa được tiêu đề/tóm tắt;
-  // "actions" là kết quả cấp Cảnh của riêng chương đó (undefined = chưa tạo/đã sửa tóm tắt nên phải tạo lại).
-  type StoryChapterDraft = { title: string; summary: string; actions?: StoryScriptAction[]; error?: string };
-  const [storyChapterMode, setStoryChapterMode] = useState(false);
-  const [storyChapters, setStoryChapters] = useState<StoryChapterDraft[] | null>(null);
-  const [storyChaptersLoading, setStoryChaptersLoading] = useState(false);
-  const [storyChapterRegenIndex, setStoryChapterRegenIndex] = useState<number | "all" | null>(null);
+  // Video NHIỀU CHƯƠNG — mỗi chương là 1 lượt chạy đầy đủ của form (job riêng) ra 1 video ngắn; cuối cùng
+  // "Kết thúc" ghép video các chương (xem lib/story-video-projects.ts). Chỉ giữ 1 form duy nhất: xong chương N
+  // thì "chốt" gọn (mã job + video + ý tưởng) rồi reset form sang chương N+1 — luồng vốn tuần tự.
+  type StoryProjectChapter = { chapterIndex: number; jobId: number; outputUrl: string; title: string };
+  const STORY_MAX_CHAPTERS = 10; // đúng MAX_PROJECT_CHAPTERS ở lib/story-video-projects.ts
+  const [storyMultiChapter, setStoryMultiChapter] = useState(false);
+  const [storyProjectId, setStoryProjectId] = useState<number | null>(null);
+  const [storyProjectChapters, setStoryProjectChapters] = useState<StoryProjectChapter[]>([]);
+  const [storyActiveChapter, setStoryActiveChapter] = useState(0);
+  const [storyLockedAspectRatio, setStoryLockedAspectRatio] = useState<string | null>(null);
+  const [storyProjectFinalizing, setStoryProjectFinalizing] = useState(false);
+  const [storyProjectFinalUrl, setStoryProjectFinalUrl] = useState<string | null>(null);
+  const [storyProjectError, setStoryProjectError] = useState<string | null>(null);
+  const [storyViewChapter, setStoryViewChapter] = useState<number | null>(null);
+  const storyFormTopRef = useRef<HTMLDivElement | null>(null);
+  const storyProjectFinalRef = useRef<HTMLDivElement | null>(null);
   const [storyScriptActions, setStoryScriptActions] = useState<StoryScriptAction[] | null>(null);
   const [storyScriptScenes, setStoryScriptScenes] = useState<StoryScriptScene[] | null>(null);
   const [storyScriptTotalSeconds, setStoryScriptTotalSeconds] = useState<number | null>(null);
@@ -510,119 +516,6 @@ export default function MiniAppDetailPage() {
       setStorySpeedLoading(false);
     }
   }
-  // ---- Video DÀI nhiều chương: kịch bản 2 cấp CHƯƠNG -> CẢNH (route /api/story-video/plan-chapters) ----
-  function chapterCharacterPayload() {
-    const hasMultipleCharacters = storyExtraCharacters.length > 0;
-    return {
-      hasMultipleCharacters,
-      characterLabels: hasMultipleCharacters
-        ? [storyPrimaryCharacterLabel.trim() || "Nhân vật 1", ...storyExtraCharacters.map((c, i) => c.label.trim() || `Nhân vật ${i + 2}`)]
-        : undefined,
-      characterLabel: hasMultipleCharacters ? undefined : storyPrimaryCharacterLabel.trim() || "Nhân vật 1",
-    };
-  }
-  // Xoá kịch bản/giá đã tính (không đụng danh sách chương) — dùng khi chương bị sửa/xoá/tạo lại làm kết
-  // quả cũ không còn khớp.
-  function clearChapterPlanResult() {
-    setStoryScriptActions(null);
-    setStoryScriptScenes(null);
-    setStoryScriptTotalSeconds(null);
-    setStoryScriptVideoCreditCost(null);
-    setStorySpeedDrafts({});
-    setStorySpeedFinalized(false);
-  }
-  // Cấp 1: chia ý tưởng thành các chương (1 lượt gọi Agent, chỉ tiêu đề + tóm tắt).
-  async function handleCreateChapters() {
-    if (!input.trim()) {
-      setStoryScriptError("Nhập ý tưởng trước đã");
-      return;
-    }
-    setStoryChaptersLoading(true);
-    setStoryScriptError(null);
-    try {
-      const { characterLabels } = chapterCharacterPayload();
-      const res = await fetch("/api/story-video/plan-chapters", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: "outline",
-          storyDescription: input.trim(),
-          miniAppId: app!.id,
-          modelChatKey: storyModelChatKey,
-          characterLabels,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setStoryScriptError(data.error ?? "Không chia được chương");
-        return;
-      }
-      setStoryChapters(data.chapters);
-      clearChapterPlanResult();
-    } catch {
-      setStoryScriptError("Không kết nối được tới server");
-    } finally {
-      setStoryChaptersLoading(false);
-    }
-  }
-  // Cấp 2: tạo cảnh cho từng chương (song song ở server). regenerateIndexes = chỉ tạo lại đúng các chương
-  // đó; chương còn lại có sẵn actions thì dùng lại (không gọi Agent). Đủ hết chương -> có kịch bản + giá.
-  async function handleGenerateChapterScripts(regenerateIndexes?: number[]) {
-    if (!storyChapters || !storyVideoModelKey) return;
-    setStoryChapterRegenIndex(regenerateIndexes && regenerateIndexes.length === 1 ? regenerateIndexes[0] : "all");
-    setStoryChaptersLoading(true);
-    setStoryScriptError(null);
-    try {
-      const { hasMultipleCharacters, characterLabels, characterLabel } = chapterCharacterPayload();
-      const actionsKey = hasMultipleCharacters ? "actionsMulti" : "actions";
-      const res = await fetch("/api/story-video/plan-chapters", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: "scripts",
-          storyDescription: input.trim(),
-          miniAppId: app!.id,
-          videoModelKey: storyVideoModelKey,
-          modelChatKey: storyModelChatKey,
-          characterLabels,
-          characterLabel,
-          chapters: storyChapters.map((c) => ({ title: c.title, summary: c.summary, [actionsKey]: c.actions })),
-          regenerateIndexes,
-        }),
-      });
-      const data = await res.json();
-      // Server luôn trả lại danh sách chương (kể cả khi lỗi 1 phần) để giữ chương đã xong, hiện lỗi riêng chương hỏng.
-      if (Array.isArray(data.chapters)) setStoryChapters(data.chapters);
-      if (!res.ok) {
-        setStoryScriptError(data.error ?? "Không tạo được kịch bản các chương");
-        clearChapterPlanResult();
-        return;
-      }
-      if (!data.complete) {
-        setStoryScriptError("Có chương chưa tạo được cảnh — bấm \"Tạo lại chương này\" ở chương bị lỗi.");
-        clearChapterPlanResult();
-        return;
-      }
-      setStoryScriptActions(data.actions);
-      setStoryScriptScenes(data.scenes);
-      setStoryScriptTotalSeconds(data.totalNaturalSeconds ?? null);
-      setStoryScriptVideoCreditCost(data.videoCreditCost ?? null);
-      setNumScenes(data.scenes.length);
-      setSceneCountChosen(true);
-      setStorySpeedDrafts({});
-      setStorySpeedFinalized(false);
-    } catch {
-      setStoryScriptError("Không kết nối được tới server");
-    } finally {
-      setStoryChaptersLoading(false);
-      setStoryChapterRegenIndex(null);
-    }
-  }
-  // Ý tưởng đổi -> danh sách chương đã chia không còn khớp, bỏ luôn (kịch bản/giá cũ đã có effect riêng bên
-  // dưới lo). Đổi model video KHÔNG cần xoá chương (chỉ giá đổi) — bấm "Tạo cảnh" lại là dùng lại actions có sẵn.
-  useEffect(() => {
-    setStoryChapters(null);
-  }, [input]);
   // Kịch bản đã tạo gắn với ĐÚNG nội dung truyện + model video lúc bấm — đổi 1 trong 2 thứ đó sau khi
   // đã có kịch bản thì huỷ bản cũ, bắt bấm "Tạo kịch bản" lại, đảm bảo giá hiện luôn khớp thực tế dùng.
   useEffect(() => {
@@ -977,6 +870,7 @@ export default function MiniAppDetailPage() {
       .then(async (data) => {
         const job = data.job;
         if (!job) return;
+        if (data.project) restoreStoryProject(data.project, data.chapterIndex ?? null);
         setStoryJobId(job.id);
         if (job.storyDescription) setInput(job.storyDescription);
         if (Array.isArray(job.characterImageUrls) && job.characterImageUrls.length > 0) {
@@ -1914,6 +1808,188 @@ export default function MiniAppDetailPage() {
     }
   }
 
+  // ================= Video NHIỀU CHƯƠNG (dự án) =================
+  // Model không hỗ trợ tỉ lệ đã khoá theo chương 1 thì ẩn khỏi dropdown (không thì đổi model sẽ phá khoá).
+  function modelSupportsLockedRatio(m: { aspect_ratios?: string[] }): boolean {
+    return !storyLockedAspectRatio || !m.aspect_ratios || m.aspect_ratios.includes(storyLockedAspectRatio);
+  }
+  async function handleToggleMultiChapter(enabled: boolean) {
+    setStoryProjectError(null);
+    if (!enabled) {
+      setStoryMultiChapter(false);
+      return;
+    }
+    setStoryMultiChapter(true);
+    setStoryActiveChapter(0);
+    if (storyProjectId !== null) return;
+    try {
+      const res = await fetch("/api/story-video/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ miniAppId: app!.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Không tạo được dự án");
+      setStoryProjectId(data.projectId);
+    } catch (err) {
+      setStoryMultiChapter(false);
+      setStoryProjectError(err instanceof Error ? err.message : "Không tạo được dự án");
+    }
+  }
+  // Đưa MỌI ô của form về trạng thái trống cho chương mới. GIỮ LẠI (khách vẫn sửa được): model ảnh/video, độ
+  // phân giải/thời lượng, model chat, thể loại, tự động tạo video, chuyển động liên tục/frame-chain, tỉ lệ khung
+  // hình (khoá theo chương 1). Ảnh nhân vật, ảnh bối cảnh, vật phẩm, ý tưởng, kịch bản, cảnh, video: xoá hết.
+  function resetStoryFormForNextChapter() {
+    if (storyPollRef.current) clearInterval(storyPollRef.current);
+    setInput("");
+    setNumScenes(3);
+    setSceneCountChosen(false);
+    setStoryScriptActions(null);
+    setStoryScriptScenes(null);
+    setStoryScriptTotalSeconds(null);
+    setStoryScriptVideoCreditCost(null);
+    setStoryScriptLoading(false);
+    setStoryScriptError(null);
+    setStorySpeedDrafts({});
+    setStorySpeedFinalized(false);
+    setStorySpeedLoading(false);
+    setStoryCharacterImages([]);
+    setStoryExtraCharacters([]);
+    setStoryPrimaryCharacterLabel("");
+    setStoryCharacterInputMode("photo");
+    setStoryCharacterAppearanceDescription("");
+    setStoryLocationReference(null);
+    setStoryLocationReferenceMaskUrl(null);
+    setStoryLocationMaskRect(null);
+    setStoryLocationMaskEditorOpen(false);
+    setStoryLocationImageNaturalSize(null);
+    setStoryLocationMaskAssignments([]);
+    setStoryLocationMaskActiveCharacter(0);
+    setStoryPrimaryItemReferences([]);
+    setStorySkipCharacterCreation(false);
+    setStoryUseOwnSceneImages(false);
+    setStorySceneImages([]);
+    setStorySceneHints([]);
+    setStoryCharacterSheetUrl(null);
+    setStoryCharacterSource(null);
+    setStoryRegeneratingCharacter(false);
+    setStoryJobCharacters(null);
+    setStoryRegeneratingJobCharacterPosition(null);
+    setStoryContinuingScenes(false);
+    setStorySavingCharacter(false);
+    setStorySavedCharacterMsg(null);
+    setStorySelectedSavedCharacterId(null);
+    setStoryCheckingImage(false);
+    setStoryImageCheckResult(null);
+    setStoryRunning(false);
+    setStoryContinuing(false);
+    setStoryFinalizingPartial(false);
+    setStoryCancelling(false);
+    setStoryActiveButton(null);
+    setStoryStatusText(null);
+    setStoryStatus(null);
+    setStoryJobId(null);
+    setStoryScenes(null);
+    setStoryRegeneratingSceneId(null);
+    setStoryRegeneratingContinuousPosition(null);
+    setStoryAnatomyChecking({});
+    setStoryAnatomyResults({});
+    setStoryContinuityChecking({});
+    setStoryContinuityResults({});
+    setStoryRegeneratingVideoSceneId(null);
+    setStoryEditingPromptSceneId(null);
+    setStoryEditedPrompt("");
+    setStoryResult(null);
+    setStoryError(null);
+    setStoryQuickZoomUrl(null);
+    setSuggestingScenes(false);
+    setSceneSuggestError(null);
+  }
+  async function handleNextChapter() {
+    if (storyProjectId === null || !storyJobId || !storyResult) return;
+    if (storyActiveChapter + 1 >= STORY_MAX_CHAPTERS) return;
+    const finished: StoryProjectChapter = {
+      chapterIndex: storyActiveChapter,
+      jobId: storyJobId,
+      outputUrl: storyResult,
+      title: input.trim().slice(0, 80),
+    };
+    // Tỉ lệ khoá theo chương 1 — lấy từ server (tỉ lệ job chương 1 THỰC SỰ dùng), lỗi mạng thì dùng tỉ lệ đang chọn.
+    let locked = storyLockedAspectRatio ?? storyAspectRatio;
+    try {
+      const res = await fetch(`/api/story-video/projects?projectId=${storyProjectId}`);
+      const data = await res.json();
+      if (res.ok && data.project?.aspectRatio) locked = data.project.aspectRatio;
+    } catch {}
+    setStoryProjectChapters((prev) => [...prev.filter((c) => c.chapterIndex !== finished.chapterIndex), finished]);
+    setStoryLockedAspectRatio(locked);
+    setStoryAspectRatio(locked);
+    resetStoryFormForNextChapter();
+    setStoryActiveChapter(finished.chapterIndex + 1);
+    setStoryViewChapter(null);
+    setTimeout(() => storyFormTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  }
+  async function handleFinishProject() {
+    if (storyProjectId === null || storyProjectFinalizing) return;
+    setStoryProjectFinalizing(true);
+    setStoryProjectError(null);
+    try {
+      const res = await fetch("/api/story-video/projects/finalize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: storyProjectId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Không ghép được video");
+      setStoryProjectFinalUrl(data.finalOutputUrl);
+      setTimeout(() => storyProjectFinalRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+    } catch (err) {
+      setStoryProjectError(err instanceof Error ? err.message : "Không ghép được video");
+    } finally {
+      setStoryProjectFinalizing(false);
+    }
+  }
+  // Dự án đã kết thúc -> bắt đầu dự án mới (form trống, quay về chế độ thường; khách bật lại nếu muốn nhiều chương).
+  function handleNewProject() {
+    resetStoryFormForNextChapter();
+    setStoryProjectChapters([]);
+    setStoryProjectFinalUrl(null);
+    setStoryLockedAspectRatio(null);
+    setStoryViewChapter(null);
+    setStoryActiveChapter(0);
+    setStoryProjectId(null);
+    setStoryMultiChapter(false);
+    setStoryProjectError(null);
+    setTimeout(() => storyFormTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  }
+  // Khôi phục dự án dở dang sau khi tải lại trang — dựng lại tab chương từ database (chương đang soạn dở mà
+  // chưa bấm chạy thì không có gì để khôi phục, giống hành vi 1 job đơn hiện tại).
+  function restoreStoryProject(
+    project: {
+      id: number;
+      status: string;
+      aspectRatio: string | null;
+      finalOutputUrl: string | null;
+      chapters: { chapterIndex: number; jobId: number; status: string; outputUrl: string | null; storyDescription: string | null }[];
+    },
+    activeIndex: number | null
+  ) {
+    const active = activeIndex ?? project.chapters.length;
+    setStoryMultiChapter(true);
+    setStoryProjectId(project.id);
+    setStoryActiveChapter(active);
+    setStoryProjectChapters(
+      project.chapters
+        .filter((c) => c.chapterIndex !== active && c.status === "done" && c.outputUrl)
+        .map((c) => ({ chapterIndex: c.chapterIndex, jobId: c.jobId, outputUrl: c.outputUrl as string, title: (c.storyDescription ?? "").slice(0, 80) }))
+    );
+    if (active > 0 && project.aspectRatio) {
+      setStoryLockedAspectRatio(project.aspectRatio);
+      setStoryAspectRatio(project.aspectRatio);
+    }
+    if (project.status === "done" && project.finalOutputUrl) setStoryProjectFinalUrl(project.finalOutputUrl);
+  }
+
   async function handleRunStoryVideo() {
     const images = storyCharacterImages;
     const reuseId = storySelectedSavedCharacterId;
@@ -1928,6 +2004,10 @@ export default function MiniAppDetailPage() {
     const usesAppearanceDescription = storyCharacterInputMode === "text" && !!storyCharacterAppearanceDescription.trim();
     if (!user || (!reuseId && !usesAppearanceDescription && images.length === 0) || !storyImageModelKey || !storyVideoModelKey) return;
     if (reuseId && !input.trim()) return;
+    if (storyMultiChapter && storyProjectId === null) {
+      setStoryError("Chưa tạo được dự án nhiều chương — bỏ tick rồi tick lại ô \"Video nhiều chương\"");
+      return;
+    }
     if (
       hasMultipleCharacters &&
       storyExtraCharacters.some(
@@ -2118,6 +2198,8 @@ export default function MiniAppDetailPage() {
           preplannedActions: storyUsesScriptFlow && !hasMultipleCharacters ? storyScriptActions : undefined,
           preplannedActionsMulti: storyUsesScriptFlow && hasMultipleCharacters ? storyScriptActions : undefined,
           characterAppearanceDescription: usesAppearanceDescription ? storyCharacterAppearanceDescription.trim() : undefined,
+          projectId: storyMultiChapter ? (storyProjectId ?? undefined) : undefined,
+          chapterIndex: storyMultiChapter ? storyActiveChapter : undefined,
         }),
       });
       const data = await res.json();
@@ -2144,6 +2226,10 @@ export default function MiniAppDetailPage() {
   // credit video. Agent tự viết mô tả chuyển động cho từng ảnh (gợi ý của khách chỉ là hỗ trợ thêm).
   async function handleRunStoryVideoWithOwnImages(forceAutoVideo?: boolean) {
     if (!user || !input.trim() || !storyVideoModelKey || storySceneImages.length < STORY_MIN_SCENES) return;
+    if (storyMultiChapter && storyProjectId === null) {
+      setStoryError("Chưa tạo được dự án nhiều chương — bỏ tick rồi tick lại ô \"Video nhiều chương\"");
+      return;
+    }
     setStoryActiveButton("video");
     setStoryRunning(true);
     setStoryResult(null);
@@ -2184,6 +2270,8 @@ export default function MiniAppDetailPage() {
           aspectRatio: storyAspectRatio,
           durationKey: storyDurationKey,
           modelChatKey: storyModelChatKey,
+          projectId: storyMultiChapter ? (storyProjectId ?? undefined) : undefined,
+          chapterIndex: storyMultiChapter ? storyActiveChapter : undefined,
         }),
       });
       const data = await res.json();
@@ -3390,7 +3478,7 @@ export default function MiniAppDetailPage() {
           ) : app.inputType === "story-video" ? (
             <div className="mb-4">
               {/* Hàng 1: Ý tưởng truyện */}
-              <div>
+              <div ref={storyFormTopRef}>
                 <p className="mb-1 text-base font-medium text-zinc-500 dark:text-zinc-400">Ý tưởng truyện</p>
                 <textarea
                   value={input}
@@ -3405,11 +3493,70 @@ export default function MiniAppDetailPage() {
                   }}
                   placeholder="Mô tả mạch truyện, bối cảnh — AI sẽ chia thành phân cảnh"
                   rows={8}
-                  maxLength={storyChapterMode ? 6000 : 2000}
+                  maxLength={2000}
                   className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-base text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                 />
-                {storyChapterMode && (
-                  <p className="mt-1 text-right text-xs text-zinc-400 dark:text-zinc-500">{input.length}/6000</p>
+
+                <label className="mt-3 flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+                  <input
+                    type="checkbox"
+                    checked={storyMultiChapter}
+                    disabled={storyProjectChapters.length > 0 || storyJobId !== null}
+                    onChange={(e) => handleToggleMultiChapter(e.target.checked)}
+                  />
+                  📚 Video nhiều chương — mỗi chương là 1 đoạn video ngắn (ý tưởng, ảnh nhân vật, bối cảnh riêng), cuối cùng ghép các chương lại
+                </label>
+                {storyProjectError && <p className="mt-1 text-xs text-red-500">{storyProjectError}</p>}
+                {storyMultiChapter && (
+                  <div className="mt-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {storyProjectChapters.map((c) => (
+                        <button
+                          key={c.chapterIndex}
+                          type="button"
+                          onClick={() => setStoryViewChapter((v) => (v === c.chapterIndex ? null : c.chapterIndex))}
+                          title={c.title}
+                          className={`rounded-full border px-3 py-1 text-sm font-medium ${
+                            storyViewChapter === c.chapterIndex
+                              ? "border-emerald-600 bg-emerald-600 text-white"
+                              : "border-emerald-600 text-emerald-700 dark:text-emerald-400"
+                          }`}
+                        >
+                          ✓ Chương {c.chapterIndex + 1}
+                        </button>
+                      ))}
+                      <span className="rounded-full border border-zinc-900 bg-zinc-900 px-3 py-1 text-sm font-semibold text-white dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900">
+                        Chương {storyActiveChapter + 1}
+                      </span>
+                      {storyProjectChapters.length + (storyResult ? 1 : 0) > 0 && !storyProjectFinalUrl && (
+                        <button
+                          type="button"
+                          onClick={handleFinishProject}
+                          disabled={storyRunning || storyProjectFinalizing}
+                          title="Ghép video các chương đã xong thành video cuối (chương đang soạn dở/chưa xong sẽ không được ghép)"
+                          className="ml-auto rounded-full border border-zinc-300 px-3 py-1 text-sm font-medium text-zinc-700 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-300"
+                        >
+                          {storyProjectFinalizing ? "Đang ghép..." : "🏁 Kết thúc"}
+                        </button>
+                      )}
+                    </div>
+                    <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+                      Toàn bộ các ô bên dưới thuộc Chương {storyActiveChapter + 1} (tối đa {STORY_MAX_CHAPTERS} chương).
+                      {storyLockedAspectRatio ? ` Tỉ lệ khung hình khoá theo chương 1: ${storyLockedAspectRatio}.` : ""}
+                    </p>
+                    {storyViewChapter !== null &&
+                      (() => {
+                        const c = storyProjectChapters.find((x) => x.chapterIndex === storyViewChapter);
+                        return c ? (
+                          <div className="mt-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800">
+                            <p className="mb-1 text-xs text-zinc-500 dark:text-zinc-400">
+                              Chương {c.chapterIndex + 1}: {c.title}
+                            </p>
+                            <video src={c.outputUrl} controls className="w-full max-w-xs rounded-lg" />
+                          </div>
+                        ) : null;
+                      })()}
+                  </div>
                 )}
 
                 {storyUseOwnSceneImages ? (
@@ -3444,111 +3591,14 @@ export default function MiniAppDetailPage() {
                   </div>
                 ) : (
                   <div className="mt-3">
-                    <label className="mb-2 flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
-                      <input
-                        type="checkbox"
-                        checked={storyChapterMode}
-                        onChange={(e) => {
-                          setStoryChapterMode(e.target.checked);
-                          setStoryChapters(null);
-                          clearChapterPlanResult();
-                          setStoryScriptError(null);
-                        }}
-                      />
-                      📚 Video dài nhiều chương (vd đám cưới vài phút) — AI chia ý tưởng thành các chương theo trình tự, dựng cảnh riêng từng chương
-                    </label>
-                    {!storyChapterMode ? (
-                      <button
-                        type="button"
-                        onClick={handleCreateScript}
-                        disabled={storyScriptLoading || !input.trim() || !storyVideoModelKey}
-                        className="rounded-full border border-zinc-900 bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
-                      >
-                        {storyScriptLoading ? "Đang tạo kịch bản..." : "📝 Tạo kịch bản"}
-                      </button>
-                    ) : (
-                      <div>
-                        <button
-                          type="button"
-                          onClick={handleCreateChapters}
-                          disabled={storyChaptersLoading || !input.trim()}
-                          className="rounded-full border border-zinc-900 bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
-                        >
-                          {storyChaptersLoading && storyChapterRegenIndex === null ? "Đang chia chương..." : storyChapters ? "🔄 Chia chương lại" : "📚 Chia chương"}
-                        </button>
-                        {storyChapters && (
-                          <div className="mt-3 space-y-2">
-                            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                              {storyChapters.length} chương — có thể sửa tiêu đề/tóm tắt (chương nào sửa sẽ được dựng lại cảnh), rồi bấm &quot;Tạo cảnh cho các chương&quot;.
-                            </p>
-                            {storyChapters.map((c, i) => (
-                              <div key={i} className="rounded-lg border border-zinc-200 bg-zinc-50 p-2 dark:border-zinc-700 dark:bg-zinc-800">
-                                <div className="mb-1 flex items-center gap-2">
-                                  <span className="shrink-0 text-xs font-semibold text-zinc-700 dark:text-zinc-300">Chương {i + 1}</span>
-                                  <input
-                                    type="text"
-                                    value={c.title}
-                                    maxLength={80}
-                                    onChange={(e) =>
-                                      setStoryChapters((prev) => prev && prev.map((x, xi) => (xi === i ? { ...x, title: e.target.value } : x)))
-                                    }
-                                    className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-                                  />
-                                  {storyChapters.length > 1 && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setStoryChapters((prev) => prev && prev.filter((_, xi) => xi !== i));
-                                        clearChapterPlanResult();
-                                      }}
-                                      className="shrink-0 text-xs text-zinc-500 hover:text-red-600"
-                                      title="Xoá chương này"
-                                    >
-                                      ✕
-                                    </button>
-                                  )}
-                                </div>
-                                <textarea
-                                  value={c.summary}
-                                  rows={2}
-                                  maxLength={1500}
-                                  onChange={(e) => {
-                                    // Sửa tóm tắt -> cảnh đã dựng cho chương này không còn khớp, xoá để dựng lại.
-                                    setStoryChapters((prev) =>
-                                      prev && prev.map((x, xi) => (xi === i ? { title: x.title, summary: e.target.value } : x))
-                                    );
-                                    clearChapterPlanResult();
-                                  }}
-                                  className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
-                                />
-                                {c.actions && (
-                                  <div className="mt-1 flex items-center justify-between gap-2">
-                                    <span className="text-[11px] text-emerald-600 dark:text-emerald-400">✓ Đã dựng {c.actions.length} hành động</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleGenerateChapterScripts([i])}
-                                      disabled={storyChaptersLoading}
-                                      className="text-[11px] font-medium text-zinc-600 underline disabled:opacity-50 dark:text-zinc-400"
-                                    >
-                                      {storyChaptersLoading && storyChapterRegenIndex === i ? "Đang tạo lại..." : "🔄 Tạo lại chương này"}
-                                    </button>
-                                  </div>
-                                )}
-                                {c.error && <p className="mt-1 text-[11px] text-red-500">{c.error}</p>}
-                              </div>
-                            ))}
-                            <button
-                              type="button"
-                              onClick={() => handleGenerateChapterScripts()}
-                              disabled={storyChaptersLoading || !storyVideoModelKey || storyChapters.some((c) => !c.title.trim() || !c.summary.trim())}
-                              className="rounded-full border border-zinc-900 bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
-                            >
-                              {storyChaptersLoading && storyChapterRegenIndex === "all" ? "Đang tạo cảnh các chương..." : "📝 Tạo cảnh cho các chương"}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                    <button
+                      type="button"
+                      onClick={handleCreateScript}
+                      disabled={storyScriptLoading || !input.trim() || !storyVideoModelKey}
+                      className="rounded-full border border-zinc-900 bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
+                    >
+                      {storyScriptLoading ? "Đang tạo kịch bản..." : "📝 Tạo kịch bản"}
+                    </button>
                     {!storyVideoModelKey && (
                       <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">Đang tải danh sách model video...</p>
                     )}
@@ -3616,18 +3666,8 @@ export default function MiniAppDetailPage() {
                                   : s.dialogue
                                     ? `${characterLabels[s.dialogue.speaker] ?? "?"}: "${s.dialogue.line}"`
                                     : null;
-                              // Video nhiều chương: in tiêu đề chương ngay trước cảnh đầu tiên của mỗi chương.
-                              const chapterHeader =
-                                s.chapter !== undefined && (i === 0 || storyScriptScenes[i - 1].chapter !== s.chapter)
-                                  ? storyChapters?.[s.chapter]?.title ?? `Chương ${s.chapter + 1}`
-                                  : null;
                               return (
                                 <li key={i}>
-                                  {chapterHeader && (
-                                    <div className="mb-0.5 mt-2 font-semibold text-zinc-800 dark:text-zinc-200">
-                                      📚 Chương {(s.chapter as number) + 1}: {chapterHeader}
-                                    </div>
-                                  )}
                                   <strong>Cảnh {i + 1}</strong> {s.duration_key ? `(${s.duration_key}s)` : ""}: {s.description.length > 90 ? `${s.description.slice(0, 90)}…` : s.description}
                                   {dialogueLine && <div className="mt-0.5 text-emerald-600 dark:text-emerald-400">💬 {dialogueLine}</div>}
                                 </li>
@@ -4182,11 +4222,12 @@ export default function MiniAppDetailPage() {
                         </p>
                       )}
                       {(() => {
-                        const availableImageModels = storyLocationReferenceMaskUrl
+                        const availableImageModels = (storyLocationReferenceMaskUrl
                           ? storyImageModels.filter((m) => m.model === "fal-ai/gpt-image-2/edit")
                           : storyExtraCharacters.length > 0 || storyPrimaryItemReferences.length > 0
                             ? storyImageModels.filter((m) => m.multi_image)
-                            : storyImageModels;
+                            : storyImageModels
+                        ).filter(modelSupportsLockedRatio);
                         const selected = availableImageModels.find((m) => m.key === storyImageModelKey);
                         return (
                           <div className="grid grid-cols-2 gap-2">
@@ -4198,7 +4239,7 @@ export default function MiniAppDetailPage() {
                                   setStoryImageModelKey(e.target.value);
                                   const m = availableImageModels.find((x) => x.key === e.target.value);
                                   setStoryResolutionKey(m?.resolution_price_vnd ? Object.keys(m.resolution_price_vnd)[0] : null);
-                                  if (m?.aspect_ratios && !m.aspect_ratios.includes(storyAspectRatio)) setStoryAspectRatio(m.aspect_ratios[0]);
+                                  if (!storyLockedAspectRatio && m?.aspect_ratios && !m.aspect_ratios.includes(storyAspectRatio)) setStoryAspectRatio(m.aspect_ratios[0]);
                                 }}
                                 className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                               >
@@ -4219,6 +4260,8 @@ export default function MiniAppDetailPage() {
                               <label className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">Tỉ lệ</label>
                               <select
                                 value={storyAspectRatio}
+                                disabled={!!storyLockedAspectRatio}
+                                title={storyLockedAspectRatio ? "Tỉ lệ khung hình khoá theo chương 1 để video cuối đồng nhất" : undefined}
                                 onChange={(e) => setStoryAspectRatio(e.target.value)}
                                 className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                               >
@@ -4296,14 +4339,17 @@ export default function MiniAppDetailPage() {
                                 {Array.from(
                                   new Set(
                                     storyVideoModels
-                                      .filter((m) => !((storyUseOwnSceneImages || storyFrameChainMode) && m.key === "veo31-lite-flf"))
+                                      .filter((m) => !((storyUseOwnSceneImages || storyFrameChainMode) && m.key === "veo31-lite-flf") && modelSupportsLockedRatio(m))
                                       .map((m) => m.provider)
                                   )
                                 ).map((provider) => (
                                   <optgroup key={provider} label={provider}>
                                     {storyVideoModels
                                       .filter(
-                                        (m) => m.provider === provider && !((storyUseOwnSceneImages || storyFrameChainMode) && m.key === "veo31-lite-flf")
+                                        (m) =>
+                                          m.provider === provider &&
+                                          !((storyUseOwnSceneImages || storyFrameChainMode) && m.key === "veo31-lite-flf") &&
+                                          modelSupportsLockedRatio(m)
                                       )
                                       .map((m) => (
                                         <option key={m.key} value={m.key}>
@@ -4318,6 +4364,8 @@ export default function MiniAppDetailPage() {
                               <label className="mb-1 block text-sm text-zinc-500 dark:text-zinc-400">Tỉ lệ</label>
                               <select
                                 value={storyAspectRatio}
+                                disabled={!!storyLockedAspectRatio}
+                                title={storyLockedAspectRatio ? "Tỉ lệ khung hình khoá theo chương 1 để video cuối đồng nhất" : undefined}
                                 onChange={(e) => setStoryAspectRatio(e.target.value)}
                                 className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
                               >
@@ -5182,6 +5230,7 @@ export default function MiniAppDetailPage() {
                     >
                       Tải xuống
                     </a>
+                    {!storyMultiChapter && (
                     <button
                       onClick={() => {
                         setStoryResult(null);
@@ -5197,6 +5246,52 @@ export default function MiniAppDetailPage() {
                       className="rounded-full border border-zinc-300 px-4 py-1.5 text-sm font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
                     >
                       Chạy lại với input khác
+                    </button>
+                    )}
+                  </div>
+                  {storyMultiChapter && !storyProjectFinalUrl && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-700">
+                      <button
+                        type="button"
+                        onClick={handleNextChapter}
+                        disabled={storyActiveChapter + 1 >= STORY_MAX_CHAPTERS}
+                        className="rounded-full border border-zinc-900 bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:border-zinc-50 dark:bg-zinc-50 dark:text-zinc-900"
+                      >
+                        ➕ Tạo chương {storyActiveChapter + 2}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleFinishProject}
+                        disabled={storyProjectFinalizing}
+                        className="rounded-full border border-zinc-300 px-4 py-1.5 text-sm font-medium text-zinc-700 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-300"
+                      >
+                        {storyProjectFinalizing ? "Đang ghép các chương..." : "🏁 Kết thúc"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {storyProjectFinalUrl && (
+                <div ref={storyProjectFinalRef} className="mt-4 rounded-lg border border-emerald-300 bg-emerald-50 p-4 dark:border-emerald-800 dark:bg-emerald-950">
+                  <p className="mb-1 text-sm font-medium text-emerald-700 dark:text-emerald-400">
+                    🎬 Video hoàn chỉnh (đã ghép {storyProjectChapters.length + (storyResult ? 1 : 0)} chương)
+                  </p>
+                  <video src={storyProjectFinalUrl} controls className="w-full max-w-md rounded-lg" />
+                  <div className="mt-3 flex gap-2">
+                    <a
+                      href={`/api/download?url=${encodeURIComponent(storyProjectFinalUrl)}&filename=video-nhieu-chuong.mp4`}
+                      download
+                      className="rounded-full border border-zinc-300 px-4 py-1.5 text-sm font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                    >
+                      Tải xuống
+                    </a>
+                    <button
+                      type="button"
+                      onClick={handleNewProject}
+                      className="rounded-full border border-zinc-300 px-4 py-1.5 text-sm font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+                    >
+                      Bắt đầu dự án mới
                     </button>
                   </div>
                 </div>
