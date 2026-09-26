@@ -1297,11 +1297,11 @@ export async function generateStoryScriptMulti(
 export type StoryChapter = { title: string; summary: string };
 
 const STORY_CHAPTER_SYSTEM_PROMPT = `Bạn là biên kịch kiêm đạo diễn dựng phim, chuyên dựng video DÀI nhiều phút từ nhiều đoạn quay ghép lại (vd video đám cưới, kỷ niệm, du lịch, giới thiệu...). Người dùng đưa 1 ý tưởng/kịch bản có thể khá dài.
-Nhiệm vụ: chia ý tưởng thành các CHƯƠNG — mỗi chương là 1 khối sự kiện liền mạch (cùng khoảng thời gian/địa điểm/không khí), xếp ĐÚNG THEO TRÌNH TỰ THỜI GIAN như người biên tập phim thật chia các phần lớn của 1 video dài. Ví dụ với đám cưới: "Đón dâu", "Lễ cưới", "Tiệc chào khách", "Nghi thức gia đình", "Khiêu vũ"... — nhưng CHỈ dùng đúng những phần ý tưởng gốc thật sự có, tuyệt đối không tự thêm chương khách không nhắc tới.
+Nhiệm vụ: chia ý tưởng thành các CHƯƠNG — mỗi chương là 1 phần lớn của câu chuyện (1 giai đoạn/sự kiện chính), xếp ĐÚNG THEO TRÌNH TỰ THỜI GIAN như người biên tập phim thật chia các phần lớn của 1 video dài. Bên trong 1 chương có thể có NHIỀU cảnh ở NHIỀU địa điểm khác nhau nếu giai đoạn đó diễn ra qua nhiều nơi (vd chương "Ngày cưới": nhà cô dâu -> xe hoa -> lễ đường) — KHÔNG cần ép mỗi chương chỉ ở 1 chỗ. Ví dụ với đám cưới: "Đón dâu", "Lễ cưới", "Tiệc chào khách", "Nghi thức gia đình", "Khiêu vũ"... — nhưng CHỈ dùng đúng những phần ý tưởng gốc thật sự có, tuyệt đối không tự thêm chương khách không nhắc tới.
 Quy tắc:
 - Tối thiểu 1 chương, tối đa ${MAX_STORY_CHAPTERS} chương. Ý tưởng chỉ có 1 khối sự kiện liền mạch thì trả đúng 1 chương. Mỗi chương nên đủ nội dung để dựng khoảng 3-8 cảnh ngắn.
 - "title": tên chương ngắn gọn bằng tiếng Việt (tối đa 8 từ).
-- "summary": tiếng Việt, 1-4 câu, mô tả đúng những gì xảy ra trong chương này (ai làm gì, ở đâu, lúc nào, không khí) — CHỈ dùng thông tin có trong ý tưởng gốc, KHÔNG bịa thêm sự kiện/địa điểm/nhân vật. Nếu ý tưởng gốc có lời thoại trích trong dấu ngoặc kép thuộc chương này, chép lại NGUYÊN VĂN vào summary của đúng chương đó.
+- "summary": tiếng Việt, 1-4 câu, mô tả đúng những gì xảy ra trong chương này (ai làm gì, ở đâu, lúc nào, không khí; nếu chương đi qua nhiều địa điểm thì nêu rõ thứ tự các nơi) — CHỈ dùng thông tin có trong ý tưởng gốc, KHÔNG bịa thêm sự kiện/địa điểm/nhân vật. Nếu ý tưởng gốc có lời thoại trích trong dấu ngoặc kép thuộc chương này, chép lại NGUYÊN VĂN vào summary của đúng chương đó.
 - Không lặp 1 sự kiện ở 2 chương, không bỏ sót phần nào của ý tưởng gốc.
 Chỉ trả về DUY NHẤT 1 mảng JSON hợp lệ, mỗi phần tử có đúng 2 khoá "title" và "summary" — không kèm markdown fence, không giải thích.
 Ví dụ format: [{"title": "Đón dâu", "summary": "Buổi sáng, chú rể Minh tới nhà đón cô dâu Lan, trao hoa cưới, hai gia đình chụp ảnh chung trước cửa nhà."}, {"title": "Lễ cưới", "summary": "Lan bước vào lễ đường, Minh đón tại bục lễ, hai người trao nhẫn và hôn nhau trước quan khách."}]`;
@@ -1361,7 +1361,7 @@ export async function generateStoryChapters(
 function buildChapterScriptInput(fullStory: string, chapter: StoryChapter, index: number, total: number): { text: string; extra: string } {
   return {
     text: `TOÀN BỘ ý tưởng gốc của video (chỉ để hiểu bối cảnh chung — KHÔNG dựng phần nằm ngoài chương dưới đây):\n${fullStory}\n\nCHƯƠNG CẦN DỰNG PHÂN CẢNH (chương ${index + 1}/${total} — "${chapter.title}"): ${chapter.summary}`,
-    extra: `CHẾ ĐỘ VIDEO NHIỀU CHƯƠNG — đang dựng chương ${index + 1}/${total} ("${chapter.title}"): bạn CHỈ được dựng phân cảnh cho ĐÚNG phần chương này mô tả, TUYỆT ĐỐI không dựng lại sự kiện thuộc chương khác. Các chương nối nhau bằng cắt cứng như các phần của 1 video dài, nên cảnh ĐẦU TIÊN của chương KHÔNG cần nối tiếp tư thế từ chương trước — viết "description" cảnh đầu tự đầy đủ bối cảnh (địa điểm, thời điểm, ai đang ở đâu). Giới hạn "tối đa 8 cảnh" ở Nhiệm vụ 1 áp dụng cho RIÊNG chương này.`,
+    extra: `CHẾ ĐỘ VIDEO NHIỀU CHƯƠNG — đang dựng chương ${index + 1}/${total} ("${chapter.title}"): bạn CHỈ được dựng phân cảnh cho ĐÚNG phần chương này mô tả, TUYỆT ĐỐI không dựng lại sự kiện thuộc chương khác. Các chương nối nhau bằng cắt cứng như các phần của 1 video dài, nên cảnh ĐẦU TIÊN của chương KHÔNG cần nối tiếp tư thế từ chương trước — viết "description" cảnh đầu tự đầy đủ bối cảnh (địa điểm, thời điểm, ai đang ở đâu). Trong chương này các cảnh CÓ THỂ ở nhiều địa điểm khác nhau nếu phần mô tả chương nói vậy: mỗi cảnh ghi đúng "location" của riêng nó (cảnh liền kề cùng chỗ thì "location" viết Y HỆT nhau), chỉ đổi địa điểm khi mô tả chương có nói. Giới hạn "tối đa 8 cảnh" ở Nhiệm vụ 1 áp dụng cho RIÊNG chương này.`,
   };
 }
 
@@ -1403,6 +1403,12 @@ export async function generateStoryScriptsByChapter(args: {
       }
     })
   );
+}
+
+// So sánh địa điểm 2 hành động liền kề (Agent được dặn viết Y HỆT khi cùng chỗ) — bỏ qua khác biệt hoa/thường
+// và khoảng trắng thừa để không mất cơ hội gộp chỉ vì lệch định dạng.
+function sameLocation(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
 export type PlannedScene = ScriptSceneResult & {
@@ -1457,6 +1463,8 @@ export function planStoryVideoScenes(
       for (let i = 0; i < groups.length - 1; i++) {
         // Video nhiều chương: ranh giới giữa 2 chương là cắt cứng (khác bối cảnh/thời điểm), không gộp.
         if (groups[i][0].chapter !== groups[i + 1][0].chapter) continue;
+        // Khác địa điểm cũng không gộp — 1 cảnh gộp chỉ có 1 ảnh tĩnh, không thể vừa ở nơi này vừa ở nơi kia.
+        if (!sameLocation(groups[i][0].location, groups[i + 1][0].location)) continue;
         const sum = groupSeconds(groups[i]) + groupSeconds(groups[i + 1]);
         if (sum <= maxSeconds && sum < bestSum && groupDialogueCount(groups[i]) + groupDialogueCount(groups[i + 1]) <= 1) {
           bestSum = sum;
@@ -1544,6 +1552,8 @@ export function planStoryVideoScenesMulti(actions: ScriptSceneResultMulti[], vid
         if (!sameCharacterSet(groups[i][0].characters, groups[i + 1][0].characters)) continue;
         // Video nhiều chương: ranh giới giữa 2 chương là cắt cứng (khác bối cảnh/thời điểm), không gộp.
         if (groups[i][0].chapter !== groups[i + 1][0].chapter) continue;
+        // Khác địa điểm cũng không gộp (xem bản 1 nhân vật).
+        if (!sameLocation(groups[i][0].location, groups[i + 1][0].location)) continue;
         const sum = groupSeconds(groups[i]) + groupSeconds(groups[i + 1]);
         if (sum <= maxSeconds && sum < bestSum && groupDialogueCount(groups[i]) + groupDialogueCount(groups[i + 1]) <= 1) {
           bestSum = sum;
