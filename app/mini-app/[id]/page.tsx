@@ -267,6 +267,12 @@ export default function MiniAppDetailPage() {
   >([]);
   const [storyLocationMaskActiveCharacter, setStoryLocationMaskActiveCharacter] = useState<number>(0);
   const STORY_MASK_ZONE_COLORS = ["#10b981", "#0ea5e9", "#f59e0b", "#d946ef"]; // emerald/sky/amber/fuchsia, theo đúng thứ tự position 0..3
+  // Ngưỡng tối thiểu (theo % kích thước ảnh) để 1 vùng khoanh được coi là "đã chọn" — chặn trường hợp
+  // khách bấm nhầm 1 điểm (gần như 0x0) rồi tưởng đã chọn xong. SỬA (phản hồi thật của khách): ngưỡng
+  // cũ 0.02 (2%) không có dòng giải thích nào khi bị chặn — khách kéo vùng hơi nhỏ (vd nhân vật đứng xa,
+  // vùng nhỏ hợp lý) thấy nút "Lưu vị trí" mờ đi mà không hiểu vì sao. Hạ ngưỡng xuống 0.008 (0.8%) cho
+  // đỡ ngặt, ĐỒNG THỜI hiện rõ dòng cảnh báo ngay dưới nút khi vùng chưa đủ lớn (xem bên dưới).
+  const STORY_MASK_MIN_FRACTION = 0.008;
   // Ảnh THẬT của tối đa MAX_ITEM_REFERENCES vật phẩm riêng của nhân vật #1 (đôi giày, túi xách, đồng
   // hồ...) — tuỳ chọn, mỗi nhân vật (kể cả nhân vật #2+ trong storyExtraCharacters) có ô riêng, không
   // dùng chung cho cả job như địa điểm — xem chú thích itemReferenceUrls trong lib/story-video.ts.
@@ -1150,7 +1156,7 @@ export default function MiniAppDetailPage() {
   // bước "Lưu vị trí" trung gian như luồng nhiều nhân vật bên dưới.
   function handleConfirmLocationMask() {
     if (!storyLocationMaskRect || !storyLocationImageNaturalSize) return;
-    if (storyLocationMaskRect.w < 0.02 || storyLocationMaskRect.h < 0.02) return; // vùng quá nhỏ, coi như chưa chọn
+    if (storyLocationMaskRect.w < STORY_MASK_MIN_FRACTION || storyLocationMaskRect.h < STORY_MASK_MIN_FRACTION) return; // vùng quá nhỏ, coi như chưa chọn
     const dataUrl = generateLocationMaskDataUrl([storyLocationMaskRect], storyLocationImageNaturalSize.w, storyLocationImageNaturalSize.h);
     setStoryLocationReferenceMaskUrl(dataUrl);
     // Lưu vùng đã chọn thành "vị trí của nhân vật #1" để vẽ đè lên ảnh Bối cảnh (cùng cơ chế nhiều nhân vật).
@@ -1206,7 +1212,7 @@ export default function MiniAppDetailPage() {
   // còn) để khách không phải tự bấm chọn từng người theo đúng thứ tự.
   function handleSaveLocationMaskAssignment(characterOptions: { position: number; label: string }[]) {
     if (!storyLocationMaskRect) return;
-    if (storyLocationMaskRect.w < 0.02 || storyLocationMaskRect.h < 0.02) return;
+    if (storyLocationMaskRect.w < STORY_MASK_MIN_FRACTION || storyLocationMaskRect.h < STORY_MASK_MIN_FRACTION) return;
     const rect = storyLocationMaskRect;
     storyLocationMaskDragStartRef.current = null;
     const updatedAssignments = [
@@ -4883,7 +4889,11 @@ export default function MiniAppDetailPage() {
                                 <>
                                   <button
                                     onClick={() => handleSaveLocationMaskAssignment(maskCharacterOptions)}
-                                    disabled={!storyLocationMaskRect || storyLocationMaskRect.w < 0.02 || storyLocationMaskRect.h < 0.02}
+                                    disabled={
+                                      !storyLocationMaskRect ||
+                                      storyLocationMaskRect.w < STORY_MASK_MIN_FRACTION ||
+                                      storyLocationMaskRect.h < STORY_MASK_MIN_FRACTION
+                                    }
                                     className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-40"
                                   >
                                     Lưu vị trí cho{" "}
@@ -4908,7 +4918,11 @@ export default function MiniAppDetailPage() {
                               ) : (
                                 <button
                                   onClick={handleConfirmLocationMask}
-                                  disabled={!storyLocationMaskRect || storyLocationMaskRect.w < 0.02 || storyLocationMaskRect.h < 0.02}
+                                  disabled={
+                                    !storyLocationMaskRect ||
+                                    storyLocationMaskRect.w < STORY_MASK_MIN_FRACTION ||
+                                    storyLocationMaskRect.h < STORY_MASK_MIN_FRACTION
+                                  }
                                   className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-40"
                                 >
                                   Xác nhận vị trí
@@ -4924,6 +4938,15 @@ export default function MiniAppDetailPage() {
                                 {isMulti ? "Đóng (không lưu thêm)" : "Huỷ"}
                               </button>
                             </div>
+                            {/* SỬA (phản hồi thật của khách): trước đây nút "Lưu vị trí"/"Xác nhận vị trí" tự
+                                mờ đi khi vùng khoanh quá nhỏ mà KHÔNG có dòng nào giải thích lý do — khách chỉ
+                                thấy nút không bấm được, tưởng bị lỗi. Thêm cảnh báo rõ ràng ngay khi phát hiện. */}
+                            {storyLocationMaskRect &&
+                              (storyLocationMaskRect.w < STORY_MASK_MIN_FRACTION || storyLocationMaskRect.h < STORY_MASK_MIN_FRACTION) && (
+                                <p className="mt-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                                  ⚠️ Vùng vừa khoanh quá nhỏ — kéo chuột rộng ra thêm 1 chút để bấm được nút lưu.
+                                </p>
+                              )}
                           </div>
                         );
                       })()}
