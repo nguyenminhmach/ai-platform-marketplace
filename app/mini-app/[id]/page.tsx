@@ -581,7 +581,6 @@ export default function MiniAppDetailPage() {
   const storyCharacterCardRef = useRef<HTMLDivElement | null>(null);
   const [storyQuickZoomUrl, setStoryQuickZoomUrl] = useState<string | null>(null);
   const storyQuickZoomRef = useRef<HTMLDivElement | null>(null);
-  const storyQuickZoomWasOpenRef = useRef(false);
 
   // Tự động cuộn xuống khi Character/ảnh phân cảnh xong hoặc video hoàn tất — khách không phải cuộn
   // tay để xem kết quả.
@@ -606,15 +605,6 @@ export default function MiniAppDetailPage() {
     const urls = storyScenes.map((s) => s.imageUrl).filter((u): u is string => !!u);
     if (urls.length > 0) setStorySceneImages(urls);
   }, [storyScenes]);
-
-  useEffect(() => {
-    if (storyQuickZoomUrl) {
-      storyQuickZoomRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    } else if (storyQuickZoomWasOpenRef.current) {
-      storyCharacterCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-    storyQuickZoomWasOpenRef.current = !!storyQuickZoomUrl;
-  }, [storyQuickZoomUrl]);
 
   // Thư viện Character đã lưu — tải khi vào app + sau khi lưu 1 Character mới.
   function loadSavedStoryCharacters(userId: string) {
@@ -4790,7 +4780,11 @@ export default function MiniAppDetailPage() {
                               </div>
                             )}
                             <div
-                              className="relative mx-auto w-full max-w-md cursor-crosshair touch-none select-none overflow-hidden rounded-lg bg-black/10"
+                              // SỬA (phản hồi thật của khách): max-w-md (~448px) quá nhỏ để quan sát rõ chi tiết
+                              // ảnh Bối cảnh khi cần chọn chính xác vị trí đứng — tăng lên max-w-3xl (~768px) để
+                              // khách nhìn rõ hơn nhiều trên màn hình laptop/desktop, vẫn co giãn về full-width trên
+                              // điện thoại (w-full vẫn giữ, chỉ nới trần max-width).
+                              className="relative mx-auto w-full max-w-3xl cursor-crosshair touch-none select-none overflow-hidden rounded-lg bg-black/10"
                               style={{
                                 aspectRatio: storyLocationImageNaturalSize
                                   ? `${storyLocationImageNaturalSize.w} / ${storyLocationImageNaturalSize.h}`
@@ -5086,26 +5080,28 @@ export default function MiniAppDetailPage() {
               )}
               {storyError && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{storyError}</p>}
 
+              {/* SỬA (phản hồi thật của khách): trước đây "xem to" chỉ render ảnh ở 1 khối cố định tuốt CUỐI
+                  trang (phải cuộn xuống mới thấy), lại giới hạn max-w-xl (~576px) — không đủ to để quan sát rõ
+                  chi tiết ảnh Bối cảnh trước khi chọn vị trí đứng. Đổi thành overlay TOÀN MÀN HÌNH (fixed, che
+                  nền tối, ảnh hiện ngay giữa màn hình lớn nhất có thể) — dùng chung cho MỌI chỗ gọi
+                  setStoryQuickZoomUrl trong trang (ảnh nhân vật, ảnh cảnh...), không riêng ảnh Bối cảnh. */}
               {storyQuickZoomUrl && (
                 <div
                   ref={storyQuickZoomRef}
-                  className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800"
+                  onClick={() => setStoryQuickZoomUrl(null)}
+                  className="fixed inset-0 z-50 flex cursor-zoom-out items-center justify-center bg-black/80 p-4"
                 >
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Xem trước ảnh</p>
-                    <button
-                      onClick={() => setStoryQuickZoomUrl(null)}
-                      className="text-sm font-medium text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100"
-                    >
-                      ✕ Đóng
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => setStoryQuickZoomUrl(null)}
+                    className="absolute right-4 top-4 rounded-full bg-white/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-white/20"
+                  >
+                    ✕ Đóng
+                  </button>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={storyQuickZoomUrl}
-                    alt="Xem trước ảnh nhân vật"
-                    onClick={() => setStoryQuickZoomUrl(null)}
-                    className="w-full max-w-xl cursor-zoom-out rounded-lg"
+                    alt="Xem trước ảnh"
+                    className="max-h-full max-w-full rounded-lg object-contain"
                     title="Bấm để đóng"
                   />
                 </div>
