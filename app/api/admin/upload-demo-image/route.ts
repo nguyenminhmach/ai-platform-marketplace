@@ -13,7 +13,7 @@ function getCookie(req: Request, name: string): string | undefined {
 // mini_apps.model_config.demo_image_urls qua PATCH /api/admin/mini-apps — tránh nhét base64 nặng vào JSON.
 export async function POST(req: Request) {
   const token = getCookie(req, ADMIN_COOKIE_NAME);
-  if (!verifyAdminToken(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
+  if (!(await verifyAdminToken(token))) return Response.json({ error: "unauthorized" }, { status: 401 });
 
   const { appId, dataUrl } = await req.json();
   if (typeof appId !== "string" || !appId) {

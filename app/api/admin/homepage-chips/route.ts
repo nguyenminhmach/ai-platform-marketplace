@@ -26,7 +26,7 @@ function isValidChips(chips: unknown): chips is Chip[] {
 
 export async function GET(req: Request) {
   const token = getCookie(req, ADMIN_COOKIE_NAME);
-  if (!verifyAdminToken(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
+  if (!(await verifyAdminToken(token))) return Response.json({ error: "unauthorized" }, { status: 401 });
 
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase.from("site_settings").select("homepage_chips").eq("id", 1).single();
@@ -37,7 +37,7 @@ export async function GET(req: Request) {
 
 export async function PUT(req: Request) {
   const token = getCookie(req, ADMIN_COOKIE_NAME);
-  if (!verifyAdminToken(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
+  if (!(await verifyAdminToken(token))) return Response.json({ error: "unauthorized" }, { status: 401 });
 
   const { chips } = await req.json();
   if (!isValidChips(chips)) {

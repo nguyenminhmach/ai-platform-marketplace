@@ -11,7 +11,7 @@ function getCookie(req: Request, name: string): string | undefined {
 // admin không cần tự vào dashboard ElevenLabs, cũng không cần dán API key ra bất kỳ đâu ngoài .env.
 export async function GET(req: Request) {
   const token = getCookie(req, ADMIN_COOKIE_NAME);
-  if (!verifyAdminToken(token)) {
+  if (!(await verifyAdminToken(token))) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 

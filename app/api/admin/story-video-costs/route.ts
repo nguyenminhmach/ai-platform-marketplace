@@ -16,7 +16,7 @@ function getCookie(req: Request, name: string): string | undefined {
 // (mỗi lần tạo lại tốn thêm đúng 1 giá/cảnh nhưng không có bộ đếm riêng để cộng dồn ở đây).
 export async function GET(req: Request) {
   const token = getCookie(req, ADMIN_COOKIE_NAME);
-  if (!verifyAdminToken(token)) {
+  if (!(await verifyAdminToken(token))) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 

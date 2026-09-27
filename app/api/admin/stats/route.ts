@@ -10,7 +10,7 @@ function getCookie(req: Request, name: string): string | undefined {
 
 export async function GET(req: Request) {
   const token = getCookie(req, ADMIN_COOKIE_NAME);
-  if (!verifyAdminToken(token)) {
+  if (!(await verifyAdminToken(token))) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 

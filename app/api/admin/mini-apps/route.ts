@@ -21,7 +21,7 @@ function slugify(name: string): string {
 
 export async function GET(req: Request) {
   const token = getCookie(req, ADMIN_COOKIE_NAME);
-  if (!verifyAdminToken(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
+  if (!(await verifyAdminToken(token))) return Response.json({ error: "unauthorized" }, { status: 401 });
 
   const supabase = getSupabaseAdmin();
   // Chỉ liệt kê app đã duyệt (approved) — app dev đang chờ duyệt đã có mục "Duyệt nhà phát triển" riêng
@@ -138,7 +138,7 @@ export async function GET(req: Request) {
 
 export async function PATCH(req: Request) {
   const token = getCookie(req, ADMIN_COOKIE_NAME);
-  if (!verifyAdminToken(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
+  if (!(await verifyAdminToken(token))) return Response.json({ error: "unauthorized" }, { status: 401 });
 
   const {
     id,
@@ -386,7 +386,7 @@ const VIDEO_MODEL = "fal-ai/kling-video/v1.6/standard/image-to-video";
 //   submitVideoJob() vốn đã tổng quát theo miniAppId nên không cần sửa gì ở lib/ai-router.ts cho video)
 export async function POST(req: Request) {
   const token = getCookie(req, ADMIN_COOKIE_NAME);
-  if (!verifyAdminToken(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
+  if (!(await verifyAdminToken(token))) return Response.json({ error: "unauthorized" }, { status: 401 });
 
   const body = await req.json();
   const { type, name, description, creditCost } = body;

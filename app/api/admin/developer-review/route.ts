@@ -10,7 +10,7 @@ function getCookie(req: Request, name: string): string | undefined {
 
 export async function GET(req: Request) {
   const token = getCookie(req, ADMIN_COOKIE_NAME);
-  if (!verifyAdminToken(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
+  if (!(await verifyAdminToken(token))) return Response.json({ error: "unauthorized" }, { status: 401 });
 
   const supabase = getSupabaseAdmin();
 
@@ -35,7 +35,7 @@ export async function GET(req: Request) {
 
 export async function PATCH(req: Request) {
   const token = getCookie(req, ADMIN_COOKIE_NAME);
-  if (!verifyAdminToken(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
+  if (!(await verifyAdminToken(token))) return Response.json({ error: "unauthorized" }, { status: 401 });
 
   const { type, id, action } = await req.json();
 

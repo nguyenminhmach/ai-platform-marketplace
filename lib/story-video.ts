@@ -677,6 +677,14 @@ export async function computeStoryVideoCreditCost(
 //   tổng pixel; mức "1024" dùng preset chuỗi theo đúng tỉ lệ.
 // - Nano Banana Pro edit: resolution nhận "1K"/"2K"/"4K".
 // - Còn lại (Flux Kontext...): aspect_ratio thường.
+const ORDINAL_WORDS = ["FIRST", "SECOND", "THIRD", "FOURTH", "FIFTH", "SIXTH"];
+// Số thứ tự dạng chữ hoa dùng trong câu chỉ dẫn tiếng Anh ("the FIRST reference image...") — cần vì vị
+// trí ảnh trong mảng image_urls có thể đổi (ảnh Địa điểm bị đẩy lên đầu khi có mask, xem hasLocationMask
+// ở submitSceneImageForRow/submitMultiCharacterSceneImageForRow) nên không thể hard-code "FIRST"/"SECOND".
+function ordinalWord(n: number): string {
+  return ORDINAL_WORDS[n - 1] ?? `#${n}`;
+}
+
 function buildImageRequestBody(
   model: string,
   prompt: string | null,
@@ -1850,10 +1858,22 @@ async function submitSceneImageForRow(
   // THẬT SỰ hỗ trợ mask_url (chỉ "fal-ai/gpt-image-2/edit", xem buildImageRequestBody). Model khác vẫn
   // dùng ảnh Bối cảnh như tham chiếu chung (hasLocation), chỉ là không có mask định vị chính xác.
   const hasLocationMask = hasLocation && !!job.location_reference_mask_url && job.image_model === "fal-ai/gpt-image-2/edit";
-  const referenceImages = [...characterImages];
-  if (hasItem) referenceImages.push(...itemUrls);
-  if (hasLocation) referenceImages.push(job.location_reference_url as string);
-  if (chainedFrameUrl) referenceImages.push(chainedFrameUrl);
+  // Khi có mask địa điểm: Fal.ai (fal-ai/gpt-image-2/edit) yêu cầu mask_url phải cùng kích thước với
+  // ẢNH ĐẦU TIÊN trong image_urls, bất kể ảnh nào trong mảng mới thực sự là "địa điểm" — trước đây địa
+  // điểm luôn nối vào CUỐI mảng (sau ảnh Character/vật phẩm) trong khi mask được sinh khớp kích thước
+  // ảnh Địa điểm, nên 2 kích thước gần như luôn lệch nhau (ảnh Character là crop cố định, ảnh Địa điểm
+  // khách tự chụp/tải lên tuỳ ý) — Fal.ai luôn trả 422 "Mask image must have the same dimensions as the
+  // first image" (xác nhận qua job #413, full payload log được). Sửa: khi có mask, đưa ảnh Địa điểm lên
+  // VỊ TRÍ ĐẦU TIÊN — mọi câu "Reference image #N" bên dưới dùng leadingOffset thay vì số cứng để khớp lại.
+  const leadingOffset = hasLocationMask ? 1 : 0;
+  const referenceImages = hasLocationMask ? [job.location_reference_url as string, ...characterImages] : [...characterImages];
+  if (!hasLocationMask) {
+    if (hasItem) referenceImages.push(...itemUrls);
+    if (hasLocation) referenceImages.push(job.location_reference_url as string);
+    if (chainedFrameUrl) referenceImages.push(chainedFrameUrl);
+  } else if (hasItem) {
+    referenceImages.push(...itemUrls);
+  }
   // Tầng 2 (Appearance) — chỉ cảnh có outfit_override mới chèn thêm chỉ dẫn đổi đồ vào cuối prompt,
   // đè lên đồ trong ảnh tham chiếu (Tầng 1 mặt/tóc/dáng người vẫn giữ nguyên qua ảnh tham chiếu như
   // bình thường). Không đổi gì với cảnh không có outfit_override.
@@ -1905,14 +1925,18 @@ async function submitSceneImageForRow(
     // (vd đang bước đi tới) chứ không phải bị "dịch chuyển tức thời" sang khung hình/tư thế tĩnh khác.
     scenePrompt += ` The LAST reference image is the real frame this scene continues from, one instant later in the same continuous shot. This new image MUST keep the same camera distance, framing, and angle as that reference image, and continue the character's body position and motion naturally from it — only change what the scene description above requires, changing gradually, never resetting to a different framing, a different angle, or an unrelated static pose. If the scene description moves to a different setting, show it as a natural continuation of that motion (e.g. still mid-step, mid-turn), not an abrupt jump to an already-arrived, already-posed shot. Use the reference image for pose, motion continuation, clothing, and setting, never for the face. For the character's face and identity, always match the ${faceRefLabel} exactly — keep the identical face even if the last reference image's face looks slightly different due to motion blur, camera angle, or lighting.`;
   } else if (characterImages.length === 2 && imageEntry?.multi_image) {
+    // leadingOffset > 0 khi ảnh Địa điểm bị đẩy lên đầu (có mask) — 2 ảnh thân/mặt lúc đó là SECOND/THIRD
+    // chứ không còn là FIRST/SECOND nữa, xem khối referenceImages phía trên.
+    const ord1 = ordinalWord(leadingOffset + 1);
+    const ord2 = ordinalWord(leadingOffset + 2);
     scenePrompt += row.face_view && row.face_view !== row.camera_view
-      ? ` The FIRST reference image shows the body pose/angle to follow, the SECOND shows the face/gaze direction to follow — combine them: keep the body pose from the first image, but the face orientation and eye direction from the second image.`
-      : ` The FIRST reference image shows the body pose/angle to follow, the SECOND is a close-up reference for the character's face — use it to keep facial identity accurate and consistent while following the body pose from the first image.`;
+      ? ` The ${ord1} reference image shows the body pose/angle to follow, the ${ord2} shows the face/gaze direction to follow — combine them: keep the body pose from the ${ord1.toLowerCase()} image, but the face orientation and eye direction from the ${ord2.toLowerCase()} image.`
+      : ` The ${ord1} reference image shows the body pose/angle to follow, the ${ord2} is a close-up reference for the character's face — use it to keep facial identity accurate and consistent while following the body pose from the ${ord1.toLowerCase()} image.`;
   }
   // Nhiều vật phẩm (tối đa MAX_ITEM_REFERENCES) — mỗi ảnh có câu chỉ dẫn RIÊNG nêu rõ số thứ tự ảnh,
   // tránh model lẫn lộn/trộn đặc điểm của vật phẩm này sang vật phẩm khác khi có từ 2 món trở lên.
   itemUrls.forEach((_, i) => {
-    const idx = characterImages.length + i + 1;
+    const idx = leadingOffset + characterImages.length + i + 1;
     // Xác nhận qua phản hồi thật: câu chỉ dẫn cũ ("depict accurately") quá yếu — model vẫn vẽ ra vật
     // phẩm có kiểu/màu khác (đúng loại đồ vật, sai chi tiết thật), giống hệt lỗi trang phục đã sửa
     // trước đây. Viết mạnh hơn theo đúng công thức đã hiệu quả với outfit_override: gọi thẳng đây là
@@ -1927,7 +1951,7 @@ async function submitSceneImageForRow(
     scenePrompt += ` Reference image #${idx} is a REAL photo of one of the character's own physical items (e.g. shoes, a bag, an accessory, or another object) — this is not a generic example, it is the customer's actual item. The character should be shown wearing/holding/using this exact item throughout this scene (e.g. on their feet if it's shoes, on their shoulder if it's a bag) — do NOT omit it just because the scene description does not explicitly mention it in words; only leave it out if the scene description explicitly describes a contrary situation (e.g. barefoot, item set aside). When shown, you MUST copy this exact real item's appearance precisely: same color, same shape/silhouette, same pattern/design details, same material/texture — exactly as shown in reference image #${idx}. Do NOT substitute a different color, a different style, a generic or similar-looking version, or any item that merely resembles it — treat matching this item's exact real appearance with the same strictness as matching the character's face. If it is worn (e.g. shoes, a hat, an accessory), render it properly fitted and positioned on the body at the correct real-world size and angle — not floating, not misaligned, not oversized or undersized — as if the character is actually and naturally wearing it.`;
   });
   if (hasLocation) {
-    const idx = characterImages.length + itemUrls.length + 1;
+    const idx = hasLocationMask ? 1 : characterImages.length + itemUrls.length + 1;
     scenePrompt += hasLocationMask
       ? ` Reference image #${idx} shows a REAL physical location, together with an inpainting mask (provided via mask_url) that marks EXACTLY where to place the character within that location: the WHITE area of the mask is where the character must stand/be positioned, the BLACK area must remain pixel-identical to reference image #${idx} — do not alter, redraw, move, or crop anything outside the white masked area. Preserve the real location's appearance (layout, colors, decor, lighting) accurately everywhere outside the masked area.`
       : ` Reference image #${idx} shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
@@ -2061,21 +2085,23 @@ async function submitMultiCharacterSceneImageForRow(
     job.image_model === "fal-ai/gpt-image-2/edit" &&
     maskZonesForScene.length > 0 &&
     maskZonesForScene.length === (row.character_positions ?? []).length;
-  const referenceImages = [
-    ...refs.map((r) => r.url),
-    ...itemRefs.map((r) => r.url),
-    ...(hasLocation ? [job.location_reference_url as string] : []),
-  ];
+  // Cùng lý do đã sửa ở luồng 1 nhân vật (xem submitSceneImageForRow) — Fal.ai yêu cầu mask_url khớp
+  // kích thước ẢNH ĐẦU TIÊN trong image_urls, nên khi có mask phải đưa ảnh Địa điểm lên đầu mảng thay vì
+  // nối cuối như trước (đã gây 422 "Mask image must have the same dimensions as the first image").
+  const refsOffset = hasLocationMask ? 1 : 0;
+  const referenceImages = hasLocationMask
+    ? [job.location_reference_url as string, ...refs.map((r) => r.url), ...itemRefs.map((r) => r.url)]
+    : [...refs.map((r) => r.url), ...itemRefs.map((r) => r.url), ...(hasLocation ? [job.location_reference_url as string] : [])];
   let scenePrompt = buildContinuityPrefix(row.location, previousEndPose) + (row.scene_description ?? "");
   scenePrompt += buildCameraFramingClause(row.shot_size, row.camera_angle);
   if (refs.length >= 2) {
-    const mapping = refs.map((r, i) => `Image ${i + 1} = ${r.label}`).join(", ");
+    const mapping = refs.map((r, i) => `Image ${i + 1 + refsOffset} = ${r.label}`).join(", ");
     scenePrompt += ` Multiple reference images are provided, each showing a DIFFERENT real person: ${mapping}. Combine them so ALL of these people appear together in the scene as described — preserve each person's exact facial identity, hairstyle, and skin tone from their own reference image, do not blend or merge their faces into a single person, do not invent extra people.`;
   } else if (refs.length === 1) {
     scenePrompt += ` Use the reference image to keep ${refs[0].label}'s facial identity accurate and consistent.`;
   }
   itemRefs.forEach((r, i) => {
-    const idx = refs.length + i + 1;
+    const idx = refsOffset + refs.length + i + 1;
     // Mirror đúng câu chỉ dẫn mạnh hơn đã sửa cho luồng 1 nhân vật (submitSceneImageForRow) — cùng
     // nguyên nhân lỗi (vật phẩm ra sai màu/kiểu so với ảnh thật khách tải lên) + cùng lỗi mặc định tắt
     // (điều kiện "whenever mentions" gần như không bao giờ đúng vì scene_description hiếm khi tường
@@ -2094,7 +2120,8 @@ async function submitMultiCharacterSceneImageForRow(
         })
         .filter((s): s is string => !!s)
         .join("; ");
-      scenePrompt += ` The LAST reference image shows a REAL physical location, together with an inpainting mask (provided via mask_url) that marks the area(s) where characters may be placed within that location: the WHITE area(s) of the mask are editable, the BLACK area must remain pixel-identical to that reference image — do not alter, redraw, move, or crop anything outside the white area(s). Within the white area(s): ${placementLines}. Preserve the real location's appearance (layout, colors, decor, lighting) accurately everywhere outside the masked area(s).`;
+      // Địa điểm giờ ở VỊ TRÍ ĐẦU (không còn CUỐI) vì có mask — xem khối referenceImages phía trên.
+      scenePrompt += ` The FIRST reference image shows a REAL physical location, together with an inpainting mask (provided via mask_url) that marks the area(s) where characters may be placed within that location: the WHITE area(s) of the mask are editable, the BLACK area must remain pixel-identical to that reference image — do not alter, redraw, move, or crop anything outside the white area(s). Within the white area(s): ${placementLines}. Preserve the real location's appearance (layout, colors, decor, lighting) accurately everywhere outside the masked area(s).`;
     } else {
       scenePrompt += ` The LAST reference image shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
     }

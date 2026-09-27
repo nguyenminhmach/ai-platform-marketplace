@@ -13,7 +13,7 @@ function getCookie(req: Request, name: string): string | undefined {
 // video AI tạo ra, không phải AI tự sinh nhạc hay user tự upload file lạ.
 export async function GET(req: Request) {
   const token = getCookie(req, ADMIN_COOKIE_NAME);
-  if (!verifyAdminToken(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
+  if (!(await verifyAdminToken(token))) return Response.json({ error: "unauthorized" }, { status: 401 });
 
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase.from("background_music").select("*").order("created_at", { ascending: false });
@@ -23,7 +23,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const token = getCookie(req, ADMIN_COOKIE_NAME);
-  if (!verifyAdminToken(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
+  if (!(await verifyAdminToken(token))) return Response.json({ error: "unauthorized" }, { status: 401 });
 
   const { name, dataUrl } = await req.json();
   if (typeof name !== "string" || !name.trim()) {
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   const token = getCookie(req, ADMIN_COOKIE_NAME);
-  if (!verifyAdminToken(token)) return Response.json({ error: "unauthorized" }, { status: 401 });
+  if (!(await verifyAdminToken(token))) return Response.json({ error: "unauthorized" }, { status: 401 });
 
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
