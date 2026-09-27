@@ -4783,8 +4783,9 @@ export default function MiniAppDetailPage() {
                               // SỬA (phản hồi thật của khách): max-w-md (~448px) quá nhỏ để quan sát rõ chi tiết
                               // ảnh Bối cảnh khi cần chọn chính xác vị trí đứng — tăng lên max-w-3xl (~768px) để
                               // khách nhìn rõ hơn nhiều trên màn hình laptop/desktop, vẫn co giãn về full-width trên
-                              // điện thoại (w-full vẫn giữ, chỉ nới trần max-width).
-                              className="relative mx-auto w-full max-w-3xl cursor-crosshair touch-none select-none overflow-hidden rounded-lg bg-black/10"
+                              // điện thoại (w-full vẫn giữ, chỉ nới trần max-width). Khach xin to hon nua sau
+                              // ban max-w-3xl (768px) - tang tiep len max-w-5xl (1024px).
+                              className="relative mx-auto w-full max-w-5xl cursor-crosshair touch-none select-none overflow-hidden rounded-lg bg-black/10"
                               style={{
                                 aspectRatio: storyLocationImageNaturalSize
                                   ? `${storyLocationImageNaturalSize.w} / ${storyLocationImageNaturalSize.h}`
