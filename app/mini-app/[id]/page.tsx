@@ -1209,14 +1209,25 @@ export default function MiniAppDetailPage() {
     if (storyLocationMaskRect.w < 0.02 || storyLocationMaskRect.h < 0.02) return;
     const rect = storyLocationMaskRect;
     storyLocationMaskDragStartRef.current = null;
-    commitLocationMaskAssignments([
+    const updatedAssignments = [
       ...storyLocationMaskAssignments.filter((a) => a.characterPosition !== storyLocationMaskActiveCharacter),
       { characterPosition: storyLocationMaskActiveCharacter, rect },
-    ]);
-    setStoryLocationMaskRect(null);
-    const assignedPositions = new Set([...storyLocationMaskAssignments.map((a) => a.characterPosition), storyLocationMaskActiveCharacter]);
+    ];
+    commitLocationMaskAssignments(updatedAssignments);
+    const assignedPositions = new Set(updatedAssignments.map((a) => a.characterPosition));
     const next = characterOptions.find((c) => !assignedPositions.has(c.position));
-    if (next) setStoryLocationMaskActiveCharacter(next.position);
+    if (next) {
+      // Còn người chưa gán — chuyển sang người đó, ô vẽ để trống chờ khách vẽ mới cho người này.
+      setStoryLocationMaskActiveCharacter(next.position);
+      setStoryLocationMaskRect(null);
+    } else {
+      // SỬA (xác nhận thật qua ảnh chụp khách gửi): trước đây luôn setStoryLocationMaskRect(null) ở
+      // đây — khi vừa lưu xong NGƯỜI CUỐI CÙNG (không còn ai chưa gán), ô vừa vẽ bị xoá trắng ngay lập
+      // tức dù đã lưu thành công (chip vẫn có ✓), khiến khách tưởng nhầm "vị trí chưa lưu" vì không
+      // thấy ô nào trên ảnh cho tới khi bấm lại đúng chip đó. Giữ nguyên ô vừa vẽ hiển thị luôn thay vì
+      // xoá trắng khi không còn ai để tự động chuyển sang.
+      setStoryLocationMaskRect(rect);
+    }
   }
 
   // Đặt danh sách vị trí mới VÀ sinh lại ảnh mask ngay (không chờ bấm "Xong") — mask gửi lên server luôn khớp
@@ -4807,7 +4818,10 @@ export default function MiniAppDetailPage() {
                               {isMulti &&
                                 storyLocationMaskAssignments
                                   .filter((a) => a.characterPosition !== storyLocationMaskActiveCharacter)
-                                  .map((a) => (
+                                  .map((a) => {
+                                    const otherColor = STORY_MASK_ZONE_COLORS[a.characterPosition % STORY_MASK_ZONE_COLORS.length];
+                                    const otherLabel = maskCharacterOptions.find((c) => c.position === a.characterPosition)?.label;
+                                    return (
                                     <div
                                       key={a.characterPosition}
                                       className="pointer-events-none absolute border-2"
@@ -4816,11 +4830,25 @@ export default function MiniAppDetailPage() {
                                         top: `${a.rect.y * 100}%`,
                                         width: `${a.rect.w * 100}%`,
                                         height: `${a.rect.h * 100}%`,
-                                        borderColor: STORY_MASK_ZONE_COLORS[a.characterPosition % STORY_MASK_ZONE_COLORS.length],
-                                        backgroundColor: `${STORY_MASK_ZONE_COLORS[a.characterPosition % STORY_MASK_ZONE_COLORS.length]}25`,
+                                        borderColor: otherColor,
+                                        backgroundColor: `${otherColor}25`,
                                       }}
-                                    />
-                                  ))}
+                                    >
+                                      {/* SỬA (phản hồi thật của khách): ô vùng của người KHÁC (không phải người
+                                          đang active) trước đây không có nhãn tên — nếu 2 vị trí gần/trùng nhau,
+                                          nhìn như chỉ có 1 ô, tưởng nhầm là vị trí kia chưa lưu dù chip đã có ✓.
+                                          Thêm nhãn tên giống hệt cách đã làm ở khung ảnh Bối cảnh thu nhỏ bên ngoài. */}
+                                      {otherLabel && (
+                                        <span
+                                          className="absolute left-0 top-0 max-w-full -translate-y-full truncate rounded-t px-1 text-[10px] font-semibold leading-4 text-white"
+                                          style={{ backgroundColor: otherColor }}
+                                        >
+                                          {otherLabel}
+                                        </span>
+                                      )}
+                                    </div>
+                                    );
+                                  })}
                               {storyLocationMaskRect && (
                                 <div
                                   className="pointer-events-none absolute border-2"
@@ -4836,7 +4864,18 @@ export default function MiniAppDetailPage() {
                                       ? `${STORY_MASK_ZONE_COLORS[storyLocationMaskActiveCharacter % STORY_MASK_ZONE_COLORS.length]}40`
                                       : "#34d39940",
                                   }}
-                                />
+                                >
+                                  {/* Nhãn tên cho ô đang chỉnh (active) — nhất quán với ô của người khác, đỡ
+                                      phải nhìn lên chip màu ở trên mới biết đang vẽ cho ai. */}
+                                  {isMulti && (
+                                    <span
+                                      className="absolute left-0 top-0 max-w-full -translate-y-full truncate rounded-t px-1 text-[10px] font-semibold leading-4 text-white"
+                                      style={{ backgroundColor: STORY_MASK_ZONE_COLORS[storyLocationMaskActiveCharacter % STORY_MASK_ZONE_COLORS.length] }}
+                                    >
+                                      {maskCharacterOptions.find((c) => c.position === storyLocationMaskActiveCharacter)?.label}
+                                    </span>
+                                  )}
+                                </div>
                               )}
                             </div>
                             <div className="mt-2 flex flex-wrap items-center gap-2">
