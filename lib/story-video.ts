@@ -97,7 +97,7 @@ Không bắt lỗi vì thiếu chi tiết nhỏ/phong cách hành văn — chỉ
 // luồng chia cảnh (mặc định + "Tạo kịch bản", 1 nhân vật + nhiều nhân vật).
 export const SHOT_SIZE_LABELS = ["close_up", "medium_close_up", "medium_shot", "full_shot", "wide_shot", "detail_shot"] as const;
 export type ShotSize = (typeof SHOT_SIZE_LABELS)[number];
-export const CAMERA_ANGLE_LABELS = ["eye_level", "low_angle", "high_angle", "dutch_angle"] as const;
+export const CAMERA_ANGLE_LABELS = ["eye_level", "low_angle", "high_angle", "aerial_shot", "dutch_angle"] as const;
 export type CameraAngleKey = (typeof CAMERA_ANGLE_LABELS)[number];
 export const CAMERA_MOVEMENT_LABELS = ["static", "pan", "dolly_in", "dolly_out", "tracking"] as const;
 export type CameraMovement = (typeof CAMERA_MOVEMENT_LABELS)[number];
@@ -105,7 +105,17 @@ export type CameraMovement = (typeof CAMERA_MOVEMENT_LABELS)[number];
 const CAMERA_FRAMING_INSTRUCTION = `Với MỖI cảnh, xác định thêm 3 khoá về khung hình/chuyển động MÁY QUAY (bắt buộc, khác hẳn "camera_view" — camera_view là hướng NHÂN VẬT quay mặt, còn 3 khoá này là vị trí/khoảng cách/chuyển động của CHÍNH máy quay):
 - "shot_size" (cỡ cảnh, chọn ĐÚNG 1 trong 6 giá trị, viết y hệt): "close_up" (cận mặt/đầu-vai, đặc tả cảm xúc/chi tiết nhỏ), "medium_close_up" (từ ngực trở lên), "medium_shot" (từ thắt lưng trở lên, thấy 1 phần bối cảnh), "full_shot" (toàn thân, thấy rõ bối cảnh xung quanh), "wide_shot" (toàn cảnh rộng, nhấn không gian/bối cảnh hơn nhân vật), "detail_shot" (cận cảnh CỰC GẦN vào 1 VẬT THỂ/chi tiết cụ thể — nhẫn, thiệp, hoa, tay đang cầm/chạm vào vật gì đó — KHÔNG lấy khuôn mặt vào khung hình, chỉ tay/vật). Đa dạng cỡ cảnh qua các cảnh giống phim thật (vd cảnh mở đầu dùng "wide_shot" giới thiệu bối cảnh, cảnh cảm xúc dùng "close_up") — KHÔNG lặp lại đúng 1 cỡ cảnh cho toàn bộ truyện trừ khi truyện chỉ có 1-2 cảnh.
   Riêng "detail_shot": CHỈ chọn khi ý tưởng gốc thực sự mô tả 1 khoảnh khắc xoay quanh vật thể cụ thể (đang cầm nhẫn, mở thiệp, chạm vào hoa, xỏ giày...) — không dùng tuỳ tiện, không dùng cho khoảnh khắc chỉ có hành động/cảm xúc của nhân vật (những trường hợp đó dùng "close_up"). Không chọn "detail_shot" cho cảnh đầu tiên (vị trí 0) — cảnh đầu luôn cần thấy mặt để làm chuẩn danh tính nhân vật cho các cảnh sau.
-- "camera_angle" (góc máy, chọn ĐÚNG 1 trong 4 giá trị, viết y hệt): "eye_level" (ngang tầm mắt, trung tính — mặc định cho đa số cảnh), "low_angle" (máy đặt thấp chĩa lên — nhân vật trông mạnh mẽ/uy nghi/chiến thắng, dùng cho khoảnh khắc tự tin), "high_angle" (máy đặt cao chĩa xuống — nhân vật trông nhỏ bé/yếu thế/cô đơn, dùng cho khoảnh khắc dễ tổn thương), "dutch_angle" (máy nghiêng — tạo cảm giác bất ổn/căng thẳng, CHỈ dùng khi truyện có tình huống căng thẳng/bất an rõ rệt, không dùng tuỳ tiện).
+- "camera_angle" (góc máy, chọn ĐÚNG 1 trong 5 giá trị, viết y hệt): "eye_level" (ngang tầm mắt, trung tính — mặc định cho đa số cảnh), "low_angle" (máy đặt thấp chĩa lên — nhân vật trông mạnh mẽ/uy nghi/chiến thắng, dùng cho khoảnh khắc tự tin), "high_angle" (máy đặt cao chĩa xuống NHẰM MỤC ĐÍCH cảm xúc — nhân vật trông nhỏ bé/yếu thế/cô đơn, CHỈ dùng khi cảnh có tín hiệu cảm xúc tiêu cực rõ ràng đi kèm, vd "một mình", "cô đơn", "vừa cãi nhau", "buồn"), "aerial_shot" (máy trên cao nhìn xuống/chéo xuống kiểu flycam/drone NHẰM MỤC ĐÍCH khoe bối cảnh/không gian rộng lớn hùng vĩ — KHÔNG liên quan cảm xúc nhân vật, thường đi kèm "wide_shot", dùng cho cảnh mở đầu/giới thiệu địa điểm đẹp), "dutch_angle" (máy nghiêng — tạo cảm giác bất ổn/căng thẳng, CHỈ dùng khi truyện có tình huống căng thẳng/bất an rõ rệt, không dùng tuỳ tiện).
+  Phân biệt "high_angle" vs "aerial_shot" (cùng là máy quay cao, nhưng ý đồ khác hẳn nhau — quyết định
+  bằng câu hỏi: truyện đang muốn nói nhân vật nhỏ bé/cô đơn, hay đang muốn khoe cảnh đẹp/rộng lớn?):
+  - Ý tưởng gốc CÓ dấu hiệu cảm xúc tiêu cực rõ ràng (một mình, cô đơn, buồn, vừa mâu thuẫn...) trong
+    cảnh đó -> "high_angle", BẤT KỂ có nhắc kỹ thuật quay hay không.
+  - Ý tưởng gốc yêu cầu rõ "quay từ trên cao"/"trên xuống"/"flycam"/"drone" nhưng KHÔNG kèm dấu hiệu
+    cảm xúc tiêu cực nào trong cùng cảnh đó -> mặc định "aerial_shot" (khách phổ thông nói "quay từ
+    trên cao" gần như luôn có ý flycam cảnh đẹp kiểu video cưới sang trọng, không phải ý "làm nhân vật
+    trông yếu đuối" — đó là khái niệm điện ảnh chuyên sâu khách thường không biết).
+  - Ý tưởng gốc KHÔNG nhắc gì tới máy quay cao VÀ KHÔNG có tín hiệu cảm xúc nào rõ rệt -> KHÔNG được tự
+    đoán giữa 2 giá trị này, dùng "eye_level" (mặc định an toàn, trung tính).
 - "camera_movement" (chuyển động máy, chọn ĐÚNG 1 trong 5 giá trị, viết y hệt): "static" (máy đứng yên hoàn toàn — mặc định cho đa số cảnh, nhất là cảnh tĩnh/đối thoại), "pan" (máy lia ngang tại chỗ theo hành động, dùng khi nhân vật di chuyển ngang qua khung hình), "dolly_in" (máy tiến lại gần dần trong lúc quay — tăng cảm giác thân mật/căng thẳng, dùng cho khoảnh khắc cảm xúc cao trào), "dolly_out" (máy lùi ra xa dần — mở rộng bối cảnh/tạo khoảng cách, dùng khi nhân vật rời đi hoặc kết thúc 1 đoạn), "tracking" (máy di chuyển song song theo nhân vật, dùng khi nhân vật đi bộ/chạy 1 quãng dài). Chỉ chọn khác "static" khi hành động trong cảnh thực sự cần — không tự thêm chuyển động máy không cần thiết.
 Ưu tiên tuyệt đối: nếu ý tưởng gốc có yêu cầu RÕ RÀNG về góc máy/cỡ cảnh/chuyển động máy (ví dụ "quay từ trên cao chĩa xuống", "góc nhìn từ trên xuống như flycam", "cận mặt", "máy lùi ra xa", "zoom cận"), PHẢI chọn đúng giá trị khớp với yêu cầu đó — chỉ dùng các gợi ý theo cảm xúc/tình huống ở trên khi ý tưởng gốc KHÔNG nói gì cụ thể về máy quay.`;
 
@@ -145,6 +155,7 @@ const CAMERA_ANGLE_PROMPT_TEXT: Record<CameraAngleKey, string> = {
   eye_level: "at eye level, a neutral straight-on angle",
   low_angle: "from a low angle looking up, making the subject appear powerful and commanding",
   high_angle: "from a high angle looking down, making the subject appear small and vulnerable",
+  aerial_shot: "from an aerial drone perspective, high above looking down or across, showcasing the grandeur and scale of the surrounding landscape",
   dutch_angle: "with a tilted, canted dutch angle, creating a sense of unease and tension",
 };
 function buildCameraFramingClause(shotSize: string | null, cameraAngle: string | null): string {
