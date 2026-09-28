@@ -16,7 +16,7 @@ export async function GET(req: Request) {
   const { data, error } = await supabase
     .from("site_settings")
     .select(
-      "signup_bonus_credits, promo_banner_enabled, subscription_enabled, subscription_price_vnd, subscription_duration_days, media_margin_percent, vnd_per_credit, usd_to_vnd_rate, free_trial_daily_cap"
+      "signup_bonus_credits, promo_banner_enabled, subscription_enabled, subscription_price_vnd, subscription_duration_days, media_margin_percent, vnd_per_credit, usd_to_vnd_rate, free_trial_daily_cap, chapter_crossfade_seconds"
     )
     .eq("id", 1)
     .single();
@@ -32,6 +32,7 @@ export async function GET(req: Request) {
       vndPerCredit: 490,
       usdToVndRate: 26000,
       freeTrialDailyCap: 50,
+      chapterCrossfadeSeconds: 0.4,
     });
   }
 
@@ -45,6 +46,7 @@ export async function GET(req: Request) {
     vndPerCredit: data.vnd_per_credit,
     usdToVndRate: data.usd_to_vnd_rate,
     freeTrialDailyCap: data.free_trial_daily_cap ?? 50,
+    chapterCrossfadeSeconds: data.chapter_crossfade_seconds ?? 0.4,
   });
 }
 
@@ -62,6 +64,7 @@ export async function PATCH(req: Request) {
     vndPerCredit,
     usdToVndRate,
     freeTrialDailyCap,
+    chapterCrossfadeSeconds,
   } = await req.json();
 
   if (typeof signupBonusCredits !== "number" || signupBonusCredits < 0) {
@@ -91,6 +94,12 @@ export async function PATCH(req: Request) {
   if (typeof freeTrialDailyCap !== "number" || freeTrialDailyCap < 0 || !Number.isInteger(freeTrialDailyCap)) {
     return Response.json({ error: "freeTrialDailyCap phải là số nguyên không âm" }, { status: 400 });
   }
+  // Chặn 0/âm (không có ý nghĩa — hoà mờ 0s = cắt cứng, dùng đúng lựa chọn "Cắt cứng" thay vì set 0) và
+  // chặn quá dài (trên 3s) — đây là hoà mờ giữa 2 CHƯƠNG khác nhau, dài quá sẽ lộ rõ 2 ảnh AI không khớp
+  // (đúng lý do đã bỏ hẳn crossfade cho điểm nối CẢNH trước đây, xem lib/story-video.ts).
+  if (typeof chapterCrossfadeSeconds !== "number" || chapterCrossfadeSeconds <= 0 || chapterCrossfadeSeconds > 3) {
+    return Response.json({ error: "chapterCrossfadeSeconds phải là số dương, tối đa 3 giây" }, { status: 400 });
+  }
 
   const supabase = getSupabaseAdmin();
   const { error } = await supabase
@@ -105,6 +114,7 @@ export async function PATCH(req: Request) {
       vnd_per_credit: vndPerCredit,
       usd_to_vnd_rate: usdToVndRate,
       free_trial_daily_cap: freeTrialDailyCap,
+      chapter_crossfade_seconds: chapterCrossfadeSeconds,
       updated_at: new Date().toISOString(),
     })
     .eq("id", 1);

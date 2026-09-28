@@ -210,6 +210,10 @@ export default function MiniAppDetailPage() {
   const [storyLockedAspectRatio, setStoryLockedAspectRatio] = useState<string | null>(null);
   const [storyProjectFinalizing, setStoryProjectFinalizing] = useState(false);
   const [storyProjectFinalUrl, setStoryProjectFinalUrl] = useState<string | null>(null);
+  // Kiểu chuyển cảnh (cắt cứng/hoà mờ) khách chọn riêng cho TỪNG điểm nối giữa 2 chương liên tiếp —
+  // storyChapterTransitions[i] ứng với điểm nối Chương (i+1) → Chương (i+2). Không chọn gì thì mặc định
+  // "cut" (giữ đúng hành vi cũ, xem finalize route). Reset khi bắt đầu dự án mới (handleNewProject).
+  const [storyChapterTransitions, setStoryChapterTransitions] = useState<("cut" | "crossfade")[]>([]);
   const [storyProjectError, setStoryProjectError] = useState<string | null>(null);
   const [storyViewChapter, setStoryViewChapter] = useState<number | null>(null);
   const storyFormTopRef = useRef<HTMLDivElement | null>(null);
@@ -2035,7 +2039,7 @@ export default function MiniAppDetailPage() {
       const res = await fetch("/api/story-video/projects/finalize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId: storyProjectId }),
+        body: JSON.stringify({ projectId: storyProjectId, transitions: storyChapterTransitions }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Không ghép được video");
@@ -2058,6 +2062,7 @@ export default function MiniAppDetailPage() {
     setStoryProjectId(null);
     setStoryMultiChapter(false);
     setStoryProjectError(null);
+    setStoryChapterTransitions([]);
     setTimeout(() => storyFormTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   }
   // Khôi phục dự án dở dang sau khi tải lại trang — dựng lại tab chương từ database (chương đang soạn dở mà
@@ -3642,6 +3647,49 @@ export default function MiniAppDetailPage() {
                       Toàn bộ các ô bên dưới thuộc Chương {storyActiveChapter + 1} (tối đa {STORY_MAX_CHAPTERS} chương).
                       {storyLockedAspectRatio ? ` Tỉ lệ khung hình khoá theo chương 1: ${storyLockedAspectRatio}.` : ""}
                     </p>
+                    {/* Chọn kiểu chuyển cảnh RIÊNG TỪNG điểm nối giữa 2 chương liên tiếp (phản hồi thật:
+                        khách muốn Chương 1→2 hoà mờ nhưng Chương 2→3 cắt cứng — không thể dùng 1 công tắc
+                        chung cho cả dự án). Chỉ hiện khi đã có từ 2 chương trở lên (đủ ít nhất 1 điểm nối).
+                        Đặt ở đây (ngay dưới hàng chip chương) vì cả 2 nút "🏁 Kết thúc" trong trang (ở đây
+                        và ở khối kết quả chương hiện tại bên dưới) đều gọi chung handleFinishProject — đặt
+                        1 chỗ duy nhất, áp dụng chung cho cả 2 lối vào. */}
+                    {storyProjectChapters.length + (storyResult ? 1 : 0) >= 2 && !storyProjectFinalUrl && (
+                      <div className="mt-2 flex flex-col gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 dark:border-zinc-700 dark:bg-zinc-800">
+                        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Kiểu chuyển cảnh giữa các chương:</p>
+                        {Array.from({ length: storyProjectChapters.length + (storyResult ? 1 : 0) - 1 }, (_, i) => {
+                          const current = storyChapterTransitions[i] ?? "cut";
+                          return (
+                            <div key={i} className="flex items-center gap-2 text-sm">
+                              <span className="text-zinc-600 dark:text-zinc-400">
+                                Chương {i + 1} → Chương {i + 2}:
+                              </span>
+                              <div className="inline-flex overflow-hidden rounded-full border border-zinc-300 dark:border-zinc-600">
+                                {(["cut", "crossfade"] as const).map((opt) => (
+                                  <button
+                                    key={opt}
+                                    type="button"
+                                    onClick={() =>
+                                      setStoryChapterTransitions((prev) => {
+                                        const next = [...prev];
+                                        next[i] = opt;
+                                        return next;
+                                      })
+                                    }
+                                    className={`px-2.5 py-1 text-xs font-medium ${
+                                      current === opt
+                                        ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                                        : "bg-white text-zinc-600 hover:bg-zinc-100 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                                    }`}
+                                  >
+                                    {opt === "cut" ? "Cắt cứng" : "Hoà mờ"}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                     {storyViewChapter !== null &&
                       (() => {
                         const c = storyProjectChapters.find((x) => x.chapterIndex === storyViewChapter);

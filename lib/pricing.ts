@@ -23,6 +23,14 @@ export async function getUsdToVndRate(): Promise<number> {
   return data?.usd_to_vnd_rate ?? 26000;
 }
 
+// Thời lượng hoà mờ (giây) khi nối các CHƯƠNG trong Video nhiều chương — admin chỉnh trong /admin, xem
+// stitchChapterVideos (lib/story-video.ts). Trước đây hard-code 0.4s, giờ đọc từ site_settings.
+export async function getChapterCrossfadeSeconds(): Promise<number> {
+  const supabase = getSupabaseAdmin();
+  const { data } = await supabase.from("site_settings").select("chapter_crossfade_seconds").eq("id", 1).single();
+  return data?.chapter_crossfade_seconds ?? 0.4;
+}
+
 // credit_cost = giá vốn thật (VND) x (1 + biên lợi nhuận%) / giá quy đổi 1 credit ra VND, làm tròn lên
 export function computeDynamicCreditCost(
   providerCostVnd: number,

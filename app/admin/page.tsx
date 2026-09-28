@@ -80,6 +80,7 @@ type Settings = {
   vndPerCredit: number;
   usdToVndRate: number;
   freeTrialDailyCap: number;
+  chapterCrossfadeSeconds: number;
 };
 
 type BackgroundMusicTrack = { id: number; name: string; file_url: string };
@@ -1129,6 +1130,25 @@ export default function AdminPage() {
                     <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
                       Tổng số lượt xoá nền miễn phí toàn hệ thống mỗi ngày (không phân biệt người dùng) — chặn tự động khi
                       vượt, tránh phát sinh chi phí Fal.ai ngoài kiểm soát.
+                    </p>
+                  </div>
+                  <div className="w-full border-t border-zinc-100 pt-4 dark:border-zinc-800" />
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                      Thời lượng hoà mờ giữa các chương (giây)
+                    </label>
+                    <input
+                      type="number"
+                      min={0.1}
+                      max={3}
+                      step={0.1}
+                      value={settings.chapterCrossfadeSeconds}
+                      onChange={(e) => setSettings({ ...settings, chapterCrossfadeSeconds: Number(e.target.value) })}
+                      className="w-32 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
+                    />
+                    <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+                      Áp dụng cho điểm nối nào khách chọn "Hoà mờ" khi ghép các chương trong Video nhiều chương (mục
+                      "Kiểu chuyển cảnh giữa các chương"). Khuyến nghị 0.3-0.5s — quá dài dễ lộ 2 ảnh AI không khớp nhau.
                     </p>
                   </div>
 

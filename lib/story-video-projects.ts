@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { recordGenerationHistory } from "@/lib/ai-router";
-import { stitchChapterVideos } from "@/lib/story-video";
+import { stitchChapterVideos, type ChapterTransition } from "@/lib/story-video";
 
 // Video NHIỀU CHƯƠNG — 1 "dự án" gồm nhiều chương, mỗi chương là 1 job story-video chạy đầy đủ pipeline
 // hiện có (xem migration-story-video-projects.sql). Khách bấm "Kết thúc" thì ghép video các chương theo
@@ -102,7 +102,9 @@ export async function getProjectView(userId: string, projectId: number): Promise
 
 // "Kết thúc": ghép video các chương ĐÃ XONG (theo thứ tự chương) thành video cuối. Chương chưa xong/lỗi bị
 // bỏ qua (giao diện đã chặn khi chương đang chạy). Ghép miễn phí (chỉ tốn CPU server, không gọi Fal.ai).
-export async function finalizeStoryProject(userId: string, projectId: number): Promise<string> {
+// transitions (tuỳ chọn) — khách chọn riêng kiểu chuyển cảnh (cắt cứng/hoà mờ) cho TỪNG điểm nối giữa
+// 2 chương liên tiếp, độ dài phải đúng số chương đã hoàn thành - 1. Xem stitchChapterVideos.
+export async function finalizeStoryProject(userId: string, projectId: number, transitions?: ChapterTransition[]): Promise<string> {
   const project = await getOwnedProject(userId, projectId);
   if (project.status === "done" && project.final_output_url) return project.final_output_url;
   if (project.status === "finalizing" && Date.now() - new Date(project.updated_at).getTime() < FINALIZE_STALE_MS) {
@@ -122,7 +124,8 @@ export async function finalizeStoryProject(userId: string, projectId: number): P
   try {
     const buffer = await stitchChapterVideos(
       doneChapters.map((c) => c.outputUrl as string),
-      project.aspect_ratio ?? "9:16"
+      project.aspect_ratio ?? "9:16",
+      transitions
     );
     const filePath = `${userId}/story-project-${projectId}-${randomUUID()}.mp4`;
     const { error: uploadError } = await supabase.storage.from("videos").upload(filePath, buffer, { contentType: "video/mp4", upsert: true });

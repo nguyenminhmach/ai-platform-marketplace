@@ -24,7 +24,7 @@ import sharp from "sharp";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { deductCredit, refundCredit, getCreditBalance, InsufficientCreditError } from "@/lib/credit-system";
 import { callOpenRouter, recordGenerationHistory } from "@/lib/ai-router";
-import { computeDynamicCreditCost, getMediaPricingSettings } from "@/lib/pricing";
+import { computeDynamicCreditCost, getMediaPricingSettings, getChapterCrossfadeSeconds } from "@/lib/pricing";
 import { generateVietnameseSpeech, CHARACTER_VOICE_IDS } from "@/lib/elevenlabs";
 
 const execFileAsync = promisify(execFile);
@@ -95,7 +95,7 @@ Không bắt lỗi vì thiếu chi tiết nhỏ/phong cách hành văn — chỉ
 // thuật ngữ điện ảnh chuẩn (tra cứu StudioBinder "types-of-camera-shots-sizes-in-film" +
 // nitromediagroup "different-types-of-camera-angles-in-filmmaking-explained"). Dùng chung cho cả 4
 // luồng chia cảnh (mặc định + "Tạo kịch bản", 1 nhân vật + nhiều nhân vật).
-export const SHOT_SIZE_LABELS = ["close_up", "medium_close_up", "medium_shot", "full_shot", "wide_shot"] as const;
+export const SHOT_SIZE_LABELS = ["close_up", "medium_close_up", "medium_shot", "full_shot", "wide_shot", "detail_shot"] as const;
 export type ShotSize = (typeof SHOT_SIZE_LABELS)[number];
 export const CAMERA_ANGLE_LABELS = ["eye_level", "low_angle", "high_angle", "dutch_angle"] as const;
 export type CameraAngleKey = (typeof CAMERA_ANGLE_LABELS)[number];
@@ -103,7 +103,8 @@ export const CAMERA_MOVEMENT_LABELS = ["static", "pan", "dolly_in", "dolly_out",
 export type CameraMovement = (typeof CAMERA_MOVEMENT_LABELS)[number];
 
 const CAMERA_FRAMING_INSTRUCTION = `Với MỖI cảnh, xác định thêm 3 khoá về khung hình/chuyển động MÁY QUAY (bắt buộc, khác hẳn "camera_view" — camera_view là hướng NHÂN VẬT quay mặt, còn 3 khoá này là vị trí/khoảng cách/chuyển động của CHÍNH máy quay):
-- "shot_size" (cỡ cảnh, chọn ĐÚNG 1 trong 5 giá trị, viết y hệt): "close_up" (cận mặt/đầu-vai, đặc tả cảm xúc/chi tiết nhỏ), "medium_close_up" (từ ngực trở lên), "medium_shot" (từ thắt lưng trở lên, thấy 1 phần bối cảnh), "full_shot" (toàn thân, thấy rõ bối cảnh xung quanh), "wide_shot" (toàn cảnh rộng, nhấn không gian/bối cảnh hơn nhân vật). Đa dạng cỡ cảnh qua các cảnh giống phim thật (vd cảnh mở đầu dùng "wide_shot" giới thiệu bối cảnh, cảnh cảm xúc dùng "close_up") — KHÔNG lặp lại đúng 1 cỡ cảnh cho toàn bộ truyện trừ khi truyện chỉ có 1-2 cảnh.
+- "shot_size" (cỡ cảnh, chọn ĐÚNG 1 trong 6 giá trị, viết y hệt): "close_up" (cận mặt/đầu-vai, đặc tả cảm xúc/chi tiết nhỏ), "medium_close_up" (từ ngực trở lên), "medium_shot" (từ thắt lưng trở lên, thấy 1 phần bối cảnh), "full_shot" (toàn thân, thấy rõ bối cảnh xung quanh), "wide_shot" (toàn cảnh rộng, nhấn không gian/bối cảnh hơn nhân vật), "detail_shot" (cận cảnh CỰC GẦN vào 1 VẬT THỂ/chi tiết cụ thể — nhẫn, thiệp, hoa, tay đang cầm/chạm vào vật gì đó — KHÔNG lấy khuôn mặt vào khung hình, chỉ tay/vật). Đa dạng cỡ cảnh qua các cảnh giống phim thật (vd cảnh mở đầu dùng "wide_shot" giới thiệu bối cảnh, cảnh cảm xúc dùng "close_up") — KHÔNG lặp lại đúng 1 cỡ cảnh cho toàn bộ truyện trừ khi truyện chỉ có 1-2 cảnh.
+  Riêng "detail_shot": CHỈ chọn khi ý tưởng gốc thực sự mô tả 1 khoảnh khắc xoay quanh vật thể cụ thể (đang cầm nhẫn, mở thiệp, chạm vào hoa, xỏ giày...) — không dùng tuỳ tiện, không dùng cho khoảnh khắc chỉ có hành động/cảm xúc của nhân vật (những trường hợp đó dùng "close_up"). Không chọn "detail_shot" cho cảnh đầu tiên (vị trí 0) — cảnh đầu luôn cần thấy mặt để làm chuẩn danh tính nhân vật cho các cảnh sau.
 - "camera_angle" (góc máy, chọn ĐÚNG 1 trong 4 giá trị, viết y hệt): "eye_level" (ngang tầm mắt, trung tính — mặc định cho đa số cảnh), "low_angle" (máy đặt thấp chĩa lên — nhân vật trông mạnh mẽ/uy nghi/chiến thắng, dùng cho khoảnh khắc tự tin), "high_angle" (máy đặt cao chĩa xuống — nhân vật trông nhỏ bé/yếu thế/cô đơn, dùng cho khoảnh khắc dễ tổn thương), "dutch_angle" (máy nghiêng — tạo cảm giác bất ổn/căng thẳng, CHỈ dùng khi truyện có tình huống căng thẳng/bất an rõ rệt, không dùng tuỳ tiện).
 - "camera_movement" (chuyển động máy, chọn ĐÚNG 1 trong 5 giá trị, viết y hệt): "static" (máy đứng yên hoàn toàn — mặc định cho đa số cảnh, nhất là cảnh tĩnh/đối thoại), "pan" (máy lia ngang tại chỗ theo hành động, dùng khi nhân vật di chuyển ngang qua khung hình), "dolly_in" (máy tiến lại gần dần trong lúc quay — tăng cảm giác thân mật/căng thẳng, dùng cho khoảnh khắc cảm xúc cao trào), "dolly_out" (máy lùi ra xa dần — mở rộng bối cảnh/tạo khoảng cách, dùng khi nhân vật rời đi hoặc kết thúc 1 đoạn), "tracking" (máy di chuyển song song theo nhân vật, dùng khi nhân vật đi bộ/chạy 1 quãng dài). Chỉ chọn khác "static" khi hành động trong cảnh thực sự cần — không tự thêm chuyển động máy không cần thiết.
 Ưu tiên tuyệt đối: nếu ý tưởng gốc có yêu cầu RÕ RÀNG về góc máy/cỡ cảnh/chuyển động máy (ví dụ "quay từ trên cao chĩa xuống", "góc nhìn từ trên xuống như flycam", "cận mặt", "máy lùi ra xa", "zoom cận"), PHẢI chọn đúng giá trị khớp với yêu cầu đó — chỉ dùng các gợi ý theo cảm xúc/tình huống ở trên khi ý tưởng gốc KHÔNG nói gì cụ thể về máy quay.`;
@@ -138,6 +139,7 @@ const SHOT_SIZE_PROMPT_TEXT: Record<ShotSize, string> = {
   medium_shot: "a medium shot, framing from the waist up",
   full_shot: "a full shot, showing the entire body with some surrounding background",
   wide_shot: "a wide shot, emphasizing the surrounding space and environment",
+  detail_shot: "an extreme close-up insert/detail shot, tightly framing a specific object or the hands interacting with it — no face in frame",
 };
 const CAMERA_ANGLE_PROMPT_TEXT: Record<CameraAngleKey, string> = {
   eye_level: "at eye level, a neutral straight-on angle",
@@ -4660,8 +4662,14 @@ async function checkFrameChainIdentity(
   // Chỉ kiểm tra từ cảnh thứ 2 trở đi (cảnh có thật sự dùng khung hình chain) — cảnh đầu tiên dùng
   // đúng ảnh Character gốc như luồng thường, không có gì để trôi danh tính. Bỏ qua nếu đã vượt số lần
   // thử tối đa (đã dùng phương án dự phòng ở lượt trước) — chấp nhận kết quả hiện có, không lặp vô hạn.
+  // Bỏ qua luôn nếu shot_size là "detail_shot" (cận vật thể, cố tình KHÔNG có mặt trong khung — xem
+  // CAMERA_FRAMING_INSTRUCTION) — không có mặt nào để so sánh, Vision có thể đoán sai/báo "không khớp"
+  // một cách vô căn cứ, gây vẽ lại tốn credit oan cho 1 cảnh vốn đã đúng ý đồ.
   const retryCount = scene.identity_retry_count ?? 0;
-  if (!(scene.position > 0 && job.character_sheet_url && scene.image_url && retryCount <= MAX_IDENTITY_RETRY)) {
+  if (
+    !(scene.position > 0 && job.character_sheet_url && scene.image_url && retryCount <= MAX_IDENTITY_RETRY) ||
+    scene.shot_size === "detail_shot"
+  ) {
     return true;
   }
 
@@ -5094,17 +5102,35 @@ async function extractLastFrame(videoUrl: string, jobId: number, sceneId: number
   }
 }
 
-// Lõi ghép: chuẩn hoá từng clip (scale/pad về khung chuẩn + đồng bộ âm thanh) rồi nối cứng bằng concat demuxer.
-// Dùng chung cho ghép các cảnh của 1 job (stitchAndFinish) và ghép video các CHƯƠNG của 1 dự án nhiều chương
-// (stitchChapterVideos) — tách ra để 2 nơi không lệch logic. clipPaths bị xoá dần trong lúc chạy (tiết kiệm /tmp).
+// Kiểu chuyển cảnh cho từng điểm nối — "cut" (cắt cứng, mặc định, dùng cho MỌI điểm nối cảnh trong 1
+// chương vì đã test thật xác nhận đẹp hơn, xem normalizeAndConcatClips) hoặc "crossfade" (hoà mờ, CHỈ
+// khách tự chọn cho điểm nối GIỮA CÁC CHƯƠNG — xem stitchChapterVideos, lib/story-video-projects.ts).
+export type ChapterTransition = "cut" | "crossfade";
+// Độ dài hoà mờ — ĐÃ CHUYỂN sang admin tự chỉnh (site_settings.chapter_crossfade_seconds, mặc định
+// 0.4s), xem getChapterCrossfadeSeconds() ở lib/pricing.ts + stitchChapterVideos bên dưới. Tra cứu ban
+// đầu (ngành làm phim cưới, đối chiếu video mẫu Runaway Vows): 0.3-0.5s đủ mượt để mắt nhận ra "chuyển
+// tâm trạng" nhưng không đủ dài để lộ rõ 2 ảnh AI không khớp nhau hoàn toàn (lý do đã bỏ hẳn crossfade
+// cho điểm nối CẢNH trước đây, xem comment normalizeAndConcatClips) — admin có thể chỉnh nếu muốn khác.
+
+// Lõi ghép: chuẩn hoá từng clip (scale/pad về khung chuẩn + đồng bộ âm thanh) rồi nối theo transitions.
+// Dùng chung cho ghép các cảnh của 1 job (stitchAndFinish, luôn "cut" mọi điểm nối — không truyền
+// transitions) và ghép video các CHƯƠNG của 1 dự án nhiều chương (stitchChapterVideos, transitions do
+// khách chọn riêng từng điểm nối) — tách ra để 2 nơi không lệch logic. clipPaths bị xoá dần lúc chạy.
 async function normalizeAndConcatClips(
   clipPaths: string[],
   workDir: string,
   outputPath: string,
-  canvas: { width: number; height: number }
+  canvas: { width: number; height: number },
+  transitions?: ChapterTransition[],
+  crossfadeSeconds = 0.4
 ): Promise<void> {
   const ffmpeg = ffmpegPath as string;
-  const scaleFilter = `scale=${canvas.width}:${canvas.height}:force_original_aspect_ratio=decrease,pad=${canvas.width}:${canvas.height}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
+  // fps cố định 30 — thêm vào SCALE FILTER DÙNG CHUNG (áp dụng cho MỌI clip, kể cả nhánh cắt cứng
+  // thuần tuý) để chuẩn hoá khung hình/giây giữa các clip từ nhiều model video khác nhau (Kling/Veo/
+  // Hailuo... mỗi model xuất fps khác nhau) — cần thiết để xfade (nhánh hoà mờ) trộn mượt 2 nguồn khác
+  // fps, đồng thời không gây rủi ro gì thêm cho nhánh cắt cứng đã test kỹ (concat demuxer vẫn nối các
+  // clip cùng thông số y hệt như trước, chỉ là giờ tất cả cùng 30fps thay vì fps gốc lộn xộn).
+  const scaleFilter = `scale=${canvas.width}:${canvas.height}:force_original_aspect_ratio=decrease,pad=${canvas.width}:${canvas.height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30`;
 
   if (clipPaths.length === 1) {
     // Chỉ 1 cảnh (vd khách dùng "Ghép video, bỏ cảnh lỗi" chỉ còn đúng 1 cảnh) — không có điểm ghép
@@ -5155,11 +5181,104 @@ async function normalizeAndConcatClips(
       await rm(clipPaths[i], { force: true }).catch(() => {});
     }
 
-    const listPath = path.join(workDir, "concat-list.txt");
-    const listLines = scaledPaths.map((p) => `file '${p.replace(/'/g, "'\\''")}'`);
-    await writeFile(listPath, listLines.join("\n"));
-    await execFileAsync(ffmpeg, ["-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", "-y", outputPath]);
+    const hasAnyCrossfade = transitions?.some((t) => t === "crossfade") ?? false;
+    if (!hasAnyCrossfade) {
+      // Không điểm nối nào cần hoà mờ (mặc định — nối cảnh trong 1 chương LUÔN vào đây, kể cả khi ghép
+      // chương mà khách chọn toàn "cắt cứng") — giữ đúng nguyên bản concat demuxer đã test kỹ.
+      const listPath = path.join(workDir, "concat-list.txt");
+      const listLines = scaledPaths.map((p) => `file '${p.replace(/'/g, "'\\''")}'`);
+      await writeFile(listPath, listLines.join("\n"));
+      await execFileAsync(ffmpeg, ["-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", "-y", outputPath]);
+    } else {
+      // Có ít nhất 1 điểm nối hoà mờ (chỉ xảy ra ở stitchChapterVideos — khách tự chọn kiểu chuyển cảnh
+      // riêng từng điểm nối giữa các CHƯƠNG). Gom các clip liền nhau nối "cắt cứng" thành 1 khối bằng
+      // concat demuxer (rẻ, không re-encode lần 2, y hệt nhánh trên) — CHỈ những ranh giới "hoà mờ" mới
+      // thật sự cần xfade. Sau đó nối các khối lại với nhau tuần tự bằng xfade+acrossfade (xem
+      // xfadeMergeTwo) — vì đã gom nhóm trước nên số lượt xfade thực tế = đúng số điểm khách chọn hoà
+      // mờ, không phải mọi điểm nối, tránh re-encode lãng phí.
+      const blocks: string[] = [];
+      let blockStart = 0;
+      for (let i = 0; i <= scaledPaths.length; i++) {
+        const isBoundary = i === scaledPaths.length || transitions![i - 1] === "crossfade";
+        if (isBoundary) {
+          const group = scaledPaths.slice(blockStart, i);
+          if (group.length === 1) {
+            blocks.push(group[0]);
+          } else {
+            const blockPath = path.join(workDir, `block-${blocks.length}.mp4`);
+            const listPath = path.join(workDir, `block-${blocks.length}-list.txt`);
+            await writeFile(listPath, group.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join("\n"));
+            await execFileAsync(ffmpeg, ["-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", "-y", blockPath]);
+            blocks.push(blockPath);
+          }
+          blockStart = i;
+        }
+      }
+
+      let merged = blocks[0];
+      for (let i = 1; i < blocks.length; i++) {
+        const nextMerged = path.join(workDir, `xfade-${i}.mp4`);
+        await xfadeMergeTwo(ffmpeg, merged, blocks[i], nextMerged, encodeArgs, crossfadeSeconds);
+        merged = nextMerged;
+      }
+      await rm(outputPath, { force: true }).catch(() => {});
+      await execFileAsync(ffmpeg, ["-i", merged, "-c", "copy", "-y", outputPath]);
+    }
   }
+}
+
+// Nối 2 clip bằng hoà mờ (xfade cho video + acrossfade cho âm thanh) — dùng cho điểm nối khách chọn
+// "crossfade" giữa 2 chương (xem normalizeAndConcatClips). CHUẨN ĐÃ TEST THẬT bằng ffmpeg (2 clip giả
+// lập, có/không âm thanh) trước khi đưa vào đây — xfade cần "offset" (thời điểm trong clip A bắt đầu
+// chồng, = độ dài A trừ đi độ dài hoà mờ), acrossfade thì không cần offset (tự động chồng đúng đoạn
+// cuối A + đầu B). Âm thanh: nếu 1 trong 2 clip không có tiếng, PHẢI tự tạo tiếng câm (anullsrc) khớp
+// đúng thời lượng clip đó trước khi acrossfade — anullsrc không giới hạn "d=" sẽ khiến ffmpeg treo vô
+// hạn (đã xác nhận qua test thật, không phải suy đoán).
+async function xfadeMergeTwo(
+  ffmpeg: string,
+  pathA: string,
+  pathB: string,
+  outPath: string,
+  encodeArgs: string[],
+  crossfadeSeconds: number
+): Promise<void> {
+  const [infoA, infoB] = await Promise.all([probeClip(pathA), probeClip(pathB)]);
+  const duration = Math.min(crossfadeSeconds, Math.max(infoA.durationSeconds - 0.1, 0.1), Math.max(infoB.durationSeconds - 0.1, 0.1));
+  const offset = Math.max(infoA.durationSeconds - duration, 0);
+
+  const inputs = ["-i", pathA, "-i", pathB];
+  const filterParts = [`[0:v][1:v]xfade=transition=fade:duration=${duration.toFixed(3)}:offset=${offset.toFixed(3)}[v]`];
+  const mapArgs = ["-map", "[v]"];
+
+  if (infoA.hasAudio || infoB.hasAudio) {
+    let audioInputIdx = 2;
+    let aLabel = "0:a";
+    let bLabel = "1:a";
+    if (!infoA.hasAudio) {
+      inputs.push("-f", "lavfi", "-i", `anullsrc=channel_layout=stereo:sample_rate=44100:d=${infoA.durationSeconds.toFixed(3)}`);
+      aLabel = `${audioInputIdx}:a`;
+      audioInputIdx++;
+    }
+    if (!infoB.hasAudio) {
+      inputs.push("-f", "lavfi", "-i", `anullsrc=channel_layout=stereo:sample_rate=44100:d=${infoB.durationSeconds.toFixed(3)}`);
+      bLabel = `${audioInputIdx}:a`;
+    }
+    filterParts.push(`[${aLabel}][${bLabel}]acrossfade=d=${duration.toFixed(3)}[a]`);
+    mapArgs.push("-map", "[a]");
+  }
+
+  // Lấy lại đúng trần bitrate (-maxrate/-bufsize) đã tính theo ngân sách 50MB tổng video (xem
+  // normalizeAndConcatClips) từ encodeArgs dùng chung — không tính lại ở đây để khỏi lệch ngân sách.
+  const maxrateIdx = encodeArgs.indexOf("-maxrate");
+  const rateCapArgs = maxrateIdx >= 0 ? encodeArgs.slice(maxrateIdx, maxrateIdx + 4) : [];
+  await execFileAsync(ffmpeg, [
+    ...inputs,
+    "-filter_complex", filterParts.join(";"),
+    ...mapArgs,
+    "-c:v", "libx264", "-preset", "veryfast", ...rateCapArgs, "-pix_fmt", "yuv420p",
+    ...(infoA.hasAudio || infoB.hasAudio ? ["-c:a", "aac"] : ["-an"]),
+    "-y", outPath,
+  ]);
 }
 
 async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
@@ -5235,7 +5354,14 @@ async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
 // Video NHIỀU CHƯƠNG: ghép video hoàn chỉnh của từng chương (đã là mp4 ghép xong sẵn, theo đúng thứ tự
 // truyền vào) thành 1 video cuối — dùng lại đúng lõi ghép của stitchAndFinish (chuẩn hoá khung + âm thanh
 // im lặng cho chương không có tiếng + trần bitrate theo tổng thời lượng để vừa giới hạn 50MB/file).
-export async function stitchChapterVideos(videoUrls: string[], aspectRatio: string): Promise<Buffer> {
+// transitions (tuỳ chọn) — kiểu chuyển cảnh GIỮA CÁC CHƯƠNG do khách tự chọn riêng từng điểm nối, độ
+// dài phải đúng videoUrls.length - 1 (transitions[i] = điểm nối giữa chương i và chương i+1). Bỏ trống
+// hoặc thiếu phần tử nào thì mặc định "cut" cho điểm nối đó — không đổi gì hành vi cũ nếu khách không chọn.
+export async function stitchChapterVideos(
+  videoUrls: string[],
+  aspectRatio: string,
+  transitions?: ChapterTransition[]
+): Promise<Buffer> {
   if (!ffmpegPath) throw new Error("Máy chủ chưa hỗ trợ ghép video (thiếu ffmpeg)");
   try {
     chmodSync(ffmpegPath, 0o755);
@@ -5252,8 +5378,15 @@ export async function stitchChapterVideos(videoUrls: string[], aspectRatio: stri
         return clipPath;
       })
     );
+    const normalizedTransitions: ChapterTransition[] = Array.from(
+      { length: Math.max(videoUrls.length - 1, 0) },
+      (_, i) => transitions?.[i] ?? "cut"
+    );
+    // Chỉ cần gọi Supabase đọc cấu hình khi THẬT SỰ có điểm nối hoà mờ — đỡ 1 lượt query không cần
+    // thiết cho trường hợp phổ biến (khách chọn toàn "cắt cứng" hoặc dự án chỉ 1 chương).
+    const crossfadeSeconds = normalizedTransitions.some((t) => t === "crossfade") ? await getChapterCrossfadeSeconds() : 0.4;
     const outputPath = path.join(workDir, "output.mp4");
-    await normalizeAndConcatClips(clipPaths, workDir, outputPath, canvas);
+    await normalizeAndConcatClips(clipPaths, workDir, outputPath, canvas, normalizedTransitions, crossfadeSeconds);
     return await readFile(outputPath);
   } finally {
     await rm(workDir, { recursive: true, force: true }).catch(() => {});
