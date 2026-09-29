@@ -676,17 +676,30 @@ export default function MiniAppDetailPage() {
     dutch_angle: "#ef4444",
   };
 
-  // Ghép 1 ảnh phác thảo bố cục (Canvas, client-side, không gọi AI) từ ảnh góc Character khớp
-  // cameraView + tỉ lệ theo shot_size — chỉ để khách hình dung sơ bộ khung hình trước khi tốn credit
-  // tạo ảnh thật, KHÔNG phải ảnh cuối cùng.
-  async function renderScenePreviewComposite(characterUrl: string, shotSize: string | null, cameraAngle: string | null): Promise<string> {
+  async function loadImageEl(url: string): Promise<HTMLImageElement> {
     const img = new Image();
     img.crossOrigin = "anonymous";
     await new Promise<void>((resolve, reject) => {
       img.onload = () => resolve();
       img.onerror = () => reject(new Error("load fail"));
-      img.src = characterUrl;
+      img.src = url;
     });
+    return img;
+  }
+
+  // Ghép 1 ảnh phác thảo bố cục (Canvas, client-side, không gọi AI) từ ảnh góc Character khớp
+  // cameraView + tỉ lệ theo shot_size, VẼ ĐÈ LÊN ảnh Bối cảnh thật (nếu khách đã tải lên) thay vì nền
+  // đen trơn — nếu khách đã dùng "Chọn vị trí đứng" thì đặt nhân vật đúng vùng đã khoanh, không thì neo
+  // đáy giữa khung như cũ. Chỉ để khách hình dung sơ bộ khung hình trước khi tốn credit tạo ảnh thật,
+  // KHÔNG phải ảnh cuối cùng.
+  async function renderScenePreviewComposite(
+    characterUrl: string,
+    shotSize: string | null,
+    cameraAngle: string | null,
+    locationUrl?: string | null,
+    positionRect?: { x: number; y: number; w: number; h: number } | null
+  ): Promise<string> {
+    const img = await loadImageEl(characterUrl);
     const W = 480;
     const H = 270;
     const canvas = document.createElement("canvas");
@@ -694,13 +707,44 @@ export default function MiniAppDetailPage() {
     canvas.height = H;
     const ctx = canvas.getContext("2d");
     if (!ctx) return characterUrl;
-    ctx.fillStyle = "#111827";
-    ctx.fillRect(0, 0, W, H);
+
+    if (locationUrl) {
+      try {
+        const bgImg = await loadImageEl(locationUrl);
+        // "Cover" fit — lấp đầy khung, cắt bớt phần thừa, giống cách ảnh bối cảnh sẽ được dùng thật.
+        const bgScale = Math.max(W / bgImg.width, H / bgImg.height);
+        const bgW = bgImg.width * bgScale;
+        const bgH = bgImg.height * bgScale;
+        ctx.drawImage(bgImg, (W - bgW) / 2, (H - bgH) / 2, bgW, bgH);
+        ctx.fillStyle = "rgba(0,0,0,0.15)";
+        ctx.fillRect(0, 0, W, H);
+      } catch {
+        ctx.fillStyle = "#111827";
+        ctx.fillRect(0, 0, W, H);
+      }
+    } else {
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(0, 0, W, H);
+    }
+
     const scale = SCENE_PREVIEW_SHOT_SCALE[shotSize ?? ""] ?? 0.5;
-    const drawH = H * scale;
+    let drawH: number;
+    let x: number;
+    let y: number;
+    if (positionRect) {
+      // Vùng khách đã khoanh (toạ độ chuẩn hoá 0..1) — đặt nhân vật lấp đầy chiều cao vùng đó, neo đáy.
+      const rectH = positionRect.h * H;
+      drawH = Math.max(rectH, H * scale * 0.6);
+      const drawW = drawH * (img.width / img.height);
+      x = positionRect.x * W + (positionRect.w * W - drawW) / 2;
+      y = (positionRect.y + positionRect.h) * H - drawH;
+    } else {
+      drawH = H * scale;
+      const drawW = drawH * (img.width / img.height);
+      x = (W - drawW) / 2;
+      y = H - drawH;
+    }
     const drawW = drawH * (img.width / img.height);
-    const x = (W - drawW) / 2;
-    const y = H - drawH;
     ctx.drawImage(img, x, y, drawW, drawH);
     const barColor = SCENE_PREVIEW_ANGLE_BAR_COLOR[cameraAngle ?? ""] ?? "#64748b";
     ctx.fillStyle = barColor;
@@ -722,7 +766,13 @@ export default function MiniAppDetailPage() {
           Object.values(storyCharacterAngleUrlsForPreview)[0];
         if (!characterUrl) continue;
         try {
-          const dataUrl = await renderScenePreviewComposite(characterUrl, scene.shotSize, scene.cameraAngle);
+          const dataUrl = await renderScenePreviewComposite(
+            characterUrl,
+            scene.shotSize,
+            scene.cameraAngle,
+            storyLocationReference,
+            storyLocationMaskAssignments[0]?.rect ?? storyLocationMaskRect ?? null
+          );
           entries.push([scene.id, dataUrl]);
         } catch {
           // Bỏ qua cảnh lỗi ghép ảnh — vẫn hiện mô tả text, chỉ thiếu ảnh phác thảo.
@@ -735,7 +785,7 @@ export default function MiniAppDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [storyScenePreviews, storyCharacterAngleUrlsForPreview]);
+  }, [storyScenePreviews, storyCharacterAngleUrlsForPreview, storyLocationReference, storyLocationMaskAssignments, storyLocationMaskRect]);
   useEffect(() => {
     if (storyResult) {
       storyResultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
