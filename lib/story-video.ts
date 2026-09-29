@@ -2202,11 +2202,198 @@ function resolveGenreStyleGuide(genreKey: string | null | undefined, overrides?:
   return (GENRE_STYLE_GUIDES as Record<string, string>)[genreKey];
 }
 
+// CHỈ chia cảnh (gọi Agent), KHÔNG trừ credit, KHÔNG tạo ảnh — dừng ở status "scenes_ready" để khách
+// xem trước MIỄN PHÍ bố cục Agent đã chọn (shot_size/camera_angle/camera_view/camera_movement) trước
+// khi tốn credit thật gọi model ảnh. Xem continueStoryVideoToImageStage() bên dưới cho bước 2 (trừ
+// credit + tạo ảnh thật, dùng lại đúng scene đã lưu ở đây qua getScenes()).
+// CHỈ dùng cho luồng 1 NHÂN VẬT gọi từ continueStoryVideoToSceneStage — luồng nhiều nhân vật
+// (runMultiCharacterSceneStage) và luồng "chạy thẳng" (submitStoryVideoJob, Character đã chắc chắn
+// 100% từ đầu) vẫn giữ nguyên hành vi cũ (gộp chia cảnh + tạo ảnh, xem runSceneStage bên dưới) — phạm
+// vi bản đầu tiên của tính năng xem trước chỉ áp dụng đúng 1 nơi này, tránh rủi ro đổi hành vi ở những
+// luồng đã ổn định.
+async function runSceneSplitStage(
+  userId: string,
+  job: SceneStageInput,
+  finalStoryDescription: string,
+  modelChatKey: string | undefined,
+  preplannedActions?: ScriptSceneResult[]
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  if (!job.character_sheet_url) throw new Error("Thiếu ảnh Character của job");
+
+  await supabase
+    .from("story_video_jobs")
+    .update({ status: "splitting_story", story_description: finalStoryDescription })
+    .eq("id", job.id);
+
+  try {
+    const miniApp = await getMiniAppModelConfig(job.mini_app_id);
+    const combinedInstructions = [
+      miniApp.model_config.prompt_helper_instructions,
+      resolveGenreStyleGuide(job.genre_key, miniApp.model_config.genre_style_guides),
+    ]
+      .filter((s): s is string => !!s?.trim())
+      .join("\n\n");
+
+    let scenes: SceneSplitResult[];
+    if (preplannedActions) {
+      const videoEntryForPlan = miniApp.model_config.video_models.find((m) => m.model === job.video_model);
+      if (!videoEntryForPlan) throw new Error("Không tìm thấy model video của job");
+      // Chỉ lấy plan.scenes (nội dung cảnh) ở đây — plan.totalVideoProviderCostVnd (giá) sẽ được tính
+      // LẠI ở continueStoryVideoToImageStage từ job.preplanned_actions (đã lưu sẵn), không cần giữ ở đây.
+      const plan = planStoryVideoScenes(preplannedActions, videoEntryForPlan, undefined);
+      scenes = plan.scenes;
+    } else {
+      const extractedStory = await extractStoryEssentials(finalStoryDescription, job.mini_app_id, modelChatKey);
+      scenes = await splitStoryIntoScenes(
+        extractedStory,
+        job.num_scenes,
+        combinedInstructions || undefined,
+        modelChatKey,
+        job.continuous_motion,
+        job.frame_chain_mode,
+        miniApp.model_config.allow_scene_padding
+      );
+      const validation = await validateSceneSplit(finalStoryDescription, scenes, job.mini_app_id, modelChatKey);
+      if (!validation.ok) {
+        console.error(`[story-video] story-validator báo lỗi job #${job.id}, thử chia lại 1 lần: ${validation.issue}`);
+        const retryInstructions = [combinedInstructions, `Lần chia trước bị lỗi: ${validation.issue}. Sửa lại cho đúng.`]
+          .filter((s): s is string => !!s?.trim())
+          .join("\n\n");
+        scenes = await splitStoryIntoScenes(
+          extractedStory,
+          job.num_scenes,
+          retryInstructions,
+          modelChatKey,
+          job.continuous_motion,
+          job.frame_chain_mode,
+          miniApp.model_config.allow_scene_padding
+        );
+      }
+    }
+
+    const { error: sceneError } = await supabase.from("story_video_scenes").insert(
+      scenes.map((scene, index) => ({
+        job_id: job.id,
+        position: index,
+        scene_description: scene.description,
+        end_description: scene.end_description ?? null,
+        camera_view: scene.camera_view,
+        shot_size: scene.shot_size,
+        camera_angle: scene.camera_angle,
+        camera_movement: scene.camera_movement,
+        outfit_override: scene.outfit_override ?? null,
+        face_view: scene.face_view ?? null,
+        dialogue_line: scene.dialogue?.trim() || null,
+        location: scene.location,
+        end_pose: scene.end_pose,
+        motion_duration_key: preplannedActions ? (scenes as PlannedScene[])[index].duration_key : null,
+        natural_duration_seconds: preplannedActions ? (scenes as PlannedScene[])[index].duration_seconds : null,
+        pace: preplannedActions ? (scenes as PlannedScene[])[index].pace ?? null : null,
+        rotation_degrees: preplannedActions ? (scenes as PlannedScene[])[index].rotation_degrees ?? null : null,
+      }))
+    );
+    if (sceneError) throw new Error(sceneError.message);
+
+    await supabase.from("story_video_jobs").update({ status: "scenes_ready" }).eq("id", job.id);
+  } catch (err) {
+    await failJob(job.id, err instanceof Error ? err.message : String(err));
+    throw err;
+  }
+}
+
+// Bước 2 — khách đã xem preview MIỄN PHÍ ở status "scenes_ready" (xem runSceneSplitStage), bấm "Tạo
+// ảnh" mới thật sự trừ credit + gọi model ảnh. Đọc lại scene đã lưu qua getScenes() thay vì giữ trong
+// bộ nhớ — đây là request HTTP riêng biệt, không có gì đảm bảo cùng 1 lượt chạy với bước chia cảnh.
+export async function continueStoryVideoToImageStage(userId: string, jobId: number, idempotencyKey: string): Promise<{ newBalance: number }> {
+  const supabase = getSupabaseAdmin();
+  const { data: jobData } = await supabase.from("story_video_jobs").select("*").eq("id", jobId).single();
+  if (!jobData) throw new Error("Không tìm thấy job");
+  const job = jobData as JobRow;
+  if (job.user_id !== userId) throw new Error("Không có quyền với job này");
+  if (job.status !== "scenes_ready") throw new Error("Job không ở trạng thái sẵn sàng tạo ảnh");
+  if (!job.image_provider_cost_vnd_per_scene || !job.video_provider_cost_vnd_per_scene) {
+    throw new Error("Thiếu dữ liệu giá của job");
+  }
+
+  const sceneRows = (await getScenes(jobId)).sort((a, b) => a.position - b.position);
+  if (sceneRows.length === 0) throw new Error("Chưa có phân cảnh nào để tạo ảnh");
+
+  const { marginPercent, vndPerCredit } = await getMediaPricingSettings();
+  const preplannedActions = job.preplanned_actions as unknown as ScriptSceneResult[] | null;
+
+  let videoCost: number;
+  if (preplannedActions) {
+    const miniAppForPlan = await getMiniAppModelConfig(job.mini_app_id);
+    const videoEntryForPlan = miniAppForPlan.model_config.video_models.find((m) => m.model === job.video_model);
+    if (!videoEntryForPlan) throw new Error("Không tìm thấy model video của job");
+    const plan = planStoryVideoScenes(preplannedActions, videoEntryForPlan, undefined);
+    videoCost = computeDynamicCreditCost(plan.totalVideoProviderCostVnd, marginPercent, vndPerCredit);
+  } else {
+    videoCost = computeDynamicCreditCost(job.video_provider_cost_vnd_per_scene * job.num_scenes, marginPercent, vndPerCredit);
+  }
+
+  const imageCallCount = job.continuous_motion ? sceneRows.length + 1 : sceneRows.length;
+  const imageCost = computeDynamicCreditCost(job.image_provider_cost_vnd_per_scene * imageCallCount, marginPercent, vndPerCredit);
+
+  const deduction = await deductCredit(userId, job.auto_video ? imageCost + videoCost : imageCost, job.mini_app_id, idempotencyKey);
+  if (!deduction.success) throw new InsufficientCreditError();
+
+  await supabase.from("story_video_jobs").update({ status: "generating_images", image_credit_tx_id: deduction.txId }).eq("id", jobId);
+
+  try {
+    const miniApp = await getMiniAppModelConfig(job.mini_app_id);
+    const imageEntry = miniApp.model_config.image_models.find((m) => m.model === job.image_model);
+
+    if (job.frame_chain_mode) {
+      const firstRow = sceneRows.find((r) => r.position === 0);
+      if (firstRow) {
+        const directPhotoUrl = resolveCharacterPhotoDirectlyUrl(job, firstRow);
+        if (directPhotoUrl) {
+          await supabase.from("story_video_scenes").update({ image_url: directPhotoUrl }).eq("id", firstRow.id);
+          await applyFrameChainImageResult(job.id, firstRow.id);
+        } else {
+          const requestId = await submitSceneImageForRow(job, firstRow, imageEntry, false, "image");
+          await supabase.from("story_video_scenes").update({ image_fal_request_id: requestId }).eq("id", firstRow.id);
+        }
+      }
+    } else if (job.continuous_motion) {
+      const firstRow = sceneRows[0];
+      await Promise.all([
+        (async () => {
+          const requestId = await submitSceneImageForRow(job, firstRow, imageEntry, false, "image");
+          await supabase.from("story_video_scenes").update({ image_fal_request_id: requestId }).eq("id", firstRow.id);
+        })(),
+        ...sceneRows.map(async (row) => {
+          const endRow = { ...row, scene_description: row.end_description ?? row.scene_description };
+          const requestId = await submitSceneImageForRow(job, endRow, imageEntry, false, "image_end");
+          await supabase.from("story_video_scenes").update({ end_image_fal_request_id: requestId }).eq("id", row.id);
+        }),
+      ]);
+    } else {
+      await Promise.all(
+        sceneRows.map(async (row, idx) => {
+          const previousEndPose = idx > 0 ? sceneRows[idx - 1]?.end_pose ?? undefined : undefined;
+          const requestId = await submitSceneImageForRow(job, row, imageEntry, false, "image", previousEndPose);
+          await supabase.from("story_video_scenes").update({ image_fal_request_id: requestId }).eq("id", row.id);
+        })
+      );
+    }
+  } catch (err) {
+    await failJob(job.id, err instanceof Error ? err.message : String(err));
+    throw err;
+  }
+
+  return { newBalance: deduction.newBalance };
+}
+
 // Trừ credit phần ảnh (+ video nếu auto_video) rồi chạy chia cảnh (LLM) + submit ảnh cho từng cảnh,
 // dùng character_sheet_url làm tham chiếu chung — tách riêng để dùng chung cho 2 nơi gọi: (1)
 // continueStoryVideoToSceneStage (khách bấm "Tiếp tục chia cảnh" sau khi duyệt Character mới tạo),
 // (2) submitStoryVideoJob khi Character đã chắc chắn 100% ngay từ đầu (chọn từ thư viện, hoặc TOÀN BỘ
 // ảnh tải lên đã là sheet sẵn) — bỏ qua hẳn màn xem trước, chạy thẳng 1 lượt nếu đã có Ý tưởng truyện.
+// LƯU Ý: (1) đã đổi sang dùng runSceneSplitStage + continueStoryVideoToImageStage (2 bước tách riêng,
+// có preview miễn phí) — hàm dưới đây giờ chỉ còn (2) dùng, giữ nguyên hành vi gộp 1 lượt cũ.
 async function runSceneStage(
   userId: string,
   job: SceneStageInput,
@@ -3103,13 +3290,17 @@ async function runMultiCharacterSceneStage(
 // Khách bấm "Tiếp tục chia cảnh" sau khi xem/duyệt ảnh Character (job đang ở "character_ready") — trừ
 // credit phần ảnh (đã snapshot provider_cost_vnd/cảnh lúc submit) rồi chạy chia cảnh (LLM) + submit
 // ảnh cho từng cảnh, dùng character_sheet_url làm tham chiếu chung thay vì ảnh gốc lộn xộn.
+// newBalance trả về null nghĩa là CHƯA trừ credit (nhánh 1 nhân vật giờ chỉ chia cảnh, dừng ở
+// "scenes_ready" để khách xem preview miễn phí — xem runSceneSplitStage + continueStoryVideoToImageStage
+// bên trên). Nhánh nhiều nhân vật (runMultiCharacterSceneStage) vẫn trừ credit ngay như cũ, trả về số
+// dư thật — CHƯA đổi hành vi nhánh đó (phạm vi bản đầu tiên chỉ áp dụng 1 nhân vật).
 export async function continueStoryVideoToSceneStage(
   userId: string,
   jobId: number,
   modelChatKey: string | undefined,
   idempotencyKey: string,
   storyDescription?: string
-): Promise<{ newBalance: number }> {
+): Promise<{ newBalance: number | null }> {
   const supabase = getSupabaseAdmin();
   const { data: jobData } = await supabase.from("story_video_jobs").select("*").eq("id", jobId).single();
   if (!jobData) throw new Error("Không tìm thấy job");
@@ -3145,7 +3336,8 @@ export async function continueStoryVideoToSceneStage(
 
   if (!job.character_sheet_url) throw new Error("Thiếu ảnh Character của job");
 
-  return runSceneStage(userId, job, finalStoryDescription, modelChatKey, idempotencyKey, job.preplanned_actions ?? undefined);
+  await runSceneSplitStage(userId, job, finalStoryDescription, modelChatKey, job.preplanned_actions ?? undefined);
+  return { newBalance: null };
 }
 
 const SCENE_PROMPT_FROM_IMAGE_SYSTEM =

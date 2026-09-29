@@ -4,8 +4,11 @@ import { InsufficientCreditError } from "@/lib/credit-system";
 import { getAuthenticatedUserId } from "@/lib/auth-server";
 
 // Khách bấm "Tiếp tục chia cảnh" sau khi xem/duyệt ảnh Character (job đang ở status "character_ready")
-// — trừ credit phần ảnh rồi chạy chia cảnh (LLM) + submit ảnh cho từng cảnh. Cần thời gian chờ dài hơn
-// mặc định (chờ LLM chia cảnh xong trong request này).
+// — chạy chia cảnh (LLM) rồi dừng ở "scenes_ready". Luồng 1 nhân vật KHÔNG còn trừ credit ở đây nữa
+// (newBalance trả về null) — khách xem preview bố cục miễn phí trước, bấm "Tạo ảnh" riêng
+// (continue-to-images/route.ts) mới thật sự trừ credit. Luồng nhiều nhân vật vẫn trừ ngay như cũ
+// (newBalance có giá trị thật) — xem continueStoryVideoToSceneStage(). Cần thời gian chờ dài hơn mặc
+// định (chờ LLM chia cảnh xong trong request này).
 export const maxDuration = 60;
 
 export async function POST(req: Request) {

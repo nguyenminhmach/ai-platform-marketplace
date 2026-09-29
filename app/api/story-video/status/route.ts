@@ -6,6 +6,7 @@ const STAGE_LABEL: Record<string, string> = {
   generating_character: "Đang tạo ảnh Character (nhiều góc) từ ảnh anh/chị tải lên...",
   character_ready: "Đã có ảnh Character — xem trước và bấm \"Tiếp tục chia cảnh\" nếu ưng ý.",
   splitting_story: "AI đang chia phân cảnh...",
+  scenes_ready: "Đã chia xong phân cảnh — xem trước bố cục (miễn phí) rồi bấm \"Tạo ảnh\" nếu ưng ý.",
   generating_images: "Đang tạo ảnh cho từng phân cảnh...",
   images_ready: "Đã tạo xong ảnh — xem trước và bấm \"Tạo video\" nếu ưng ý.",
   generating_videos: "Đang tạo video cho từng phân cảnh...",
@@ -27,7 +28,7 @@ export async function GET(req: Request) {
   const { data, error } = await supabase
     .from("story_video_jobs")
     .select(
-      "status, output_url, error_message, character_sheet_url, character_source, location_reference_url, location_reference_mask_url, location_reference_mask_zones"
+      "status, output_url, error_message, character_sheet_url, character_source, character_angle_urls, location_reference_url, location_reference_mask_url, location_reference_mask_zones"
     )
     .eq("id", jobId)
     .single();
@@ -44,6 +45,22 @@ export async function GET(req: Request) {
         hasDialogue: boolean;
         motionPrompt: string;
         identityRetryCount: number;
+      }[]
+    | undefined;
+  // Preview bố cục MIỄN PHÍ (chưa có ảnh thật, chỉ có mô tả + lựa chọn camera Agent vừa chọn) — xem
+  // runSceneSplitStage(). Kiểu dữ liệu khác hẳn "scenes" ở trên (không có imageUrl/videoUrl vì chưa
+  // tạo) nên tách field riêng "scenePreviews" thay vì cố nhồi chung, tránh frontend phải phân biệt
+  // "trường nào có ý nghĩa ở trạng thái nào" trên cùng 1 field.
+  let scenePreviews:
+    | {
+        id: number;
+        position: number;
+        sceneDescription: string | null;
+        cameraView: string | null;
+        shotSize: string | null;
+        cameraAngle: string | null;
+        cameraMovement: string | null;
+        location: string | null;
       }[]
     | undefined;
   let characters:
@@ -66,6 +83,26 @@ export async function GET(req: Request) {
         sheetUrl: c.character_sheet_url,
         angleUrls: c.character_angle_urls,
         ready: !!c.character_sheet_url,
+      }));
+    }
+  }
+
+  if (data.status === "scenes_ready") {
+    const { data: sceneRows } = await supabase
+      .from("story_video_scenes")
+      .select("id, position, scene_description, camera_view, shot_size, camera_angle, camera_movement, location")
+      .eq("job_id", jobId)
+      .order("position", { ascending: true });
+    if (sceneRows) {
+      scenePreviews = sceneRows.map((s) => ({
+        id: s.id,
+        position: s.position,
+        sceneDescription: s.scene_description,
+        cameraView: s.camera_view,
+        shotSize: s.shot_size,
+        cameraAngle: s.camera_angle,
+        cameraMovement: s.camera_movement,
+        location: s.location,
       }));
     }
   }
@@ -109,8 +146,10 @@ export async function GET(req: Request) {
     errorMessage: data.error_message,
     statusText: progressText ?? STAGE_LABEL[data.status] ?? null,
     scenes,
+    scenePreviews,
     characterSheetUrl: data.character_sheet_url,
     characterSource: data.character_source,
+    characterAngleUrls: data.character_angle_urls,
     characters,
     locationReferenceUrl: data.location_reference_url,
     locationReferenceMaskUrl: data.location_reference_mask_url,

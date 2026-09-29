@@ -369,6 +369,25 @@ export default function MiniAppDetailPage() {
   >(null);
   const [storyRegeneratingJobCharacterPosition, setStoryRegeneratingJobCharacterPosition] = useState<number | null>(null);
   const [storyContinuingScenes, setStoryContinuingScenes] = useState(false);
+  // Preview bố cục MIỄN PHÍ (luồng 1 nhân vật) — job dừng ở status "scenes_ready" sau khi chia cảnh
+  // xong, TRƯỚC khi tốn credit tạo ảnh thật. scenePreviews có mô tả + lựa chọn camera Agent vừa chọn
+  // cho từng cảnh (chưa có ảnh); characterAngleUrls dùng để ghép ảnh phác thảo (không gọi AI, không
+  // tốn credit) — xem renderScenePreviewComposite().
+  const [storyScenePreviews, setStoryScenePreviews] = useState<
+    | {
+        id: number;
+        position: number;
+        sceneDescription: string | null;
+        cameraView: string | null;
+        shotSize: string | null;
+        cameraAngle: string | null;
+        cameraMovement: string | null;
+        location: string | null;
+      }[]
+    | null
+  >(null);
+  const [storyCharacterAngleUrlsForPreview, setStoryCharacterAngleUrlsForPreview] = useState<Record<string, string> | null>(null);
+  const [storyContinuingImages, setStoryContinuingImages] = useState(false);
   const [storySavingCharacter, setStorySavingCharacter] = useState(false);
   const [storySavedCharacterMsg, setStorySavedCharacterMsg] = useState<string | null>(null);
   // Thư viện Character đã lưu — chọn 1 cái thay vì tải ảnh mới, bỏ qua hẳn bước tạo Character (chắc
@@ -583,6 +602,10 @@ export default function MiniAppDetailPage() {
   const storyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const storyCharacterPreviewRef = useRef<HTMLDivElement | null>(null);
   const storyScenesPreviewRef = useRef<HTMLDivElement | null>(null);
+  const storyScenePreviewSectionRef = useRef<HTMLDivElement | null>(null);
+  // Ảnh phác thảo bố cục MIỄN PHÍ ghép bằng Canvas (không gọi AI) — key theo scene id, xem
+  // renderScenePreviewComposite() + effect tính lại khi storyScenePreviews/storyCharacterAngleUrlsForPreview đổi.
+  const [storyScenePreviewImages, setStoryScenePreviewImages] = useState<Record<number, string>>({});
   const storyResultRef = useRef<HTMLDivElement | null>(null);
   // Khối "Ảnh nhân vật" (điểm neo cuộn về lại khi đóng xem trước) + khối "Xem trước ảnh" dùng chung
   // đúng vị trí/kiểu hiển thị với khối kết quả Character thật (storyCharacterPreviewRef phía dưới) —
@@ -597,10 +620,122 @@ export default function MiniAppDetailPage() {
   useEffect(() => {
     if (storyStatus === "character_ready") {
       storyCharacterPreviewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else if (storyStatus === "scenes_ready") {
+      storyScenePreviewSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     } else if (storyStatus === "images_ready") {
       storyScenesPreviewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [storyStatus]);
+
+  // Tỉ lệ chiều cao khung hình mà từng shot_size chiếm — dùng để ghép ảnh phác thảo bố cục MIỄN PHÍ
+  // (không gọi AI, không tốn credit) từ ảnh Character đã có sẵn. Neo đáy khung hình, giống cách máy
+  // ảnh thật lấy khung: cận cảnh chiếm gần hết khung, toàn cảnh chỉ chiếm 1 góc nhỏ.
+  const SCENE_PREVIEW_SHOT_SCALE: Record<string, number> = {
+    close_up: 0.95,
+    medium_close_up: 0.75,
+    medium_shot: 0.55,
+    full_shot: 0.4,
+    wide_shot: 0.22,
+    detail_shot: 0.6,
+  };
+  const SCENE_PREVIEW_CAMERA_VIEW_LABEL: Record<string, string> = {
+    front: "Chính diện",
+    three_quarter_left: "Chếch trái",
+    three_quarter_right: "Chếch phải",
+    side: "Nghiêng ngang",
+    back: "Sau lưng",
+    face: "Cận mặt",
+  };
+  const SCENE_PREVIEW_SHOT_SIZE_LABEL: Record<string, string> = {
+    close_up: "Cận cảnh",
+    medium_close_up: "Cận vừa",
+    medium_shot: "Trung cảnh",
+    full_shot: "Toàn thân",
+    wide_shot: "Toàn cảnh rộng",
+    detail_shot: "Chi tiết (vật/tay/mắt...)",
+  };
+  const SCENE_PREVIEW_CAMERA_ANGLE_LABEL: Record<string, string> = {
+    eye_level: "Ngang tầm mắt",
+    low_angle: "Máy thấp hướng lên",
+    high_angle: "Máy cao hướng xuống",
+    aerial_shot: "Từ trên cao (chim bay)",
+    dutch_angle: "Nghiêng máy",
+  };
+  const SCENE_PREVIEW_CAMERA_MOVEMENT_LABEL: Record<string, string> = {
+    static: "Tĩnh",
+    pan: "Lia ngang",
+    dolly_in: "Tiến vào",
+    dolly_out: "Lùi ra",
+    tracking: "Bám theo",
+  };
+  const SCENE_PREVIEW_ANGLE_BAR_COLOR: Record<string, string> = {
+    eye_level: "#64748b",
+    low_angle: "#f59e0b",
+    high_angle: "#3b82f6",
+    aerial_shot: "#8b5cf6",
+    dutch_angle: "#ef4444",
+  };
+
+  // Ghép 1 ảnh phác thảo bố cục (Canvas, client-side, không gọi AI) từ ảnh góc Character khớp
+  // cameraView + tỉ lệ theo shot_size — chỉ để khách hình dung sơ bộ khung hình trước khi tốn credit
+  // tạo ảnh thật, KHÔNG phải ảnh cuối cùng.
+  async function renderScenePreviewComposite(characterUrl: string, shotSize: string | null, cameraAngle: string | null): Promise<string> {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error("load fail"));
+      img.src = characterUrl;
+    });
+    const W = 480;
+    const H = 270;
+    const canvas = document.createElement("canvas");
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return characterUrl;
+    ctx.fillStyle = "#111827";
+    ctx.fillRect(0, 0, W, H);
+    const scale = SCENE_PREVIEW_SHOT_SCALE[shotSize ?? ""] ?? 0.5;
+    const drawH = H * scale;
+    const drawW = drawH * (img.width / img.height);
+    const x = (W - drawW) / 2;
+    const y = H - drawH;
+    ctx.drawImage(img, x, y, drawW, drawH);
+    const barColor = SCENE_PREVIEW_ANGLE_BAR_COLOR[cameraAngle ?? ""] ?? "#64748b";
+    ctx.fillStyle = barColor;
+    ctx.fillRect(0, 0, W, 6);
+    return canvas.toDataURL("image/jpeg", 0.85);
+  }
+
+  // Tự tính lại toàn bộ ảnh phác thảo mỗi khi có preview bố cục mới (job vừa chia cảnh xong, status
+  // "scenes_ready") — không tốn AI/credit, chỉ vẽ Canvas từ ảnh Character đã có sẵn.
+  useEffect(() => {
+    if (!storyScenePreviews || !storyCharacterAngleUrlsForPreview) return;
+    let cancelled = false;
+    (async () => {
+      const entries: [number, string][] = [];
+      for (const scene of storyScenePreviews) {
+        const characterUrl =
+          storyCharacterAngleUrlsForPreview[scene.cameraView ?? "front"] ??
+          storyCharacterAngleUrlsForPreview["front"] ??
+          Object.values(storyCharacterAngleUrlsForPreview)[0];
+        if (!characterUrl) continue;
+        try {
+          const dataUrl = await renderScenePreviewComposite(characterUrl, scene.shotSize, scene.cameraAngle);
+          entries.push([scene.id, dataUrl]);
+        } catch {
+          // Bỏ qua cảnh lỗi ghép ảnh — vẫn hiện mô tả text, chỉ thiếu ảnh phác thảo.
+        }
+      }
+      if (!cancelled && entries.length > 0) {
+        setStoryScenePreviewImages(Object.fromEntries(entries));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [storyScenePreviews, storyCharacterAngleUrlsForPreview]);
   useEffect(() => {
     if (storyResult) {
       storyResultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1424,6 +1559,8 @@ export default function MiniAppDetailPage() {
         const data = await res.json();
 
         if (Array.isArray(data.scenes)) setStoryScenes(data.scenes);
+        if (Array.isArray(data.scenePreviews)) setStoryScenePreviews(data.scenePreviews);
+        if (data.characterAngleUrls) setStoryCharacterAngleUrlsForPreview(data.characterAngleUrls);
         setStoryStatus(data.status ?? null);
         if (data.characterSheetUrl) setStoryCharacterSheetUrl(data.characterSheetUrl);
         if (data.characterSource) setStoryCharacterSource(data.characterSource);
@@ -1437,6 +1574,12 @@ export default function MiniAppDetailPage() {
           setStoryResult(data.outputUrl);
           setStoryRunning(false);
           setStoryStatusText(null);
+        } else if (data.status === "scenes_ready") {
+          // Dừng poll — job đang chờ khách xem preview bố cục MIỄN PHÍ (chưa tốn credit) rồi tự bấm
+          // "Tạo ảnh" (handleContinueToImages), không có gì chạy ngầm nữa.
+          if (storyPollRef.current) clearInterval(storyPollRef.current);
+          setStoryRunning(false);
+          setStoryStatusText(data.statusText ?? null);
         } else if (data.status === "character_ready") {
           // Dừng poll — job đang chờ khách xem/duyệt ảnh Character, tự bấm "Tạo lại" hoặc
           // "Tiếp tục chia cảnh", không có gì chạy ngầm nữa.
@@ -1798,14 +1941,46 @@ export default function MiniAppDetailPage() {
         setStoryContinuingScenes(false);
         return;
       }
-      window.dispatchEvent(new Event("balance-updated"));
+      // newBalance null = luồng 1 nhân vật, chưa trừ credit (chỉ chia cảnh, xem preview miễn phí trước) —
+      // không cần phát sự kiện cập nhật số dư vì số dư chưa đổi. Luồng nhiều nhân vật vẫn trừ ngay như
+      // cũ nên vẫn phát sự kiện bình thường.
+      if (data.newBalance !== null) window.dispatchEvent(new Event("balance-updated"));
       setStoryContinuingScenes(false);
       setStoryRunning(true);
-      setStoryStatusText(`Đang tạo ảnh cho ${numScenes} phân cảnh...`);
+      setStoryStatusText("Đang chia phân cảnh...");
       pollStoryVideoStatus(storyJobId);
     } catch {
       setStoryError("Không kết nối được tới server");
       setStoryContinuingScenes(false);
+    }
+  }
+
+  // Bước 2 của preview miễn phí (luồng 1 nhân vật) — khách đã xem bố cục Agent chọn ở status
+  // "scenes_ready", bấm "Tạo ảnh" mới thật sự trừ credit + gọi model ảnh.
+  async function handleContinueToImages() {
+    if (!user || !storyJobId) return;
+    setStoryContinuingImages(true);
+    setStoryError(null);
+    try {
+      const res = await fetch("/api/story-video/continue-to-images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: storyJobId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStoryError(data.error ?? "Có lỗi xảy ra");
+        setStoryContinuingImages(false);
+        return;
+      }
+      window.dispatchEvent(new Event("balance-updated"));
+      setStoryContinuingImages(false);
+      setStoryRunning(true);
+      setStoryStatusText(`Đang tạo ảnh cho ${storyScenePreviews?.length ?? numScenes} phân cảnh...`);
+      pollStoryVideoStatus(storyJobId);
+    } catch {
+      setStoryError("Không kết nối được tới server");
+      setStoryContinuingImages(false);
     }
   }
 
@@ -5333,6 +5508,76 @@ export default function MiniAppDetailPage() {
                     )}
                   </div>
                 )}
+
+              {storyStatus === "scenes_ready" && storyScenePreviews && storyScenePreviews.length > 0 && (
+                <div
+                  ref={storyScenePreviewSectionRef}
+                  className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800"
+                >
+                  <p className="mb-1 text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                    Xem trước bố cục ({storyScenePreviews.length} cảnh) — ảnh phác thảo dưới đây chỉ để tham khảo khung hình,
+                    chưa tốn credit
+                  </p>
+                  <p className="mb-3 text-xs text-zinc-400 dark:text-zinc-500">
+                    Ưng bố cục thì bấm &quot;Tạo ảnh&quot; để AI vẽ ảnh thật cho từng cảnh (lúc này mới trừ credit).
+                  </p>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {storyScenePreviews.map((scene) => (
+                      <div key={scene.id} className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
+                        <div className="relative aspect-video w-full bg-zinc-900">
+                          {storyScenePreviewImages[scene.id] ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={storyScenePreviewImages[scene.id]}
+                              alt={`Phác thảo cảnh ${scene.position + 1}`}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-xs text-zinc-500">Đang ghép ảnh...</div>
+                          )}
+                          <span className="absolute left-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
+                            Cảnh {scene.position + 1}
+                          </span>
+                        </div>
+                        <div className="p-3">
+                          <p className="line-clamp-3 text-sm text-zinc-600 dark:text-zinc-300">{scene.sceneDescription}</p>
+                          <div className="mt-2 flex flex-wrap gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                            {scene.shotSize && (
+                              <span className="rounded-full bg-zinc-100 px-2 py-0.5 dark:bg-zinc-800">
+                                {SCENE_PREVIEW_SHOT_SIZE_LABEL[scene.shotSize] ?? scene.shotSize}
+                              </span>
+                            )}
+                            {scene.cameraAngle && (
+                              <span className="rounded-full bg-zinc-100 px-2 py-0.5 dark:bg-zinc-800">
+                                {SCENE_PREVIEW_CAMERA_ANGLE_LABEL[scene.cameraAngle] ?? scene.cameraAngle}
+                              </span>
+                            )}
+                            {scene.cameraView && (
+                              <span className="rounded-full bg-zinc-100 px-2 py-0.5 dark:bg-zinc-800">
+                                {SCENE_PREVIEW_CAMERA_VIEW_LABEL[scene.cameraView] ?? scene.cameraView}
+                              </span>
+                            )}
+                            {scene.cameraMovement && (
+                              <span className="rounded-full bg-zinc-100 px-2 py-0.5 dark:bg-zinc-800">
+                                {SCENE_PREVIEW_CAMERA_MOVEMENT_LABEL[scene.cameraMovement] ?? scene.cameraMovement}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 flex justify-end">
+                    <button
+                      onClick={handleContinueToImages}
+                      disabled={storyContinuingImages}
+                      className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900"
+                    >
+                      {storyContinuingImages ? "Đang gửi..." : "Tạo ảnh →"}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {(storyStatus === "failed" || storyStatus === "cancelled") && storyScenes && storyScenes.every((s) => s.imageUrl) && (
                 <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800">
