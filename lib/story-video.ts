@@ -2772,10 +2772,12 @@ export async function submitStoryVideoJob(
       if (finalStoryDescription) {
         sceneStageJob.character_sheet_url = reusedImageUrl;
         sceneStageJob.character_angle_urls = reusedAngleUrls;
-        return {
-          jobId: job.id,
-          ...(await runSceneStage(userId, sceneStageJob, finalStoryDescription, modelChatKey, idempotencyKey, preplannedActions)),
-        };
+        // Character có sẵn ngay (đã lưu từ trước) — TRƯỚC ĐÂY chạy thẳng runSceneStage (chia cảnh + tốn
+        // credit tạo ảnh luôn trong 1 lượt), bỏ qua hoàn toàn bước xem trước bố cục miễn phí. Đổi sang
+        // runSceneSplitStage (giống nhánh continueStoryVideoToSceneStage) để job dừng ở "scenes_ready",
+        // khách xem phác thảo trước khi tốn credit — xem continueStoryVideoToImageStage cho bước tiếp.
+        await runSceneSplitStage(userId, sceneStageJob, finalStoryDescription, modelChatKey, preplannedActions);
+        return { jobId: job.id, newBalance: await getCreditBalance(userId) };
       }
     } else if (characterAppearanceDescription?.trim()) {
       // Chế độ "Mô tả bằng chữ" — không có ảnh thật, dùng bản TEXT-TO-IMAGE thuần của GPT Image 2
@@ -2838,10 +2840,10 @@ export async function submitStoryVideoJob(
         if (finalStoryDescription) {
           sceneStageJob.character_sheet_url = sheetUrl;
           sceneStageJob.character_angle_urls = angleUrls;
-          return {
-          jobId: job.id,
-          ...(await runSceneStage(userId, sceneStageJob, finalStoryDescription, modelChatKey, idempotencyKey, preplannedActions)),
-        };
+          // Xem chú thích ở nhánh reusedImageUrl phía trên — cùng lý do, đổi sang runSceneSplitStage để
+          // dừng ở "scenes_ready" thay vì tốn credit tạo ảnh ngay.
+          await runSceneSplitStage(userId, sceneStageJob, finalStoryDescription, modelChatKey, preplannedActions);
+          return { jobId: job.id, newBalance: await getCreditBalance(userId) };
         }
       } else {
         const { creditCost } = await computeCharacterCreditCost();
