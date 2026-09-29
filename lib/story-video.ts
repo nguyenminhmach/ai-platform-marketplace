@@ -2295,7 +2295,12 @@ async function runSceneSplitStage(
     );
     if (sceneError) throw new Error(sceneError.message);
 
-    await supabase.from("story_video_jobs").update({ status: "scenes_ready" }).eq("id", job.id);
+    // Trước đây KHÔNG kiểm tra lỗi ở lệnh update này — nếu DB từ chối ngầm (vd cột status có
+    // CHECK constraint/enum chưa liệt kê "scenes_ready"), job kẹt vĩnh viễn ở "splitting_story" mà
+    // không có thông báo lỗi nào (phát hiện qua test thật: job kẹt hơn 1 phút, không lỗi, không tiến
+    // triển). Giờ luôn kiểm tra + throw để lỗi thật hiện ra rõ ràng qua failJob() thay vì treo im lặng.
+    const { error: statusError } = await supabase.from("story_video_jobs").update({ status: "scenes_ready" }).eq("id", job.id);
+    if (statusError) throw new Error(statusError.message);
   } catch (err) {
     await failJob(job.id, err instanceof Error ? err.message : String(err));
     throw err;
