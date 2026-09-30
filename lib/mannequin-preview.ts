@@ -1,11 +1,10 @@
 import * as THREE from "three";
 
 // Hình người 3D CHUNG CHUNG (không phải mặt/thân thật của nhân vật) dùng cho khối "Xem trước bố cục
-// miễn phí" (story-video) — chỉ để khách hình dung ĐÚNG HƯỚNG nhân vật đứng/nhìn trong khung cảnh, xoay
-// theo đúng "camera_view" Agent đã chọn khi chia cảnh (front/three_quarter_left/three_quarter_right/
-// side/back/face — cùng 6 giá trị dùng để cắt ảnh Character thật, xem lib/story-video.ts). Không gọi
-// AI, không tốn credit — dựng bằng Three.js (client-side, chạy 1 lần, cache lại 6 hướng).
-const MANNEQUIN_ROTATION_Y: Record<string, number> = {
+// miễn phí" (story-video) — chỉ để khách hình dung ĐÚNG HƯỚNG nhân vật đứng/nhìn trong khung cảnh.
+// Trước đây render sẵn 6 ảnh tĩnh theo cameraView; giờ dùng trực tiếp trong component tương tác
+// (components/MannequinPreviewCard.tsx) — khách kéo chuột xoay tự do, không chỉ xem đúng 6 góc cố định.
+export const MANNEQUIN_ROTATION_Y: Record<string, number> = {
   front: 0,
   face: 0,
   three_quarter_right: Math.PI / 4,
@@ -14,10 +13,7 @@ const MANNEQUIN_ROTATION_Y: Record<string, number> = {
   back: Math.PI,
 };
 
-const SPRITE_W = 220;
-const SPRITE_H = 440;
-
-function buildMannequin(): THREE.Group {
+export function buildMannequin(): THREE.Group {
   const group = new THREE.Group();
   const bodyColor = new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.85, metalness: 0.05 });
   const markerColor = new THREE.MeshStandardMaterial({ color: 0x374151, roughness: 0.85, metalness: 0.05 });
@@ -57,38 +53,32 @@ function buildMannequin(): THREE.Group {
   return group;
 }
 
-let cachedSprites: Record<string, string> | null = null;
-
-// Dựng sẵn cả 6 hướng 1 lần (không phụ thuộc scene nào) rồi cache lại — mọi cảnh dùng chung 6 ảnh này,
-// chỉ khác cách đặt vị trí/tỉ lệ trên Canvas 2D (xem renderScenePreviewComposite ở page.tsx).
-export function renderMannequinSprites(): Record<string, string> {
-  if (cachedSprites) return cachedSprites;
-
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
-  renderer.setSize(SPRITE_W, SPRITE_H);
-  renderer.setClearColor(0x000000, 0);
-
-  const scene = new THREE.Scene();
-  scene.add(new THREE.AmbientLight(0xffffff, 0.75));
-  const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
-  dirLight.position.set(1, 2, 3);
-  scene.add(dirLight);
-
-  const mannequin = buildMannequin();
-  scene.add(mannequin);
-
-  const camera = new THREE.PerspectiveCamera(28, SPRITE_W / SPRITE_H, 0.1, 100);
-  camera.position.set(0, 2.1, 7.5);
-  camera.lookAt(0, 2.0, 0);
-
-  const sprites: Record<string, string> = {};
-  for (const [view, rotationY] of Object.entries(MANNEQUIN_ROTATION_Y)) {
-    mannequin.rotation.y = rotationY;
-    renderer.render(scene, camera);
-    sprites[view] = renderer.domElement.toDataURL("image/png");
+// Khách kéo chuột xoay tự do (radian bất kỳ) — khi bấm "Chọn góc này", quy tròn về 1 trong 6 giá trị
+// cameraView chuẩn gần nhất (dùng để lưu lại, vì hệ thống tạo ảnh thật chỉ hiểu 6 giá trị này, không
+// hiểu góc độ tự do). "side" không phân biệt trái/phải (chỉ có 1 giá trị "side" trong hệ thống hiện tại)
+// nên cả +90° lẫn -90° đều quy về "side"; tương tự "back" nhận cả +180°/-180°.
+export function nearestCameraView(rotationY: number): string {
+  let a = rotationY % (Math.PI * 2);
+  if (a > Math.PI) a -= Math.PI * 2;
+  if (a <= -Math.PI) a += Math.PI * 2;
+  const candidates: [string, number][] = [
+    ["front", 0],
+    ["three_quarter_right", Math.PI / 4],
+    ["three_quarter_left", -Math.PI / 4],
+    ["side", Math.PI / 2],
+    ["side", -Math.PI / 2],
+    ["back", Math.PI],
+    ["back", -Math.PI],
+  ];
+  let best = candidates[0];
+  let bestDist = Infinity;
+  for (const c of candidates) {
+    let d = Math.abs(a - c[1]);
+    if (d > Math.PI) d = Math.PI * 2 - d;
+    if (d < bestDist) {
+      bestDist = d;
+      best = c;
+    }
   }
-
-  renderer.dispose();
-  cachedSprites = sprites;
-  return sprites;
+  return best[0];
 }

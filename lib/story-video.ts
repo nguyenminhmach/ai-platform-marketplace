@@ -4064,9 +4064,26 @@ async function getScenes(jobId: number): Promise<SceneRow[]> {
 
 export { getScenes as getStoryVideoScenes };
 
-const CHARACTER_ANGLE_LABELS = ["front", "three_quarter_left", "three_quarter_right", "side", "back", "face"] as const;
+export const CHARACTER_ANGLE_LABELS = ["front", "three_quarter_left", "three_quarter_right", "side", "back", "face"] as const;
 export type CharacterAngleKey = (typeof CHARACTER_ANGLE_LABELS)[number];
 export type CharacterAngleUrls = Record<CharacterAngleKey, string>;
+
+// Khách kéo chuột xoay mannequin 3D ở khối xem trước bố cục (status "scenes_ready") rồi bấm "Chọn góc
+// này" — ghi đè lại camera_view của ĐÚNG 1 cảnh, chỉ cho phép khi job vẫn đang ở "scenes_ready" (chưa
+// tốn credit tạo ảnh thật — sau khi đã generating_images thì đổi camera_view không còn ý nghĩa gì nữa).
+export async function updateSceneCameraView(userId: string, sceneId: number, cameraView: string): Promise<void> {
+  if (!(CHARACTER_ANGLE_LABELS as readonly string[]).includes(cameraView)) {
+    throw new Error("camera_view không hợp lệ");
+  }
+  const supabase = getSupabaseAdmin();
+  const { data: scene } = await supabase.from("story_video_scenes").select("id, job_id").eq("id", sceneId).single();
+  if (!scene) throw new Error("Không tìm thấy cảnh");
+  const { data: job } = await supabase.from("story_video_jobs").select("id, user_id, status").eq("id", scene.job_id).single();
+  if (!job || job.user_id !== userId) throw new Error("Không có quyền với cảnh này");
+  if (job.status !== "scenes_ready") throw new Error("Job không còn ở trạng thái xem trước bố cục");
+  const { error } = await supabase.from("story_video_scenes").update({ camera_view: cameraView }).eq("id", sceneId);
+  if (error) throw new Error(error.message);
+}
 
 // Cắt Character sheet (1 ảnh gộp 6 ô, bố cục CỐ ĐỊNH 3 cột x 2 hàng đúng theo CHARACTER_SHEET_PROMPT:
 // hàng 1 = front/3-4 trái/3-4 phải, hàng 2 = nghiêng/sau lưng/cận mặt) thành 6 ảnh riêng theo toạ độ

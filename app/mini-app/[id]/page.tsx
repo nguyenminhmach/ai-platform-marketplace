@@ -9,7 +9,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Footer } from "@/components/Footer";
 import { useAuth } from "@/lib/auth-context";
 import { supabaseBrowser } from "@/lib/supabase-browser";
-import { renderMannequinSprites } from "@/lib/mannequin-preview";
+import { MannequinPreviewCard } from "@/components/MannequinPreviewCard";
 
 // Kling (model tạo video đang dùng) từ chối xử lý (lỗi 422) nếu prompt quá dài — giữ dưới ngưỡng an toàn.
 const VIDEO_PROMPT_MAX_LENGTH = 2000;
@@ -610,11 +610,6 @@ export default function MiniAppDetailPage() {
   const storyCharacterPreviewRef = useRef<HTMLDivElement | null>(null);
   const storyScenesPreviewRef = useRef<HTMLDivElement | null>(null);
   const storyScenePreviewSectionRef = useRef<HTMLDivElement | null>(null);
-  // Ảnh phác thảo bố cục MIỄN PHÍ ghép bằng Canvas + mannequin 3D (không gọi AI) — key theo scene id, xem
-  // renderScenePreviewComposite() + effect tính lại khi storyScenePreviews đổi.
-  const [storyScenePreviewImages, setStoryScenePreviewImages] = useState<Record<number, string>>({});
-  // Preview 3D ngay sau "Tạo kịch bản" (trước khi submit job) — key theo vị trí trong storyScriptScenes.
-  const [storyScriptPreviewImages, setStoryScriptPreviewImages] = useState<Record<number, string>>({});
   const storyResultRef = useRef<HTMLDivElement | null>(null);
   // Khối "Ảnh nhân vật" (điểm neo cuộn về lại khi đóng xem trước) + khối "Xem trước ảnh" dùng chung
   // đúng vị trí/kiểu hiển thị với khối kết quả Character thật (storyCharacterPreviewRef phía dưới) —
@@ -677,158 +672,84 @@ export default function MiniAppDetailPage() {
     dolly_out: "Lùi ra",
     tracking: "Bám theo",
   };
-  const SCENE_PREVIEW_ANGLE_BAR_COLOR: Record<string, string> = {
-    eye_level: "#64748b",
-    low_angle: "#f59e0b",
-    high_angle: "#3b82f6",
-    aerial_shot: "#8b5cf6",
-    dutch_angle: "#ef4444",
-  };
+  // Màu thanh trên cùng theo camera_angle — trùng bảng SCENE_PREVIEW_ANGLE_BAR_COLOR trong
+  // components/MannequinPreviewCard.tsx (component đó tự vẽ thanh màu, không đọc bảng này nữa).
 
-  async function loadImageEl(url: string): Promise<HTMLImageElement> {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    await new Promise<void>((resolve, reject) => {
-      img.onload = () => resolve();
-      img.onerror = () => reject(new Error("load fail"));
-      img.src = url;
-    });
-    return img;
-  }
-
-  // Ghép 1 ảnh phác thảo bố cục (Canvas, client-side, không gọi AI) từ 1 mannequin 3D CHUNG CHUNG
-  // (không phải mặt/thân thật của nhân vật — xem lib/mannequin-preview.ts) xoay đúng theo cameraView Agent
-  // đã chọn, đặt theo tỉ lệ shot_size, VẼ ĐÈ LÊN ảnh Bối cảnh thật (nếu khách đã tải lên) thay vì nền đen
-  // trơn — nếu khách đã dùng "Chọn vị trí đứng" thì đặt nhân vật đúng vùng đã khoanh, không thì neo đáy
-  // giữa khung như cũ. Đổi từ ảnh cutout phẳng sang mannequin 3D xoay được vì ảnh cutout không thể hiện
-  // đúng HƯỚNG nhân vật đang nhìn (vd cảnh "nhìn ra biển" nhưng cutout luôn chỉ có 1 mặt cố định) — mannequin
-  // xoay đúng theo cameraView nên phản ánh đúng hướng hơn. Chỉ để khách hình dung sơ bộ khung hình trước
-  // khi tốn credit tạo ảnh thật, KHÔNG phải ảnh cuối cùng.
-  async function renderScenePreviewComposite(
-    cameraView: string | null,
+  // Vị trí/tỉ lệ (theo %, khớp trực tiếp với khung "aspect-video" 16:9) để đặt mannequin 3D tương tác
+  // (MannequinPreviewCard) trong khối xem trước bố cục MIỄN PHÍ — nếu khách đã dùng "Chọn vị trí đứng"
+  // thì đặt đúng vùng đã khoanh, không thì neo đáy giữa khung theo tỉ lệ shot_size (cận cảnh chiếm gần
+  // hết khung, toàn cảnh chỉ chiếm 1 góc nhỏ) — trước đây tính bằng px trên Canvas 2D (renderScenePreviewComposite,
+  // đã bỏ), giờ chỉ cần % vì mannequin tự render sống (WebGL) ngay trong khung, không ghép ảnh tĩnh nữa.
+  function computeMannequinBoxStyle(
     shotSize: string | null,
-    cameraAngle: string | null,
-    locationUrl?: string | null,
     positionRect?: { x: number; y: number; w: number; h: number } | null
-  ): Promise<string> {
-    const sprites = renderMannequinSprites();
-    const spriteUrl = sprites[cameraView ?? "front"] ?? sprites["front"];
-    const img = await loadImageEl(spriteUrl);
-    const W = 480;
-    const H = 270;
-    const canvas = document.createElement("canvas");
-    canvas.width = W;
-    canvas.height = H;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return spriteUrl;
-
-    if (locationUrl) {
-      try {
-        const bgImg = await loadImageEl(locationUrl);
-        // "Cover" fit — lấp đầy khung, cắt bớt phần thừa, giống cách ảnh bối cảnh sẽ được dùng thật.
-        const bgScale = Math.max(W / bgImg.width, H / bgImg.height);
-        const bgW = bgImg.width * bgScale;
-        const bgH = bgImg.height * bgScale;
-        ctx.drawImage(bgImg, (W - bgW) / 2, (H - bgH) / 2, bgW, bgH);
-        ctx.fillStyle = "rgba(0,0,0,0.15)";
-        ctx.fillRect(0, 0, W, H);
-      } catch {
-        ctx.fillStyle = "#111827";
-        ctx.fillRect(0, 0, W, H);
-      }
-    } else {
-      ctx.fillStyle = "#111827";
-      ctx.fillRect(0, 0, W, H);
-    }
-
+  ): { left: string; top: string; width: string; height: string } {
     const scale = SCENE_PREVIEW_SHOT_SCALE[shotSize ?? ""] ?? 0.5;
-    let drawH: number;
-    let x: number;
-    let y: number;
+    // Tỉ lệ khung người chuẩn (rộng:cao) — mannequin cao gấp ~2.2 lần rộng, xấp xỉ đúng camera setup
+    // trong buildMannequin()/MannequinPreviewCard (canvas render theo đúng khung div này).
+    const personAspect = 0.42;
+    let heightPct: number;
+    let leftPct: number;
+    let topPct: number;
     if (positionRect) {
-      // Vùng khách đã khoanh (toạ độ chuẩn hoá 0..1) — đặt nhân vật lấp đầy chiều cao vùng đó, neo đáy.
-      const rectH = positionRect.h * H;
-      drawH = Math.max(rectH, H * scale * 0.6);
-      const drawW = drawH * (img.width / img.height);
-      x = positionRect.x * W + (positionRect.w * W - drawW) / 2;
-      y = (positionRect.y + positionRect.h) * H - drawH;
-    } else {
-      drawH = H * scale;
-      const drawW = drawH * (img.width / img.height);
-      x = (W - drawW) / 2;
-      y = H - drawH;
+      const rectHeightPct = positionRect.h * 100;
+      heightPct = Math.max(rectHeightPct, scale * 100 * 0.6);
+      const widthPct = heightPct * personAspect * (9 / 16);
+      leftPct = positionRect.x * 100 + (positionRect.w * 100 - widthPct) / 2;
+      topPct = (positionRect.y + positionRect.h) * 100 - heightPct;
+      return { left: `${leftPct}%`, top: `${topPct}%`, width: `${widthPct}%`, height: `${heightPct}%` };
     }
-    const drawW = drawH * (img.width / img.height);
-    ctx.drawImage(img, x, y, drawW, drawH);
-    const barColor = SCENE_PREVIEW_ANGLE_BAR_COLOR[cameraAngle ?? ""] ?? "#64748b";
-    ctx.fillStyle = barColor;
-    ctx.fillRect(0, 0, W, 6);
-    return canvas.toDataURL("image/jpeg", 0.85);
+    heightPct = scale * 100;
+    const widthPct = heightPct * personAspect * (9 / 16);
+    leftPct = (100 - widthPct) / 2;
+    topPct = 100 - heightPct;
+    return { left: `${leftPct}%`, top: `${topPct}%`, width: `${widthPct}%`, height: `${heightPct}%` };
   }
 
-  // Tự tính lại toàn bộ ảnh phác thảo mỗi khi có preview bố cục mới (job vừa chia cảnh xong, status
-  // "scenes_ready") — không tốn AI/credit, chỉ vẽ Canvas + mannequin 3D dựng sẵn (renderMannequinSprites
-  // tự cache, không dựng lại mỗi cảnh).
-  useEffect(() => {
-    if (!storyScenePreviews) return;
-    let cancelled = false;
-    (async () => {
-      const entries: [number, string][] = [];
-      for (const scene of storyScenePreviews) {
-        try {
-          const dataUrl = await renderScenePreviewComposite(
-            scene.cameraView,
-            scene.shotSize,
-            scene.cameraAngle,
-            storyLocationReference,
-            storyLocationMaskAssignments[0]?.rect ?? storyLocationMaskRect ?? null
-          );
-          entries.push([scene.id, dataUrl]);
-        } catch {
-          // Bỏ qua cảnh lỗi ghép ảnh — vẫn hiện mô tả text, chỉ thiếu ảnh phác thảo.
-        }
-      }
-      if (!cancelled && entries.length > 0) {
-        setStoryScenePreviewImages(Object.fromEntries(entries));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [storyScenePreviews, storyLocationReference, storyLocationMaskAssignments, storyLocationMaskRect]);
+  // Khách kéo chuột xoay mannequin ở khối "Tạo kịch bản" rồi bấm "Chọn góc này" — ghi đè cameraView vào
+  // ĐÚNG action gốc trong storyScriptActions (thứ thật sự gửi lên server khi submit qua preplannedActions)
+  // VÀ vào storyScriptScenes[i] (chỉ để hiện nhãn đúng ngay trên UI). Một scene có thể được GỘP từ NHIỀU
+  // action gốc (xem PlannedScene.merged_from trong lib/story-video.ts) — chỉ cho ghi đè khi scene đó gộp
+  // từ ĐÚNG 1 action (trường hợp phổ biến nhất), tránh ghi nhầm cameraView cho action không liên quan khi
+  // bị gộp nhiều action lại thành 1 cảnh.
+  function handleScriptCameraViewChange(sceneIndex: number, view: string) {
+    setStoryScriptScenes((prev) => {
+      if (!prev) return prev;
+      const next = [...prev];
+      next[sceneIndex] = { ...next[sceneIndex], camera_view: view };
+      return next;
+    });
+    setStoryScriptActions((prev) => {
+      if (!prev || !storyScriptScenes) return prev;
+      const scene = storyScriptScenes[sceneIndex] as unknown as { merged_from?: StoryScriptAction[] };
+      const sourceAction = scene.merged_from && scene.merged_from.length === 1 ? scene.merged_from[0] : null;
+      if (!sourceAction) return prev;
+      const actionIndex = prev.indexOf(sourceAction);
+      if (actionIndex === -1) return prev;
+      const next = [...prev];
+      next[actionIndex] = { ...next[actionIndex], camera_view: view };
+      return next;
+    });
+  }
 
-  // Preview 3D ngay sau bước "Tạo kịch bản" — Agent đã tính sẵn camera_view/shot_size/camera_angle cho
-  // từng cảnh ngay trong lượt gọi plan-script này (xem StoryScriptAction), KHÔNG cần đợi submit job +
-  // tạo Character + chia cảnh (bước "scenes_ready" phía sau) mới xem được bố cục — khách thấy ngay bố
-  // cục Agent chọn để quyết định sửa kịch bản lại hay tiếp tục luôn.
-  useEffect(() => {
-    if (!storyScriptScenes) return;
-    let cancelled = false;
-    (async () => {
-      const entries: [number, string][] = [];
-      for (let i = 0; i < storyScriptScenes.length; i++) {
-        const scene = storyScriptScenes[i];
-        try {
-          const dataUrl = await renderScenePreviewComposite(
-            scene.camera_view ?? null,
-            scene.shot_size ?? null,
-            scene.camera_angle ?? null,
-            storyLocationReference,
-            storyLocationMaskAssignments[0]?.rect ?? storyLocationMaskRect ?? null
-          );
-          entries.push([i, dataUrl]);
-        } catch {
-          // Bỏ qua cảnh lỗi ghép ảnh — vẫn hiện mô tả text, chỉ thiếu ảnh phác thảo.
-        }
-      }
-      if (!cancelled && entries.length > 0) {
-        setStoryScriptPreviewImages(Object.fromEntries(entries));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [storyScriptScenes, storyLocationReference, storyLocationMaskAssignments, storyLocationMaskRect]);
+  // Khách kéo chuột xoay mannequin ở khối "scenes_ready" (SAU khi đã submit job, scene đã có id thật
+  // trong DB) rồi bấm "Chọn góc này" — cập nhật UI ngay (optimistic) + gọi API lưu lại cameraView thật
+  // vào đúng hàng story_video_scenes, để lúc bấm "Tạo ảnh" sau đó dùng đúng góc khách vừa chọn thay vì
+  // góc Agent chọn lúc chia cảnh.
+  async function handleScenePreviewCameraViewChange(sceneId: number, view: string) {
+    setStoryScenePreviews((prev) => (prev ? prev.map((s) => (s.id === sceneId ? { ...s, cameraView: view } : s)) : prev));
+    try {
+      await fetch("/api/story-video/update-scene-camera-view", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sceneId, cameraView: view }),
+      });
+    } catch {
+      // Lưu thất bại thì UI vẫn hiện đúng lựa chọn khách vừa xoay (optimistic) — không chặn thao tác,
+      // rủi ro thấp nhất (nếu server không lưu được, ảnh tạo ra vẫn theo góc Agent chọn ban đầu, không
+      // sai lệch nghiêm trọng).
+    }
+  }
 
   useEffect(() => {
     if (storyResult) {
@@ -4090,22 +4011,19 @@ export default function MiniAppDetailPage() {
                             })}
                           </ul>
                           <p className="mb-1 mt-3 text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                            🧍 Xem trước bố cục (mannequin 3D, không phải ảnh thật) — chưa cần tạo ảnh nhân vật/tốn credit gì cả
+                            🧍 Xem trước bố cục (mannequin 3D, không phải ảnh thật) — kéo chuột để xoay xem góc khác, chưa cần tạo ảnh nhân vật/tốn credit gì cả
                           </p>
                           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                             {storyScriptScenes.map((s, i) => (
                               <div key={i} className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
-                                <div className="relative aspect-video w-full bg-zinc-900">
-                                  {storyScriptPreviewImages[i] ? (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img
-                                      src={storyScriptPreviewImages[i]}
-                                      alt={`Phác thảo cảnh ${i + 1}`}
-                                      className="h-full w-full object-cover"
-                                    />
-                                  ) : (
-                                    <div className="flex h-full w-full items-center justify-center text-[10px] text-zinc-500">Đang ghép ảnh...</div>
-                                  )}
+                                <div className="relative">
+                                  <MannequinPreviewCard
+                                    locationUrl={storyLocationReference}
+                                    boxStyle={computeMannequinBoxStyle(s.shot_size ?? null, storyLocationMaskAssignments[0]?.rect ?? storyLocationMaskRect ?? null)}
+                                    cameraAngle={s.camera_angle ?? null}
+                                    cameraView={s.camera_view ?? "front"}
+                                    onCameraViewChange={(view) => handleScriptCameraViewChange(i, view)}
+                                  />
                                   <span className="absolute left-1 top-1 rounded bg-black/60 px-1 py-0.5 text-[10px] text-white">Cảnh {i + 1}</span>
                                 </div>
                                 <div className="flex flex-wrap gap-1 p-1.5 text-[10px] text-zinc-500 dark:text-zinc-400">
@@ -5652,22 +5570,20 @@ export default function MiniAppDetailPage() {
                     chưa tốn credit
                   </p>
                   <p className="mb-3 text-xs text-zinc-400 dark:text-zinc-500">
-                    Ưng bố cục thì bấm &quot;Tạo ảnh&quot; để AI vẽ ảnh thật cho từng cảnh (lúc này mới trừ credit).
+                    Kéo chuột trên mannequin để xoay xem góc khác, bấm &quot;Chọn góc này&quot; nếu muốn đổi. Ưng bố cục thì bấm
+                    &quot;Tạo ảnh&quot; để AI vẽ ảnh thật cho từng cảnh (lúc này mới trừ credit).
                   </p>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     {storyScenePreviews.map((scene) => (
                       <div key={scene.id} className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
-                        <div className="relative aspect-video w-full bg-zinc-900">
-                          {storyScenePreviewImages[scene.id] ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={storyScenePreviewImages[scene.id]}
-                              alt={`Phác thảo cảnh ${scene.position + 1}`}
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center text-xs text-zinc-500">Đang ghép ảnh...</div>
-                          )}
+                        <div className="relative">
+                          <MannequinPreviewCard
+                            locationUrl={storyLocationReference}
+                            boxStyle={computeMannequinBoxStyle(scene.shotSize, storyLocationMaskAssignments[0]?.rect ?? storyLocationMaskRect ?? null)}
+                            cameraAngle={scene.cameraAngle}
+                            cameraView={scene.cameraView ?? "front"}
+                            onCameraViewChange={(view) => handleScenePreviewCameraViewChange(scene.id, view)}
+                          />
                           <span className="absolute left-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-xs text-white">
                             Cảnh {scene.position + 1}
                           </span>
