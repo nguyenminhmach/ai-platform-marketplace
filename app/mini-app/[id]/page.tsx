@@ -193,6 +193,12 @@ export default function MiniAppDetailPage() {
     end_pose: string;
     duration_seconds: number;
     camera_view?: string;
+    // Agent (bước "Tạo kịch bản") đã tính sẵn 3 field này y hệt bước chia cảnh chính (xem
+    // SceneSplitResult trong lib/story-video.ts) — trước đây type ở đây chưa khai báo nên dữ liệu bị bỏ
+    // phí, giờ dùng để hiện preview 3D NGAY sau khi tạo kịch bản, không cần chờ submit job.
+    shot_size?: string;
+    camera_angle?: string;
+    camera_movement?: string;
     outfit_override?: string;
     face_view?: string;
     dialogue?: string | { speaker: number; line: string } | null;
@@ -607,6 +613,8 @@ export default function MiniAppDetailPage() {
   // Ảnh phác thảo bố cục MIỄN PHÍ ghép bằng Canvas + mannequin 3D (không gọi AI) — key theo scene id, xem
   // renderScenePreviewComposite() + effect tính lại khi storyScenePreviews đổi.
   const [storyScenePreviewImages, setStoryScenePreviewImages] = useState<Record<number, string>>({});
+  // Preview 3D ngay sau "Tạo kịch bản" (trước khi submit job) — key theo vị trí trong storyScriptScenes.
+  const [storyScriptPreviewImages, setStoryScriptPreviewImages] = useState<Record<number, string>>({});
   const storyResultRef = useRef<HTMLDivElement | null>(null);
   // Khối "Ảnh nhân vật" (điểm neo cuộn về lại khi đóng xem trước) + khối "Xem trước ảnh" dùng chung
   // đúng vị trí/kiểu hiển thị với khối kết quả Character thật (storyCharacterPreviewRef phía dưới) —
@@ -788,6 +796,40 @@ export default function MiniAppDetailPage() {
       cancelled = true;
     };
   }, [storyScenePreviews, storyLocationReference, storyLocationMaskAssignments, storyLocationMaskRect]);
+
+  // Preview 3D ngay sau bước "Tạo kịch bản" — Agent đã tính sẵn camera_view/shot_size/camera_angle cho
+  // từng cảnh ngay trong lượt gọi plan-script này (xem StoryScriptAction), KHÔNG cần đợi submit job +
+  // tạo Character + chia cảnh (bước "scenes_ready" phía sau) mới xem được bố cục — khách thấy ngay bố
+  // cục Agent chọn để quyết định sửa kịch bản lại hay tiếp tục luôn.
+  useEffect(() => {
+    if (!storyScriptScenes) return;
+    let cancelled = false;
+    (async () => {
+      const entries: [number, string][] = [];
+      for (let i = 0; i < storyScriptScenes.length; i++) {
+        const scene = storyScriptScenes[i];
+        try {
+          const dataUrl = await renderScenePreviewComposite(
+            scene.camera_view ?? null,
+            scene.shot_size ?? null,
+            scene.camera_angle ?? null,
+            storyLocationReference,
+            storyLocationMaskAssignments[0]?.rect ?? storyLocationMaskRect ?? null
+          );
+          entries.push([i, dataUrl]);
+        } catch {
+          // Bỏ qua cảnh lỗi ghép ảnh — vẫn hiện mô tả text, chỉ thiếu ảnh phác thảo.
+        }
+      }
+      if (!cancelled && entries.length > 0) {
+        setStoryScriptPreviewImages(Object.fromEntries(entries));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [storyScriptScenes, storyLocationReference, storyLocationMaskAssignments, storyLocationMaskRect]);
+
   useEffect(() => {
     if (storyResult) {
       storyResultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -4047,6 +4089,45 @@ export default function MiniAppDetailPage() {
                               );
                             })}
                           </ul>
+                          <p className="mb-1 mt-3 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                            🧍 Xem trước bố cục (mannequin 3D, không phải ảnh thật) — chưa cần tạo ảnh nhân vật/tốn credit gì cả
+                          </p>
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                            {storyScriptScenes.map((s, i) => (
+                              <div key={i} className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
+                                <div className="relative aspect-video w-full bg-zinc-900">
+                                  {storyScriptPreviewImages[i] ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                      src={storyScriptPreviewImages[i]}
+                                      alt={`Phác thảo cảnh ${i + 1}`}
+                                      className="h-full w-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="flex h-full w-full items-center justify-center text-[10px] text-zinc-500">Đang ghép ảnh...</div>
+                                  )}
+                                  <span className="absolute left-1 top-1 rounded bg-black/60 px-1 py-0.5 text-[10px] text-white">Cảnh {i + 1}</span>
+                                </div>
+                                <div className="flex flex-wrap gap-1 p-1.5 text-[10px] text-zinc-500 dark:text-zinc-400">
+                                  {s.shot_size && (
+                                    <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 dark:bg-zinc-800">
+                                      {SCENE_PREVIEW_SHOT_SIZE_LABEL[s.shot_size] ?? s.shot_size}
+                                    </span>
+                                  )}
+                                  {s.camera_angle && (
+                                    <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 dark:bg-zinc-800">
+                                      {SCENE_PREVIEW_CAMERA_ANGLE_LABEL[s.camera_angle] ?? s.camera_angle}
+                                    </span>
+                                  )}
+                                  {s.camera_view && (
+                                    <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 dark:bg-zinc-800">
+                                      {SCENE_PREVIEW_CAMERA_VIEW_LABEL[s.camera_view] ?? s.camera_view}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       )
                     )}
