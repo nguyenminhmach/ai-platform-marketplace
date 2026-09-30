@@ -9,6 +9,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Footer } from "@/components/Footer";
 import { useAuth } from "@/lib/auth-context";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { renderMannequinSprites } from "@/lib/mannequin-preview";
 
 // Kling (model tạo video đang dùng) từ chối xử lý (lỗi 422) nếu prompt quá dài — giữ dưới ngưỡng an toàn.
 const VIDEO_PROMPT_MAX_LENGTH = 2000;
@@ -603,8 +604,8 @@ export default function MiniAppDetailPage() {
   const storyCharacterPreviewRef = useRef<HTMLDivElement | null>(null);
   const storyScenesPreviewRef = useRef<HTMLDivElement | null>(null);
   const storyScenePreviewSectionRef = useRef<HTMLDivElement | null>(null);
-  // Ảnh phác thảo bố cục MIỄN PHÍ ghép bằng Canvas (không gọi AI) — key theo scene id, xem
-  // renderScenePreviewComposite() + effect tính lại khi storyScenePreviews/storyCharacterAngleUrlsForPreview đổi.
+  // Ảnh phác thảo bố cục MIỄN PHÍ ghép bằng Canvas + mannequin 3D (không gọi AI) — key theo scene id, xem
+  // renderScenePreviewComposite() + effect tính lại khi storyScenePreviews đổi.
   const [storyScenePreviewImages, setStoryScenePreviewImages] = useState<Record<number, string>>({});
   const storyResultRef = useRef<HTMLDivElement | null>(null);
   // Khối "Ảnh nhân vật" (điểm neo cuộn về lại khi đóng xem trước) + khối "Xem trước ảnh" dùng chung
@@ -687,26 +688,31 @@ export default function MiniAppDetailPage() {
     return img;
   }
 
-  // Ghép 1 ảnh phác thảo bố cục (Canvas, client-side, không gọi AI) từ ảnh góc Character khớp
-  // cameraView + tỉ lệ theo shot_size, VẼ ĐÈ LÊN ảnh Bối cảnh thật (nếu khách đã tải lên) thay vì nền
-  // đen trơn — nếu khách đã dùng "Chọn vị trí đứng" thì đặt nhân vật đúng vùng đã khoanh, không thì neo
-  // đáy giữa khung như cũ. Chỉ để khách hình dung sơ bộ khung hình trước khi tốn credit tạo ảnh thật,
-  // KHÔNG phải ảnh cuối cùng.
+  // Ghép 1 ảnh phác thảo bố cục (Canvas, client-side, không gọi AI) từ 1 mannequin 3D CHUNG CHUNG
+  // (không phải mặt/thân thật của nhân vật — xem lib/mannequin-preview.ts) xoay đúng theo cameraView Agent
+  // đã chọn, đặt theo tỉ lệ shot_size, VẼ ĐÈ LÊN ảnh Bối cảnh thật (nếu khách đã tải lên) thay vì nền đen
+  // trơn — nếu khách đã dùng "Chọn vị trí đứng" thì đặt nhân vật đúng vùng đã khoanh, không thì neo đáy
+  // giữa khung như cũ. Đổi từ ảnh cutout phẳng sang mannequin 3D xoay được vì ảnh cutout không thể hiện
+  // đúng HƯỚNG nhân vật đang nhìn (vd cảnh "nhìn ra biển" nhưng cutout luôn chỉ có 1 mặt cố định) — mannequin
+  // xoay đúng theo cameraView nên phản ánh đúng hướng hơn. Chỉ để khách hình dung sơ bộ khung hình trước
+  // khi tốn credit tạo ảnh thật, KHÔNG phải ảnh cuối cùng.
   async function renderScenePreviewComposite(
-    characterUrl: string,
+    cameraView: string | null,
     shotSize: string | null,
     cameraAngle: string | null,
     locationUrl?: string | null,
     positionRect?: { x: number; y: number; w: number; h: number } | null
   ): Promise<string> {
-    const img = await loadImageEl(characterUrl);
+    const sprites = renderMannequinSprites();
+    const spriteUrl = sprites[cameraView ?? "front"] ?? sprites["front"];
+    const img = await loadImageEl(spriteUrl);
     const W = 480;
     const H = 270;
     const canvas = document.createElement("canvas");
     canvas.width = W;
     canvas.height = H;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return characterUrl;
+    if (!ctx) return spriteUrl;
 
     if (locationUrl) {
       try {
@@ -753,21 +759,17 @@ export default function MiniAppDetailPage() {
   }
 
   // Tự tính lại toàn bộ ảnh phác thảo mỗi khi có preview bố cục mới (job vừa chia cảnh xong, status
-  // "scenes_ready") — không tốn AI/credit, chỉ vẽ Canvas từ ảnh Character đã có sẵn.
+  // "scenes_ready") — không tốn AI/credit, chỉ vẽ Canvas + mannequin 3D dựng sẵn (renderMannequinSprites
+  // tự cache, không dựng lại mỗi cảnh).
   useEffect(() => {
-    if (!storyScenePreviews || !storyCharacterAngleUrlsForPreview) return;
+    if (!storyScenePreviews) return;
     let cancelled = false;
     (async () => {
       const entries: [number, string][] = [];
       for (const scene of storyScenePreviews) {
-        const characterUrl =
-          storyCharacterAngleUrlsForPreview[scene.cameraView ?? "front"] ??
-          storyCharacterAngleUrlsForPreview["front"] ??
-          Object.values(storyCharacterAngleUrlsForPreview)[0];
-        if (!characterUrl) continue;
         try {
           const dataUrl = await renderScenePreviewComposite(
-            characterUrl,
+            scene.cameraView,
             scene.shotSize,
             scene.cameraAngle,
             storyLocationReference,
@@ -785,7 +787,7 @@ export default function MiniAppDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [storyScenePreviews, storyCharacterAngleUrlsForPreview, storyLocationReference, storyLocationMaskAssignments, storyLocationMaskRect]);
+  }, [storyScenePreviews, storyLocationReference, storyLocationMaskAssignments, storyLocationMaskRect]);
   useEffect(() => {
     if (storyResult) {
       storyResultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
