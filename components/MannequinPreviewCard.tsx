@@ -124,24 +124,25 @@ export function MannequinPreviewCard({
   const barColor = SCENE_PREVIEW_ANGLE_BAR_COLOR[cameraAngle ?? ""] ?? "#64748b";
 
   return (
+    // Vùng bấm-kéo phủ NGUYÊN CẢ khung ảnh (không chỉ đúng ô nhỏ vẽ mannequin) — mannequin ở cỡ cảnh
+    // "Toàn cảnh rộng" có thể chỉ chiếm vài % diện tích khung, bấm trúng rất khó nếu chỉ cho kéo đúng ô
+    // đó. Khách bấm-kéo bất kỳ đâu trong khung đều xoay được, mannequin vẫn chỉ VẼ ở đúng vị trí/tỉ lệ
+    // (boxStyle) như cũ.
     <div
-      className="relative aspect-video w-full overflow-hidden bg-zinc-900"
+      className="relative aspect-video w-full touch-none overflow-hidden bg-zinc-900"
       style={{
         backgroundImage: locationUrl ? `url(${locationUrl})` : undefined,
         backgroundSize: "cover",
         backgroundPosition: "center",
+        cursor: editable ? "grab" : "default",
       }}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerLeave={handlePointerUp}
     >
       <div className="absolute inset-0 bg-black/15" />
-      <div
-        ref={mountRef}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerUp}
-        className="absolute touch-none"
-        style={{ ...boxStyle, cursor: editable ? "grab" : "default" }}
-      />
+      <div ref={mountRef} className="pointer-events-none absolute" style={boxStyle} />
       <div className="absolute left-0 top-0 h-1.5 w-full" style={{ backgroundColor: barColor }} />
       {editable && rotatedAway && onCameraViewChange && (
         <button
