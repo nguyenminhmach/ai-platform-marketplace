@@ -200,6 +200,9 @@ export default function MiniAppDetailPage() {
     camera_angle?: string;
     camera_movement?: string;
     light_direction?: string;
+    camera_body?: string;
+    lens?: string;
+    aperture?: string;
     outfit_override?: string;
     face_view?: string;
     dialogue?: string | { speaker: number; line: string } | null;
@@ -391,6 +394,9 @@ export default function MiniAppDetailPage() {
         cameraAngle: string | null;
         cameraMovement: string | null;
         lightDirection: string | null;
+        cameraBody: string | null;
+        lens: string | null;
+        aperture: string | null;
         location: string | null;
       }[]
     | null
@@ -685,6 +691,28 @@ export default function MiniAppDetailPage() {
     low_lighting: "Sáng hắt từ dưới",
   };
   const LIGHT_DIRECTION_OPTIONS = ["front_lighting", "back_lighting", "silhouette", "side_lighting", "top_lighting", "low_lighting"];
+  // 3 trục thiết bị quay độc lập (xem CAMERA_BODY_LABELS/LENS_LABELS/APERTURE_LABELS trong
+  // lib/story-video.ts) — tham khảo bảng "Camera > Setup" thật của Higgsfield Cinema Studio.
+  const SCENE_PREVIEW_CAMERA_BODY_LABEL: Record<string, string> = {
+    modern: "Hiện đại",
+    dv_camcorder: "DV cổ điển",
+    film_35mm: "Phim 35mm",
+    film_8mm: "Phim 8mm (hoài cổ)",
+  };
+  const CAMERA_BODY_OPTIONS = ["modern", "dv_camcorder", "film_35mm", "film_8mm"];
+  const SCENE_PREVIEW_LENS_LABEL: Record<string, string> = {
+    clean_sharp: "Sắc nét hiện đại",
+    vintage_anamorphic: "Anamorphic cổ điển",
+    warm_vintage: "Ấm áp cổ điển",
+    halation_vintage: "Cổ điển (quầng sáng)",
+  };
+  const LENS_OPTIONS = ["clean_sharp", "vintage_anamorphic", "warm_vintage", "halation_vintage"];
+  const SCENE_PREVIEW_APERTURE_LABEL: Record<string, string> = {
+    moderate: "Vừa phải (f/4)",
+    wide_open: "Xoá phông mạnh (f/1.4)",
+    deep_focus: "Nét sâu toàn khung (f/11)",
+  };
+  const APERTURE_OPTIONS = ["moderate", "wide_open", "deep_focus"];
   // Màu thanh trên cùng theo camera_angle — trùng bảng SCENE_PREVIEW_ANGLE_BAR_COLOR trong
   // components/MannequinPreviewCard.tsx (component đó tự vẽ thanh màu, không đọc bảng này nữa).
 
@@ -794,6 +822,43 @@ export default function MiniAppDetailPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sceneId, lightDirection }),
+      });
+    } catch {
+      // Xem chú thích ở handleScenePreviewCameraViewChange — cùng lý do, không chặn thao tác.
+    }
+  }
+
+  // Mirror đúng handleScriptLightDirectionChange nhưng cho 3 trục thiết bị (field nào gọi thì truyền
+  // đúng field đó, 2 field còn lại giữ nguyên — xem cách gọi trong JSX, mỗi dãy nút chỉ đổi đúng 1 field).
+  function handleScriptCameraGearChange(sceneIndex: number, field: "camera_body" | "lens" | "aperture", value: string) {
+    setStoryScriptScenes((prev) => {
+      if (!prev) return prev;
+      const next = [...prev];
+      next[sceneIndex] = { ...next[sceneIndex], [field]: value };
+      return next;
+    });
+    setStoryScriptActions((prev) => {
+      if (!prev || !storyScriptScenes) return prev;
+      const scene = storyScriptScenes[sceneIndex] as unknown as { merged_from?: StoryScriptAction[] };
+      const sourceAction = scene.merged_from && scene.merged_from.length === 1 ? scene.merged_from[0] : null;
+      if (!sourceAction) return prev;
+      const actionIndex = prev.indexOf(sourceAction);
+      if (actionIndex === -1) return prev;
+      const next = [...prev];
+      next[actionIndex] = { ...next[actionIndex], [field]: value };
+      return next;
+    });
+  }
+
+  // Mirror đúng handleScenePreviewLightDirectionChange nhưng cho 3 trục thiết bị — gọi chung 1 API
+  // (update-scene-camera-gear) nhận field nào đổi thì gửi đúng field đó (xem updateSceneCameraGear).
+  async function handleScenePreviewCameraGearChange(sceneId: number, field: "cameraBody" | "lens" | "aperture", value: string) {
+    setStoryScenePreviews((prev) => (prev ? prev.map((s) => (s.id === sceneId ? { ...s, [field]: value } : s)) : prev));
+    try {
+      await fetch("/api/story-video/update-scene-camera-gear", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sceneId, [field]: value }),
       });
     } catch {
       // Xem chú thích ở handleScenePreviewCameraViewChange — cùng lý do, không chặn thao tác.
@@ -4108,6 +4173,54 @@ export default function MiniAppDetailPage() {
                                     </button>
                                   ))}
                                 </div>
+                                <div className="flex flex-wrap gap-1 border-t border-zinc-100 p-1.5 dark:border-zinc-800">
+                                  {CAMERA_BODY_OPTIONS.map((opt) => (
+                                    <button
+                                      key={opt}
+                                      type="button"
+                                      onClick={() => handleScriptCameraGearChange(i, "camera_body", opt)}
+                                      className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+                                        (s.camera_body ?? "modern") === opt
+                                          ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                                          : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                                      }`}
+                                    >
+                                      {SCENE_PREVIEW_CAMERA_BODY_LABEL[opt]}
+                                    </button>
+                                  ))}
+                                </div>
+                                <div className="flex flex-wrap gap-1 border-t border-zinc-100 p-1.5 dark:border-zinc-800">
+                                  {LENS_OPTIONS.map((opt) => (
+                                    <button
+                                      key={opt}
+                                      type="button"
+                                      onClick={() => handleScriptCameraGearChange(i, "lens", opt)}
+                                      className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+                                        (s.lens ?? "clean_sharp") === opt
+                                          ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                                          : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                                      }`}
+                                    >
+                                      {SCENE_PREVIEW_LENS_LABEL[opt]}
+                                    </button>
+                                  ))}
+                                </div>
+                                <div className="flex flex-wrap gap-1 border-t border-zinc-100 p-1.5 dark:border-zinc-800">
+                                  {APERTURE_OPTIONS.map((opt) => (
+                                    <button
+                                      key={opt}
+                                      type="button"
+                                      onClick={() => handleScriptCameraGearChange(i, "aperture", opt)}
+                                      className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+                                        (s.aperture ?? "moderate") === opt
+                                          ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                                          : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                                      }`}
+                                    >
+                                      {SCENE_PREVIEW_APERTURE_LABEL[opt]}
+                                    </button>
+                                  ))}
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -5690,6 +5803,54 @@ export default function MiniAppDetailPage() {
                                 }`}
                               >
                                 {SCENE_PREVIEW_LIGHT_DIRECTION_LABEL[opt]}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-1.5 border-t border-zinc-100 pt-2 dark:border-zinc-800">
+                            {CAMERA_BODY_OPTIONS.map((opt) => (
+                              <button
+                                key={opt}
+                                type="button"
+                                onClick={() => handleScenePreviewCameraGearChange(scene.id, "cameraBody", opt)}
+                                className={`rounded-full px-2 py-0.5 text-xs ${
+                                  (scene.cameraBody ?? "modern") === opt
+                                    ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                                    : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                                }`}
+                              >
+                                {SCENE_PREVIEW_CAMERA_BODY_LABEL[opt]}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-1.5 border-t border-zinc-100 pt-2 dark:border-zinc-800">
+                            {LENS_OPTIONS.map((opt) => (
+                              <button
+                                key={opt}
+                                type="button"
+                                onClick={() => handleScenePreviewCameraGearChange(scene.id, "lens", opt)}
+                                className={`rounded-full px-2 py-0.5 text-xs ${
+                                  (scene.lens ?? "clean_sharp") === opt
+                                    ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                                    : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                                }`}
+                              >
+                                {SCENE_PREVIEW_LENS_LABEL[opt]}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-1.5 border-t border-zinc-100 pt-2 dark:border-zinc-800">
+                            {APERTURE_OPTIONS.map((opt) => (
+                              <button
+                                key={opt}
+                                type="button"
+                                onClick={() => handleScenePreviewCameraGearChange(scene.id, "aperture", opt)}
+                                className={`rounded-full px-2 py-0.5 text-xs ${
+                                  (scene.aperture ?? "moderate") === opt
+                                    ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                                    : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                                }`}
+                              >
+                                {SCENE_PREVIEW_APERTURE_LABEL[opt]}
                               </button>
                             ))}
                           </div>

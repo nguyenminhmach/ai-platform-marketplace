@@ -61,6 +61,9 @@ export async function GET(req: Request) {
         cameraAngle: string | null;
         cameraMovement: string | null;
         lightDirection: string | null;
+        cameraBody: string | null;
+        lens: string | null;
+        aperture: string | null;
         location: string | null;
       }[]
     | undefined;
@@ -91,7 +94,9 @@ export async function GET(req: Request) {
   if (data.status === "scenes_ready") {
     const { data: sceneRows } = await supabase
       .from("story_video_scenes")
-      .select("id, position, scene_description, camera_view, shot_size, camera_angle, camera_movement, light_direction, location")
+      .select(
+        "id, position, scene_description, camera_view, shot_size, camera_angle, camera_movement, light_direction, camera_body, lens, aperture, location"
+      )
       .eq("job_id", jobId)
       .order("position", { ascending: true });
     if (sceneRows) {
@@ -104,6 +109,9 @@ export async function GET(req: Request) {
         cameraAngle: s.camera_angle,
         cameraMovement: s.camera_movement,
         lightDirection: s.light_direction,
+        cameraBody: s.camera_body,
+        lens: s.lens,
+        aperture: s.aperture,
         location: s.location,
       }));
     }
