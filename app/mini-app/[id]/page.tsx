@@ -199,6 +199,7 @@ export default function MiniAppDetailPage() {
     shot_size?: string;
     camera_angle?: string;
     camera_movement?: string;
+    light_direction?: string;
     outfit_override?: string;
     face_view?: string;
     dialogue?: string | { speaker: number; line: string } | null;
@@ -389,6 +390,7 @@ export default function MiniAppDetailPage() {
         shotSize: string | null;
         cameraAngle: string | null;
         cameraMovement: string | null;
+        lightDirection: string | null;
         location: string | null;
       }[]
     | null
@@ -672,6 +674,17 @@ export default function MiniAppDetailPage() {
     dolly_out: "Lùi ra",
     tracking: "Bám theo",
   };
+  // Đặt tên theo đúng thuật ngữ điện ảnh (tham khảo bảng Lighting thật của Higgsfield Cinema Studio) —
+  // xem LIGHT_DIRECTION_LABELS trong lib/story-video.ts (6 giá trị y hệt).
+  const SCENE_PREVIEW_LIGHT_DIRECTION_LABEL: Record<string, string> = {
+    front_lighting: "Ánh sáng thẳng",
+    back_lighting: "Ngược sáng (Contre jour)",
+    silhouette: "Bóng đen (Silhouette)",
+    side_lighting: "Sáng chéo (Rembrandt)",
+    top_lighting: "Sáng từ trên",
+    low_lighting: "Sáng hắt từ dưới",
+  };
+  const LIGHT_DIRECTION_OPTIONS = ["front_lighting", "back_lighting", "silhouette", "side_lighting", "top_lighting", "low_lighting"];
   // Màu thanh trên cùng theo camera_angle — trùng bảng SCENE_PREVIEW_ANGLE_BAR_COLOR trong
   // components/MannequinPreviewCard.tsx (component đó tự vẽ thanh màu, không đọc bảng này nữa).
 
@@ -748,6 +761,42 @@ export default function MiniAppDetailPage() {
       // Lưu thất bại thì UI vẫn hiện đúng lựa chọn khách vừa xoay (optimistic) — không chặn thao tác,
       // rủi ro thấp nhất (nếu server không lưu được, ảnh tạo ra vẫn theo góc Agent chọn ban đầu, không
       // sai lệch nghiêm trọng).
+    }
+  }
+
+  // Mirror đúng handleScriptCameraViewChange nhưng cho light_direction — khách bấm 1 trong 6 nút preset
+  // hướng sáng (không kéo-xoay, chỉ dãy nút bấm — xem LIGHT_DIRECTION_OPTIONS).
+  function handleScriptLightDirectionChange(sceneIndex: number, lightDirection: string) {
+    setStoryScriptScenes((prev) => {
+      if (!prev) return prev;
+      const next = [...prev];
+      next[sceneIndex] = { ...next[sceneIndex], light_direction: lightDirection };
+      return next;
+    });
+    setStoryScriptActions((prev) => {
+      if (!prev || !storyScriptScenes) return prev;
+      const scene = storyScriptScenes[sceneIndex] as unknown as { merged_from?: StoryScriptAction[] };
+      const sourceAction = scene.merged_from && scene.merged_from.length === 1 ? scene.merged_from[0] : null;
+      if (!sourceAction) return prev;
+      const actionIndex = prev.indexOf(sourceAction);
+      if (actionIndex === -1) return prev;
+      const next = [...prev];
+      next[actionIndex] = { ...next[actionIndex], light_direction: lightDirection };
+      return next;
+    });
+  }
+
+  // Mirror đúng handleScenePreviewCameraViewChange nhưng cho light_direction.
+  async function handleScenePreviewLightDirectionChange(sceneId: number, lightDirection: string) {
+    setStoryScenePreviews((prev) => (prev ? prev.map((s) => (s.id === sceneId ? { ...s, lightDirection } : s)) : prev));
+    try {
+      await fetch("/api/story-video/update-scene-light-direction", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sceneId, lightDirection }),
+      });
+    } catch {
+      // Xem chú thích ở handleScenePreviewCameraViewChange — cùng lý do, không chặn thao tác.
     }
   }
 
@@ -4043,6 +4092,22 @@ export default function MiniAppDetailPage() {
                                     </span>
                                   )}
                                 </div>
+                                <div className="flex flex-wrap gap-1 border-t border-zinc-100 p-1.5 dark:border-zinc-800">
+                                  {LIGHT_DIRECTION_OPTIONS.map((opt) => (
+                                    <button
+                                      key={opt}
+                                      type="button"
+                                      onClick={() => handleScriptLightDirectionChange(i, opt)}
+                                      className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+                                        (s.light_direction ?? "front_lighting") === opt
+                                          ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                                          : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                                      }`}
+                                    >
+                                      {SCENE_PREVIEW_LIGHT_DIRECTION_LABEL[opt]}
+                                    </button>
+                                  ))}
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -5611,6 +5676,22 @@ export default function MiniAppDetailPage() {
                                 {SCENE_PREVIEW_CAMERA_MOVEMENT_LABEL[scene.cameraMovement] ?? scene.cameraMovement}
                               </span>
                             )}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-1.5 border-t border-zinc-100 pt-2 dark:border-zinc-800">
+                            {LIGHT_DIRECTION_OPTIONS.map((opt) => (
+                              <button
+                                key={opt}
+                                type="button"
+                                onClick={() => handleScenePreviewLightDirectionChange(scene.id, opt)}
+                                className={`rounded-full px-2 py-0.5 text-xs ${
+                                  (scene.lightDirection ?? "front_lighting") === opt
+                                    ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                                    : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                                }`}
+                              >
+                                {SCENE_PREVIEW_LIGHT_DIRECTION_LABEL[opt]}
+                              </button>
+                            ))}
                           </div>
                         </div>
                       </div>
