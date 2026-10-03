@@ -4157,70 +4157,84 @@ export default function MiniAppDetailPage() {
                                     </span>
                                   )}
                                 </div>
-                                <div className="flex flex-wrap gap-1 border-t border-zinc-100 p-1.5 dark:border-zinc-800">
-                                  {LIGHT_DIRECTION_OPTIONS.map((opt) => (
-                                    <button
-                                      key={opt}
-                                      type="button"
-                                      onClick={() => handleScriptLightDirectionChange(i, opt)}
-                                      className={`rounded-full px-1.5 py-0.5 text-[10px] ${
-                                        (s.light_direction ?? "front_lighting") === opt
-                                          ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
-                                          : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
-                                      }`}
-                                    >
-                                      {SCENE_PREVIEW_LIGHT_DIRECTION_LABEL[opt]}
-                                    </button>
-                                  ))}
-                                </div>
-                                <div className="flex flex-wrap gap-1 border-t border-zinc-100 p-1.5 dark:border-zinc-800">
-                                  {CAMERA_BODY_OPTIONS.map((opt) => (
-                                    <button
-                                      key={opt}
-                                      type="button"
-                                      onClick={() => handleScriptCameraGearChange(i, "camera_body", opt)}
-                                      className={`rounded-full px-1.5 py-0.5 text-[10px] ${
-                                        (s.camera_body ?? "modern") === opt
-                                          ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
-                                          : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
-                                      }`}
-                                    >
-                                      {SCENE_PREVIEW_CAMERA_BODY_LABEL[opt]}
-                                    </button>
-                                  ))}
-                                </div>
-                                <div className="flex flex-wrap gap-1 border-t border-zinc-100 p-1.5 dark:border-zinc-800">
-                                  {LENS_OPTIONS.map((opt) => (
-                                    <button
-                                      key={opt}
-                                      type="button"
-                                      onClick={() => handleScriptCameraGearChange(i, "lens", opt)}
-                                      className={`rounded-full px-1.5 py-0.5 text-[10px] ${
-                                        (s.lens ?? "clean_sharp") === opt
-                                          ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
-                                          : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
-                                      }`}
-                                    >
-                                      {SCENE_PREVIEW_LENS_LABEL[opt]}
-                                    </button>
-                                  ))}
-                                </div>
-                                <div className="flex flex-wrap gap-1 border-t border-zinc-100 p-1.5 dark:border-zinc-800">
-                                  {APERTURE_OPTIONS.map((opt) => (
-                                    <button
-                                      key={opt}
-                                      type="button"
-                                      onClick={() => handleScriptCameraGearChange(i, "aperture", opt)}
-                                      className={`rounded-full px-1.5 py-0.5 text-[10px] ${
-                                        (s.aperture ?? "moderate") === opt
-                                          ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
-                                          : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
-                                      }`}
-                                    >
-                                      {SCENE_PREVIEW_APERTURE_LABEL[opt]}
-                                    </button>
-                                  ))}
-                                </div>
+                                <details className="border-t border-zinc-100 p-1.5 dark:border-zinc-800">
+                                  <summary className="inline-block cursor-pointer select-none rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                                    💡 {SCENE_PREVIEW_LIGHT_DIRECTION_LABEL[(s.light_direction as (typeof LIGHT_DIRECTION_OPTIONS)[number]) ?? "front_lighting"]}
+                                  </summary>
+                                  <div className="mt-1 flex flex-wrap gap-1">
+                                    {LIGHT_DIRECTION_OPTIONS.map((opt) => (
+                                      <button
+                                        key={opt}
+                                        type="button"
+                                        onClick={() => handleScriptLightDirectionChange(i, opt)}
+                                        className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+                                          (s.light_direction ?? "front_lighting") === opt
+                                            ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                                            : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                                        }`}
+                                      >
+                                        {SCENE_PREVIEW_LIGHT_DIRECTION_LABEL[opt]}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </details>
+                                <details className="border-t border-zinc-100 p-1.5 dark:border-zinc-800">
+                                  <summary className="inline-block cursor-pointer select-none rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                                    🎥 {SCENE_PREVIEW_CAMERA_BODY_LABEL[(s.camera_body as (typeof CAMERA_BODY_OPTIONS)[number]) ?? "modern"]} ·{" "}
+                                    {SCENE_PREVIEW_LENS_LABEL[(s.lens as (typeof LENS_OPTIONS)[number]) ?? "clean_sharp"]} ·{" "}
+                                    {SCENE_PREVIEW_APERTURE_LABEL[(s.aperture as (typeof APERTURE_OPTIONS)[number]) ?? "moderate"]}
+                                  </summary>
+                                  <div className="mt-1 space-y-1">
+                                    <div className="flex flex-wrap gap-1">
+                                      {CAMERA_BODY_OPTIONS.map((opt) => (
+                                        <button
+                                          key={opt}
+                                          type="button"
+                                          onClick={() => handleScriptCameraGearChange(i, "camera_body", opt)}
+                                          className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+                                            (s.camera_body ?? "modern") === opt
+                                              ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                                              : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                                          }`}
+                                        >
+                                          {SCENE_PREVIEW_CAMERA_BODY_LABEL[opt]}
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <div className="flex flex-wrap gap-1">
+                                      {LENS_OPTIONS.map((opt) => (
+                                        <button
+                                          key={opt}
+                                          type="button"
+                                          onClick={() => handleScriptCameraGearChange(i, "lens", opt)}
+                                          className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+                                            (s.lens ?? "clean_sharp") === opt
+                                              ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                                              : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                                          }`}
+                                        >
+                                          {SCENE_PREVIEW_LENS_LABEL[opt]}
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <div className="flex flex-wrap gap-1">
+                                      {APERTURE_OPTIONS.map((opt) => (
+                                        <button
+                                          key={opt}
+                                          type="button"
+                                          onClick={() => handleScriptCameraGearChange(i, "aperture", opt)}
+                                          className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+                                            (s.aperture ?? "moderate") === opt
+                                              ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                                              : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                                          }`}
+                                        >
+                                          {SCENE_PREVIEW_APERTURE_LABEL[opt]}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </details>
                               </div>
                             ))}
                           </div>
@@ -5790,70 +5804,84 @@ export default function MiniAppDetailPage() {
                               </span>
                             )}
                           </div>
-                          <div className="mt-2 flex flex-wrap gap-1.5 border-t border-zinc-100 pt-2 dark:border-zinc-800">
-                            {LIGHT_DIRECTION_OPTIONS.map((opt) => (
-                              <button
-                                key={opt}
-                                type="button"
-                                onClick={() => handleScenePreviewLightDirectionChange(scene.id, opt)}
-                                className={`rounded-full px-2 py-0.5 text-xs ${
-                                  (scene.lightDirection ?? "front_lighting") === opt
-                                    ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
-                                    : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
-                                }`}
-                              >
-                                {SCENE_PREVIEW_LIGHT_DIRECTION_LABEL[opt]}
-                              </button>
-                            ))}
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-1.5 border-t border-zinc-100 pt-2 dark:border-zinc-800">
-                            {CAMERA_BODY_OPTIONS.map((opt) => (
-                              <button
-                                key={opt}
-                                type="button"
-                                onClick={() => handleScenePreviewCameraGearChange(scene.id, "cameraBody", opt)}
-                                className={`rounded-full px-2 py-0.5 text-xs ${
-                                  (scene.cameraBody ?? "modern") === opt
-                                    ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
-                                    : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
-                                }`}
-                              >
-                                {SCENE_PREVIEW_CAMERA_BODY_LABEL[opt]}
-                              </button>
-                            ))}
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-1.5 border-t border-zinc-100 pt-2 dark:border-zinc-800">
-                            {LENS_OPTIONS.map((opt) => (
-                              <button
-                                key={opt}
-                                type="button"
-                                onClick={() => handleScenePreviewCameraGearChange(scene.id, "lens", opt)}
-                                className={`rounded-full px-2 py-0.5 text-xs ${
-                                  (scene.lens ?? "clean_sharp") === opt
-                                    ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
-                                    : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
-                                }`}
-                              >
-                                {SCENE_PREVIEW_LENS_LABEL[opt]}
-                              </button>
-                            ))}
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-1.5 border-t border-zinc-100 pt-2 dark:border-zinc-800">
-                            {APERTURE_OPTIONS.map((opt) => (
-                              <button
-                                key={opt}
-                                type="button"
-                                onClick={() => handleScenePreviewCameraGearChange(scene.id, "aperture", opt)}
-                                className={`rounded-full px-2 py-0.5 text-xs ${
-                                  (scene.aperture ?? "moderate") === opt
-                                    ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
-                                    : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
-                                }`}
-                              >
-                                {SCENE_PREVIEW_APERTURE_LABEL[opt]}
-                              </button>
-                            ))}
-                          </div>
+                          <details className="mt-2 border-t border-zinc-100 pt-2 dark:border-zinc-800">
+                            <summary className="inline-block cursor-pointer select-none rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                              💡 {SCENE_PREVIEW_LIGHT_DIRECTION_LABEL[(scene.lightDirection as (typeof LIGHT_DIRECTION_OPTIONS)[number]) ?? "front_lighting"]}
+                            </summary>
+                            <div className="mt-1.5 flex flex-wrap gap-1.5">
+                              {LIGHT_DIRECTION_OPTIONS.map((opt) => (
+                                <button
+                                  key={opt}
+                                  type="button"
+                                  onClick={() => handleScenePreviewLightDirectionChange(scene.id, opt)}
+                                  className={`rounded-full px-2 py-0.5 text-xs ${
+                                    (scene.lightDirection ?? "front_lighting") === opt
+                                      ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                                      : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                                  }`}
+                                >
+                                  {SCENE_PREVIEW_LIGHT_DIRECTION_LABEL[opt]}
+                                </button>
+                              ))}
+                            </div>
+                          </details>
+                          <details className="mt-2 border-t border-zinc-100 pt-2 dark:border-zinc-800">
+                            <summary className="inline-block cursor-pointer select-none rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                              🎥 {SCENE_PREVIEW_CAMERA_BODY_LABEL[(scene.cameraBody as (typeof CAMERA_BODY_OPTIONS)[number]) ?? "modern"]} ·{" "}
+                              {SCENE_PREVIEW_LENS_LABEL[(scene.lens as (typeof LENS_OPTIONS)[number]) ?? "clean_sharp"]} ·{" "}
+                              {SCENE_PREVIEW_APERTURE_LABEL[(scene.aperture as (typeof APERTURE_OPTIONS)[number]) ?? "moderate"]}
+                            </summary>
+                            <div className="mt-1.5 space-y-1.5">
+                              <div className="flex flex-wrap gap-1.5">
+                                {CAMERA_BODY_OPTIONS.map((opt) => (
+                                  <button
+                                    key={opt}
+                                    type="button"
+                                    onClick={() => handleScenePreviewCameraGearChange(scene.id, "cameraBody", opt)}
+                                    className={`rounded-full px-2 py-0.5 text-xs ${
+                                      (scene.cameraBody ?? "modern") === opt
+                                        ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                                        : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                                    }`}
+                                  >
+                                    {SCENE_PREVIEW_CAMERA_BODY_LABEL[opt]}
+                                  </button>
+                                ))}
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {LENS_OPTIONS.map((opt) => (
+                                  <button
+                                    key={opt}
+                                    type="button"
+                                    onClick={() => handleScenePreviewCameraGearChange(scene.id, "lens", opt)}
+                                    className={`rounded-full px-2 py-0.5 text-xs ${
+                                      (scene.lens ?? "clean_sharp") === opt
+                                        ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                                        : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                                    }`}
+                                  >
+                                    {SCENE_PREVIEW_LENS_LABEL[opt]}
+                                  </button>
+                                ))}
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {APERTURE_OPTIONS.map((opt) => (
+                                  <button
+                                    key={opt}
+                                    type="button"
+                                    onClick={() => handleScenePreviewCameraGearChange(scene.id, "aperture", opt)}
+                                    className={`rounded-full px-2 py-0.5 text-xs ${
+                                      (scene.aperture ?? "moderate") === opt
+                                        ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                                        : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                                    }`}
+                                  >
+                                    {SCENE_PREVIEW_APERTURE_LABEL[opt]}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </details>
                         </div>
                       </div>
                     ))}
