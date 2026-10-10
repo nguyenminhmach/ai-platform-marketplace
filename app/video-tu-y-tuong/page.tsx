@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { MINI_APPS } from "@/lib/mock-mini-apps";
 import { BalanceBadge } from "@/components/BalanceBadge";
@@ -8,6 +9,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAuth } from "@/lib/auth-context";
 import { MannequinPreviewCard } from "@/components/MannequinPreviewCard";
 import { ReferencePickerModal } from "@/components/reference-elements/ReferencePickerModal";
+import type { ReferenceElement } from "@/components/reference-elements/NewElementModal";
 
 // Trang riêng cho "Video từ ý tưởng" (story-video) — tách ra khỏi app/mini-app/[id]/page.tsx (file
 // dùng chung cho mọi mini-app, đã quá lớn) để dễ chỉnh sửa/đọc hơn. Hành vi giữ NGUYÊN y hệt bản gốc
@@ -18,6 +20,7 @@ const MINI_APP_ID = "video-tu-y-tuong";
 export default function VideoTuYTuongPage() {
   const app = MINI_APPS.find((item) => item.id === MINI_APP_ID);
   const { user } = useAuth();
+  const router = useRouter();
 
   const [input, setInput] = useState("");
   // "Lịch sử" riêng của đúng app đang xem — lọc theo miniAppId, không lẫn kết quả app khác (khác với
@@ -2251,12 +2254,173 @@ export default function VideoTuYTuongPage() {
     });
   }
 
-  function handlePromptCreate() {
-    // Nối pipeline tạo video thật (quyết định @mention trong prompt map sang ảnh tham chiếu nào gửi
-    // cho scene nào) là việc của đợt sau — KHÔNG wire thẳng vào các handleRunStoryVideo* cũ ở đây để
-    // tránh chạy nhầm luồng dữ liệu cũ (xem phần "WHAT NOT TO DO" trong yêu cầu đợt này).
-    setCreateToast("Chưa kết nối — phần tạo video từ ô prompt mới sẽ nối ở đợt sau.");
-    setTimeout(() => setCreateToast(null), 3500);
+  // Quét "@element_id" trong prompt (mirror extractMentionedElementIds ở lib/reference-elements.ts —
+  // không import thẳng module đó vì nó kéo theo getSupabaseAdmin/service-role key vào bundle client,
+  // dù hàm này không gọi tới, không nên đưa code server-only vào "use client").
+  function extractMentionedElementIdsClient(text: string): string[] {
+    const matches = text.match(/@([a-z0-9_]+)/g) ?? [];
+    return Array.from(new Set(matches.map((m) => m.slice(1))));
+  }
+
+  // Nút "tạo" trong prompt bar mới (xem video1.jpg) — submit THẬT 1 job story-video, đơn giản hơn
+  // handleRunStoryVideo cũ (không qua các bước Character/kịch bản riêng, đi thẳng "autoVideo"): đọc
+  // @mention trong prompt -> tra kho tham chiếu (/api/reference-elements) -> gộp thành
+  // characterImageUrls/characters/locationReferenceUrl/itemReferenceUrls -> submit.
+  async function handlePromptCreate() {
+    if (!user) {
+      setCreateToast("Vui lòng đăng nhập trước khi tạo video");
+      setTimeout(() => setCreateToast(null), 3500);
+      router.push("/login");
+      return;
+    }
+    if (!app) return;
+    const rawText = input.trim();
+    if (!rawText) {
+      setCreateToast("Nhập prompt trước đã");
+      setTimeout(() => setCreateToast(null), 3500);
+      return;
+    }
+    if (!storyVideoModelKey) {
+      setCreateToast("Chưa chọn model video");
+      setTimeout(() => setCreateToast(null), 3500);
+      return;
+    }
+
+    setStoryRunning(true);
+    setStoryResult(null);
+    setStoryError(null);
+    setStoryJobId(null);
+    setStoryStatus(null);
+    setStoryStatusText("Đang chuẩn bị...");
+
+    try {
+      // 1) Tra các @mention trong prompt tới đúng element trong kho tham chiếu của khách.
+      const mentionedIds = extractMentionedElementIdsClient(rawText);
+      let elements: ReferenceElement[] = [];
+      if (mentionedIds.length > 0) {
+        const res = await fetch("/api/reference-elements");
+        const data = await res.json();
+        if (res.ok && Array.isArray(data.elements)) elements = data.elements;
+      }
+      const mentionedElements = elements.filter((el) => mentionedIds.includes(el.element_id));
+      const characterElements = mentionedElements.filter((el) => el.type === "character");
+      const locationElements = mentionedElements.filter((el) => el.type === "location");
+      const propElements = mentionedElements.filter((el) => el.type === "prop");
+
+      // 2) Thay "@id" bằng tên thật (vd "@lan đi dạo" -> "Lan đi dạo") để câu vẫn đọc tự nhiên cho
+      // Agent — @id không khớp element nào thì giữ nguyên nguyên văn (không chặn/crash).
+      const foundById = new Map(mentionedElements.map((el) => [el.element_id, el]));
+      const storyDescription = rawText.replace(/@([a-z0-9_]+)/g, (full, id) => {
+        const el = foundById.get(id);
+        return el ? el.name : full;
+      });
+
+      // 3) Upload ảnh "+"-tải thêm trong session này (còn đang là data URL, chưa có URL thật).
+      const uploadedPromptImages = await Promise.all(
+        promptImages.map((img) => (img.startsWith("http") ? Promise.resolve(img) : uploadOutfitSwapImage(img)))
+      );
+
+      // 4) Gộp ảnh nhân vật — luồng 1 nhân vật (0 hoặc 1 @mention character) hay nhiều nhân vật (2+).
+      const MAX_CHARACTER_IMAGES_CLIENT = 20; // đúng MAX_CHARACTER_IMAGES ở lib/story-video.ts
+      let characterImageUrls: string[] = [];
+      let characters:
+        | { imageUrls: string[]; label?: string; itemReferenceUrls?: string[] }[]
+        | undefined;
+
+      if (characterElements.length >= 2) {
+        // 2+ nhân vật -> luồng nhiều nhân vật, mỗi người 1 entry riêng. Ảnh "+" tải rời gộp hết vào
+        // nhân vật ĐẦU TIÊN được mention (không rõ thuộc về ai nếu chia đều, gán vậy dễ hiểu hơn).
+        characters = characterElements.map((el, i) => ({
+          imageUrls: (i === 0 ? [...el.image_urls, ...uploadedPromptImages] : el.image_urls).slice(0, MAX_CHARACTER_IMAGES_CLIENT),
+          label: el.name,
+        }));
+      } else if (characterElements.length === 1) {
+        characterImageUrls = [...characterElements[0].image_urls, ...uploadedPromptImages].slice(0, MAX_CHARACTER_IMAGES_CLIENT);
+      } else {
+        // Không @mention nhân vật nào -> coi ảnh "+" tải rời là ảnh nhân vật (luồng cũ "tải ảnh trực
+        // tiếp"), có thể rỗng (job không cần nhân vật).
+        characterImageUrls = uploadedPromptImages;
+      }
+
+      if (characterElements.length < 2 && characterImageUrls.length === 0) {
+        setCreateToast("Cần ít nhất 1 ảnh nhân vật — tải ảnh hoặc @ mention 1 nhân vật đã lưu");
+        setTimeout(() => setCreateToast(null), 4000);
+        setStoryRunning(false);
+        setStoryStatusText(null);
+        return;
+      }
+
+      // 5) Địa điểm — chỉ hỗ trợ 1 địa điểm/job (backend chỉ nhận locationReferenceUrl đơn); @mention
+      // nhiều hơn 1 địa điểm thì chỉ lấy cái đầu tiên, bỏ qua các cái sau.
+      const locationReferenceUrl = locationElements[0]?.image_urls[0] || undefined;
+
+      // 6) Vật phẩm — tối đa 3 (MAX_ITEM_REFERENCES).
+      const itemReferenceUrls = propElements
+        .map((el) => el.image_urls[0])
+        .filter((u): u is string => !!u)
+        .slice(0, 3);
+
+      // 7) Model ảnh — không có dropdown riêng ở prompt bar mới, mặc định model đầu tiên trong catalog,
+      // ưu tiên model hỗ trợ multi_image nếu job có >1 ảnh tham chiếu gộp lại (nhân vật/địa điểm/vật
+      // phẩm) — mirror đúng điều kiện ở effect multi_image phía trên (storyExtraCharacters.length===0...).
+      const combinedReferenceCount =
+        (characters ? characters.length : characterImageUrls.length > 0 ? 1 : 0) +
+        (locationReferenceUrl ? 1 : 0) +
+        itemReferenceUrls.length;
+      let imageModelKey = storyImageModelKey ?? storyImageModels[0]?.key ?? undefined;
+      if ((characters || combinedReferenceCount > 1) && imageModelKey) {
+        const current = storyImageModels.find((m) => m.key === imageModelKey);
+        if (!current?.multi_image) {
+          const fallback = storyImageModels.find((m) => m.multi_image);
+          if (fallback) imageModelKey = fallback.key;
+        }
+      }
+
+      // 8) Số cảnh — để Agent tự gợi ý theo nội dung truyện đã bỏ @mention, mặc định 3 nếu gợi ý lỗi.
+      setStoryStatusText("Đang tính số phân cảnh...");
+      const suggested = await fetchSuggestedSceneCount();
+      const resolvedNumScenes = suggested ?? 3;
+
+      // 9) Submit job thật — autoVideo=true (prompt bar mới là luồng "gõ rồi bấm tạo" 1 lượt, đi thẳng
+      // tới video, không dừng ở bước xem ảnh phân cảnh như wizard cũ).
+      setStoryStatusText("Đang gửi yêu cầu tạo video...");
+      const res = await fetch("/api/story-video/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: user.id,
+          miniAppId: app.id,
+          storyDescription,
+          numScenes: resolvedNumScenes,
+          characterImageUrls,
+          characters,
+          imageModelKey,
+          videoModelKey: storyVideoModelKey,
+          autoVideo: true,
+          aspectRatio: storyAspectRatio,
+          resolutionKey: storyResolutionKey,
+          durationKey: storyDurationKey,
+          locationReferenceUrl,
+          itemReferenceUrls: itemReferenceUrls.length > 0 ? itemReferenceUrls : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStoryError(data.error ?? "Có lỗi xảy ra");
+        setStoryRunning(false);
+        setStoryStatusText(null);
+        return;
+      }
+
+      window.dispatchEvent(new Event("balance-updated"));
+      setStoryJobId(data.jobId);
+      setStoryStatusText("Đang xử lý ảnh Character...");
+      pollStoryVideoStatus(data.jobId);
+    } catch (err) {
+      setStoryError(err instanceof Error ? err.message : "Không kết nối được tới server");
+      setStoryRunning(false);
+      setStoryStatusText(null);
+    }
   }
 
   return (
@@ -2465,13 +2629,47 @@ export default function VideoTuYTuongPage() {
             <button
               type="button"
               onClick={handlePromptCreate}
-              className="shrink-0 self-stretch rounded-2xl bg-amber-400 px-6 text-sm font-semibold text-zinc-900 hover:bg-amber-300"
+              disabled={storyRunning}
+              className="shrink-0 self-stretch rounded-2xl bg-amber-400 px-6 text-sm font-semibold text-zinc-900 hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              tạo
+              {storyRunning ? "đang tạo..." : "tạo"}
             </button>
           </div>
 
           {createToast && <p className="mt-3 text-center text-xs text-amber-400">{createToast}</p>}
+
+          {/* Khu vực tiến trình/kết quả — hiện ngay dưới prompt bar sau khi bấm "tạo". */}
+          {(storyRunning || storyResult || storyError) && (
+            <div ref={storyResultRef} className="mt-8 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6">
+              {storyRunning && (
+                <div className="flex items-center justify-center gap-3 py-6 text-sm text-zinc-300">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-600 border-t-amber-400" />
+                  <span>{storyStatusText ?? "Đang xử lý..."}</span>
+                </div>
+              )}
+
+              {!storyRunning && storyError && (
+                <p className="text-center text-sm text-red-400">{storyError}</p>
+              )}
+
+              {!storyRunning && storyResult && (
+                <div className="flex flex-col items-center gap-3">
+                  <video
+                    src={storyResult}
+                    controls
+                    className="max-h-[480px] w-full max-w-sm rounded-xl bg-black"
+                  />
+                  <a
+                    href={storyResult}
+                    download
+                    className="rounded-full bg-zinc-800 px-4 py-2 text-xs font-medium text-zinc-200 hover:bg-zinc-700"
+                  >
+                    Tải video
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </main>
 
