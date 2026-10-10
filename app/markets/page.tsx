@@ -56,7 +56,7 @@ export default function MarketsPage() {
             {apps.map((app) => (
               <Link
                 key={app.id}
-                href={`/mini-app/${app.id}`}
+                href={app.id === "video-tu-y-tuong" ? "/video-tu-y-tuong" : `/mini-app/${app.id}`}
                 className="flex flex-col rounded-xl border border-zinc-200 bg-white p-5 transition-shadow hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900"
               >
                 <span className="mb-2 w-fit rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">

@@ -447,7 +447,7 @@ function MiniAppCard({ app, demoImages }: { app: MiniApp; demoImages?: string[] 
             {app.creditCost} credit
           </span>
           <Link
-            href={`/mini-app/${app.id}`}
+            href={app.id === "video-tu-y-tuong" ? "/video-tu-y-tuong" : `/mini-app/${app.id}`}
             className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
             Xem chi tiết

@@ -6625,7 +6625,7 @@ export default function MiniAppDetailPage() {
               {relatedApps.map((related) => (
                 <Link
                   key={related.id}
-                  href={`/mini-app/${related.id}`}
+                  href={related.id === "video-tu-y-tuong" ? "/video-tu-y-tuong" : `/mini-app/${related.id}`}
                   className="rounded-xl border border-zinc-200 bg-white p-4 text-sm transition-shadow hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900"
                 >
                   <p className="mb-1 font-medium text-zinc-900 dark:text-zinc-50">{related.name}</p>
