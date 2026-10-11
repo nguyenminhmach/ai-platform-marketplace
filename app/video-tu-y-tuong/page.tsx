@@ -2456,7 +2456,7 @@ export default function VideoTuYTuongPage() {
         </nav>
         <div className="mt-auto flex items-center justify-between pt-4">
           <ThemeToggle />
-          {user && <BalanceBadge />}
+          <BalanceBadge />
         </div>
       </aside>
 
