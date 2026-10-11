@@ -1195,10 +1195,14 @@ export default function VideoTuYTuongPage() {
   }
 
   async function uploadOutfitSwapImage(dataUrl: string): Promise<string> {
+    // Nút "+" ở prompt bar mới cho bấm tải ảnh TRƯỚC khi đăng nhập (chỉ nút "Tạo" cuối mới chặn đăng
+    // nhập) — trước đây dùng user!.id (ép bỏ qua kiểm tra null) nên khách chưa đăng nhập bấm "+" tải
+    // ảnh bị crash thẳng "Cannot read properties of null (reading 'id')" thay vì thấy lỗi dễ hiểu.
+    if (!user) throw new Error("Vui lòng đăng nhập trước khi tải ảnh lên");
     const res = await fetch("/api/outfit-swap/upload", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: user!.id, dataUrl }),
+      body: JSON.stringify({ userId: user.id, dataUrl }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? "Không tải được ảnh lên");
