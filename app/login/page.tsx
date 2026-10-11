@@ -29,7 +29,14 @@ export default function LoginPage() {
     setLoading(true);
 
     if (mode === "signup") {
-      const { error } = await supabaseBrowser.auth.signUp({ email, password });
+      // Không truyền emailRedirectTo thì Supabase dùng "Site URL" cấu hình trong Dashboard — project
+      // mới tạo mặc định để localhost, khiến link xác nhận email trỏ sai (ERR_CONNECTION_REFUSED) dù
+      // khách đăng ký từ domain thật. Truyền thẳng domain thật ở đây để không phụ thuộc cấu hình đó.
+      const { error } = await supabaseBrowser.auth.signUp({
+        email,
+        password,
+        options: { emailRedirectTo: `${window.location.origin}/login` },
+      });
       setLoading(false);
       if (error) return setError(error.message);
       setSignupDone(true);
