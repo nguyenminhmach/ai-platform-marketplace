@@ -68,6 +68,7 @@ export function NewElementModal({
   // Ảnh tham chiếu CHÍNH — mặc định ảnh đầu tiên tải lên (đúng hành vi cũ), nhưng khách bấm vào ảnh phụ
   // nào thì ảnh đó trở thành ảnh chính (xem 22.PNG: viền vàng quanh thumbnail đang chọn).
   const [primaryIndex, setPrimaryIndex] = useState(0);
+  const [zoomed, setZoomed] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -250,16 +251,29 @@ export function NewElementModal({
                       <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-[10px] text-white">Đang tải...</div>
                     )}
                     {!img.uploading && (
-                      <span
-                        role="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleRemoveImage(i);
-                        }}
-                        className="absolute right-1 top-1 hidden rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white group-hover:block"
-                      >
-                        Xoá
-                      </span>
+                      <>
+                        <span
+                          role="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemoveImage(i);
+                          }}
+                          className="absolute right-1 top-1 hidden rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white group-hover:block"
+                        >
+                          Xoá
+                        </span>
+                        <span
+                          role="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setZoomed(img.dataUrl);
+                          }}
+                          title="Xem cỡ lớn"
+                          className="absolute bottom-1 right-1 hidden rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white group-hover:block"
+                        >
+                          🔍
+                        </span>
+                      </>
                     )}
                   </button>
                 );
@@ -298,6 +312,19 @@ export function NewElementModal({
           </button>
         </div>
       </div>
+
+      {zoomed && (
+        <div
+          className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/90 p-6"
+          onClick={(e) => {
+            e.stopPropagation();
+            setZoomed(null);
+          }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={zoomed} alt="" className="max-h-full max-w-full rounded-lg object-contain" />
+        </div>
+      )}
     </div>
   );
 }
