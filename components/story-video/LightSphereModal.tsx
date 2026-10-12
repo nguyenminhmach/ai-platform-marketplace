@@ -198,12 +198,12 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     frontMark.position.set(0, 0, 0.151);
     subject.add(frontMark);
 
-    const lightDot = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 12), new THREE.MeshBasicMaterial({ color: value.color }));
+    const lightDot = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 12), new THREE.MeshBasicMaterial({ color: value.color }));
     scene.add(lightDot);
     lightDotRef.current = lightDot;
 
     const lightHalo = new THREE.Mesh(
-      new THREE.SphereGeometry(0.3, 16, 12),
+      new THREE.SphereGeometry(0.17, 16, 12),
       new THREE.MeshBasicMaterial({ color: 0xa3e635, transparent: true, opacity: 0.35 })
     );
     scene.add(lightHalo);
@@ -233,12 +233,13 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     scene.add(beamCone);
     beamConeRef.current = beamCone;
 
-    // FOV 32° + camera cách gốc 6.5 đơn vị: nửa chiều rộng khung hình ở độ sâu z=0 (mặt phẳng chứa
-    // "Phải"/"Bên trái", bán kính 2.5) chỉ ~2.65 — SÁT MÉP khung hình (bị cắt/gần như biến mất khi
-    // đèn ở đúng 2 vị trí đó). Nới FOV lên 50° + lùi camera xa hơn (8 đơn vị) để toàn bộ 6 vị trí
-    // "Chọn nhanh" (kể cả Phải/Bên trái/Mặt sau) đều nằm thoải mái trong khung, có biên dư an toàn.
+    // FOV 50° + camera cách gốc ~8 đơn vị (giữ nguyên khoảng cách để toàn bộ 6 vị trí "Chọn nhanh" vẫn
+    // nằm thoải mái trong khung, xem ghi chú cũ). QUAN TRỌNG: camera trước đây đặt đúng x=0 — TRÙNG mặt
+    // phẳng chứa vòng đứng cố định (YZ plane) — nên nhìn vòng đứng bị DẸT THÀNH 1 ĐƯỜNG THẲNG (nhìn
+    // ngay cạnh/edge-on), trông như "bị khoá chết" không tròn. Lệch camera sang X>0 (góc 3/4) để NHÌN
+    // CHÉO vào cả 2 vòng, cả 2 đều hiện tròn/elip rõ ràng như ảnh tham khảo.
     const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
-    camera.position.set(0, 1, 8);
+    camera.position.set(3.2, 1.6, 7.3);
     camera.lookAt(0, 0, 0);
     cameraRef.current = camera;
     sceneRef.current = scene;
