@@ -185,10 +185,14 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     rendererRef.current = renderer;
 
     const scene = new THREE.Scene();
-    // Ánh sáng nền CỰC YẾU trong cả không gian (0.15 -> 0.06 -> 0.025) — chỉ đủ để chủ thể không biến
-    // mất hoàn toàn khi đèn mô phỏng quay đi hướng khác, còn lại để simLight (đèn mô phỏng thật, xem
-    // bên dưới) một mình quyết định chủ thể sáng/tối thế nào, làm nổi bật rõ hiệu ứng luồng sáng hơn nữa.
-    scene.add(new THREE.AmbientLight(0xffffff, 0.025));
+    // Ánh sáng nền CỰC YẾU (0.15 -> 0.06 -> 0.025) — chỉ đủ để chủ thể không biến mất hoàn toàn khi đèn
+    // mô phỏng quay đi hướng khác, còn lại để simLight quyết định chủ thể sáng/tối thế nào.
+    scene.add(new THREE.AmbientLight(0xffffff, 0.05));
+    // Ánh sáng BÁN CẦU (trên sáng hơn dưới) — KHÁC ambient (ambient chiếu đều mọi mặt như nhau, làm
+    // khối bẹt phẳng mất góc cạnh). Hemisphere tạo gradient sáng theo hướng pháp tuyến từng mặt (mặt
+    // hướng lên sáng hơn mặt hướng xuống/ngang), giúp nhận biết rõ góc cạnh khối kể cả khi simLight
+    // không chiếu trực tiếp vào — đúng hiệu ứng "3 mặt sáng-tối khác nhau" ở ảnh tham khảo.
+    scene.add(new THREE.HemisphereLight(0x71717a, 0x09090b, 0.55));
 
     const radius = SPHERE_RADIUS;
     // Vòng đứng CỐ ĐỊNH — đường ray tham chiếu, không bao giờ xoay/trượt.
@@ -203,14 +207,12 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     // Chủ thể chung chung ở giữa (không phải mannequin thật) — hình khối dẹt kiểu thiết bị, ĐỨNG YÊN
     // cố định (chỉ ĐÈN xoay quanh nó, khác tính năng mannequin cho xoay NHÂN VẬT) — chỉ để hình dung
     // hướng sáng, không đại diện nhân vật.
-    // Thêm emissive nhẹ (tự phát sáng, KHÔNG phụ thuộc ambient/đèn mô phỏng) — vì ambient trong cảnh
-    // rất thấp (0.025) để làm nổi hiệu ứng luồng sáng, phần khối KHÔNG bị simLight chiếu trực tiếp
-    // trước đây gần như đen tuyệt đối dù màu vật liệu đã sáng (color chỉ phản chiếu ánh sáng CÓ SẴN,
-    // không tự sáng). emissive đảm bảo khối luôn nhìn rõ màu xám sáng ở mọi góc, đèn vẫn làm NỔI BẬT
-    // thêm phần được chiếu trực tiếp (sáng hơn hẳn phần còn lại) chứ không quyết định có thấy khối hay không.
+    // Bỏ emissive (thử trước đó) — emissive chiếu ĐỀU mọi mặt như nhau nên làm khối nhìn bẹt phẳng,
+    // mất hẳn độ tương phản góc cạnh. Giờ dùng HemisphereLight (phía trên) để tạo gradient sáng/tối tự
+    // nhiên theo từng mặt, màu nền vẫn sáng vừa đủ (0xc7c7cc) để không bị đen ở mặt ít sáng.
     const subject = new THREE.Mesh(
       new THREE.BoxGeometry(1.3, 1.9, 0.3),
-      new THREE.MeshStandardMaterial({ color: 0xe4e4e7, emissive: 0xe4e4e7, emissiveIntensity: 0.35, roughness: 0.5, metalness: 0.2 })
+      new THREE.MeshStandardMaterial({ color: 0xc7c7cc, roughness: 0.5, metalness: 0.2 })
     );
     scene.add(subject);
     subjectRef.current = subject;
