@@ -139,19 +139,36 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
   const simLightRef = useRef<THREE.SpotLight | null>(null);
   const subjectRef = useRef<THREE.Mesh | null>(null);
   const raycasterRef = useRef(new THREE.Raycaster());
-  // "light" = kéo di chuyển đèn quanh quả cầu (toạ độ cầu azimuth/elevation); "subject" = kéo XOAY
-  // chủ thể tại chỗ (chỉ rotation.y, giống cách mannequin cho xoay) để xem ánh sáng từ góc khác — bấm
-  // trúng đèn thì kéo đèn, bấm chỗ khác (kể cả trúng chủ thể) thì xoay chủ thể.
+  // "light" = kéo di chuyển đèn quanh quả cầu (toạ độ cầu azimuth/elevation); "orbit" = kéo XOAY GÓC
+  // NHÌN (camera đi vòng quanh cả cụm quả cầu/đèn/chủ thể, giống orbit-controls) để xem từ góc khác —
+  // khớp yêu cầu "vòng tròn đứng cũng xoay được": vì cả cụm (gồm 2 vòng + chủ thể) đứng yên trong
+  // không gian, xoay CAMERA quanh nó khiến khách THẤY vòng đứng xoay theo đúng ý, mà toạ độ đèn thật
+  // (azimuth/elevation gửi đi lúc "Áp dụng") không hề đổi — bấm trúng đèn thì kéo đèn, bấm chỗ khác
+  // thì xoay góc nhìn.
   const dragRef = useRef<{
-    mode: "light" | "subject" | null;
+    mode: "light" | "orbit" | null;
     startX: number;
     startY: number;
     startAz: number;
     startEl: number;
-    startSubjectRotY: number;
-  }>({ mode: null, startX: 0, startY: 0, startAz: 0, startEl: 0, startSubjectRotY: 0 });
+    startOrbitAz: number;
+    startOrbitEl: number;
+  }>({ mode: null, startX: 0, startY: 0, startAz: 0, startEl: 0, startOrbitAz: 0, startOrbitEl: 0 });
+  // Toạ độ cầu của CAMERA (khác hẳn toạ độ cầu của đèn) — khởi tạo đúng giá trị tương đương vị trí
+  // camera cố định trước đây (3.2, 1.6, 7.3) để không đổi góc nhìn mặc định ban đầu.
+  const orbitRef = useRef({ azimuth: 0.4127, elevation: 0.198, distance: 8.13 });
   const valueRef = useRef(value);
   valueRef.current = value;
+
+  function updateCameraFromOrbit() {
+    const camera = cameraRef.current;
+    if (!camera) return;
+    const { azimuth, elevation, distance } = orbitRef.current;
+    const y = distance * Math.sin(elevation);
+    const r = distance * Math.cos(elevation);
+    camera.position.set(r * Math.sin(azimuth), y, r * Math.cos(azimuth));
+    camera.lookAt(0, 0, 0);
+  }
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -163,11 +180,10 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     rendererRef.current = renderer;
 
     const scene = new THREE.Scene();
-    // Ánh sáng nền RẤT YẾU — chỉ đủ để chủ thể không biến mất hoàn toàn khi đèn mô phỏng quay đi hướng
-    // khác, còn lại để simLight (đèn mô phỏng thật, xem bên dưới) quyết định chủ thể sáng/tối thế nào —
-    // trước đây 2 đèn cố định quá mạnh che mất hiệu ứng của đèn khách đang chỉnh, nhìn như không có
-    // ánh sáng nào chiếu vào cả dù khách đã đổi màu/độ sáng/vị trí.
-    scene.add(new THREE.AmbientLight(0xffffff, 0.15));
+    // Ánh sáng nền CỰC YẾU trong cả không gian (0.15 -> 0.06) — chỉ đủ để chủ thể không biến mất hoàn
+    // toàn khi đèn mô phỏng quay đi hướng khác, còn lại để simLight (đèn mô phỏng thật, xem bên dưới)
+    // một mình quyết định chủ thể sáng/tối thế nào, làm nổi bật rõ hiệu ứng luồng sáng hơn nữa.
+    scene.add(new THREE.AmbientLight(0xffffff, 0.06));
 
     const radius = 2.5;
     // Vòng đứng CỐ ĐỊNH — đường ray tham chiếu, không bao giờ xoay/trượt.
@@ -239,9 +255,8 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     // ngay cạnh/edge-on), trông như "bị khoá chết" không tròn. Lệch camera sang X>0 (góc 3/4) để NHÌN
     // CHÉO vào cả 2 vòng, cả 2 đều hiện tròn/elip rõ ràng như ảnh tham khảo.
     const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
-    camera.position.set(3.2, 1.6, 7.3);
-    camera.lookAt(0, 0, 0);
     cameraRef.current = camera;
+    updateCameraFromOrbit(); // đặt đúng vị trí ban đầu từ orbitRef (tương đương 3.2, 1.6, 7.3 cũ)
     sceneRef.current = scene;
 
     const resize = () => {
@@ -293,8 +308,8 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     }
   }
 
-  // Bấm trúng đèn (raycast) -> kéo di chuyển đèn; bấm chỗ khác (kể cả trúng chủ thể) -> kéo XOAY chủ
-  // thể tại chỗ để xem ánh sáng từ góc khác, không di chuyển đèn.
+  // Bấm trúng đèn (raycast) -> kéo di chuyển đèn; bấm chỗ khác -> kéo XOAY GÓC NHÌN (camera đi vòng
+  // quanh cả cụm, xem ghi chú orbitRef phía trên) để xem từ góc khác, không di chuyển đèn.
   function handlePointerDown(e: React.PointerEvent) {
     const mount = mountRef.current;
     if (!mount || !cameraRef.current || !lightDotRef.current) return;
@@ -308,12 +323,13 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     const hitsLight = raycasterRef.current.intersectObjects(targets, false).length > 0;
 
     dragRef.current = {
-      mode: hitsLight ? "light" : "subject",
+      mode: hitsLight ? "light" : "orbit",
       startX: e.clientX,
       startY: e.clientY,
       startAz: valueRef.current.azimuth,
       startEl: valueRef.current.elevation,
-      startSubjectRotY: subjectRef.current?.rotation.y ?? 0,
+      startOrbitAz: orbitRef.current.azimuth,
+      startOrbitEl: orbitRef.current.elevation,
     };
   }
   function handlePointerMove(e: React.PointerEvent) {
@@ -321,11 +337,13 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     if (!mode) return;
     const dx = e.clientX - dragRef.current.startX;
 
-    if (mode === "subject") {
-      if (subjectRef.current) {
-        subjectRef.current.rotation.y = dragRef.current.startSubjectRotY + dx * 0.012;
-        render();
-      }
+    if (mode === "orbit") {
+      const dy = e.clientY - dragRef.current.startY;
+      const orbitElevLimit = Math.PI / 2 - 0.1;
+      orbitRef.current.azimuth = dragRef.current.startOrbitAz + dx * 0.012;
+      orbitRef.current.elevation = Math.max(-orbitElevLimit, Math.min(orbitElevLimit, dragRef.current.startOrbitEl + dy * 0.012));
+      updateCameraFromOrbit();
+      render();
       return;
     }
 
