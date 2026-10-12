@@ -78,6 +78,8 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const lightDotRef = useRef<THREE.Mesh | null>(null);
   const lightHaloRef = useRef<THREE.Mesh | null>(null);
+  const verticalRingGroupRef = useRef<THREE.Group | null>(null);
+  const simLightRef = useRef<THREE.SpotLight | null>(null);
   const subjectRef = useRef<THREE.Mesh | null>(null);
   const raycasterRef = useRef(new THREE.Raycaster());
   // "light" = kéo di chuyển đèn quanh quả cầu (toạ độ cầu azimuth/elevation); "subject" = kéo XOAY
@@ -104,27 +106,42 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     rendererRef.current = renderer;
 
     const scene = new THREE.Scene();
-    scene.add(new THREE.AmbientLight(0xffffff, 0.9));
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1.1);
-    dirLight.position.set(1, 2, 3);
-    scene.add(dirLight);
-    const fillLight = new THREE.DirectionalLight(0xffffff, 0.5);
-    fillLight.position.set(-2, 0.5, 2);
-    scene.add(fillLight);
+    // Ánh sáng nền RẤT YẾU — chỉ đủ để chủ thể không biến mất hoàn toàn khi đèn mô phỏng quay đi hướng
+    // khác, còn lại để simLight (đèn mô phỏng thật, xem bên dưới) quyết định chủ thể sáng/tối thế nào —
+    // trước đây 2 đèn cố định quá mạnh che mất hiệu ứng của đèn khách đang chỉnh, nhìn như không có
+    // ánh sáng nào chiếu vào cả dù khách đã đổi màu/độ sáng/vị trí.
+    scene.add(new THREE.AmbientLight(0xffffff, 0.15));
 
     const radius = 2.5;
     scene.add(createAxisRing(radius, "horizontal", 0x71717a));
-    scene.add(createAxisRing(radius, "vertical", 0x71717a));
+
+    // Vòng đứng đặt trong 1 Group riêng, rotation.y = azimuth hiện tại của đèn — luôn xoay theo để mặt
+    // phẳng vòng đứng đi QUA đúng vị trí đèn đang đứng, đèn trông như thật sự "nằm trên trục" thay vì
+    // trôi tự do khỏi vòng cố định (nguyên nhân khiến cảm giác giả trước đây).
+    const verticalRingGroup = new THREE.Group();
+    verticalRingGroup.add(createAxisRing(radius, "vertical", 0x71717a));
+    verticalRingGroup.rotation.y = value.azimuth;
+    scene.add(verticalRingGroup);
+    verticalRingGroupRef.current = verticalRingGroup;
 
     // Chủ thể chung chung ở giữa (không phải mannequin thật) — hình khối dẹt kiểu thiết bị, ĐỨNG YÊN
     // cố định (chỉ ĐÈN xoay quanh nó, khác tính năng mannequin cho xoay NHÂN VẬT) — chỉ để hình dung
-    // hướng sáng, không đại diện nhân vật. Màu xám sáng + 2 nguồn sáng để rõ hình khối trên nền tối.
+    // hướng sáng, không đại diện nhân vật.
     const subject = new THREE.Mesh(
       new THREE.BoxGeometry(1.3, 1.9, 0.3),
       new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.5, metalness: 0.2 })
     );
     scene.add(subject);
     subjectRef.current = subject;
+
+    // Dấu mặt trước — 1 khấc nhỏ nổi trên đúng mặt +Z (hướng về phía "Đằng trước", azimuth=0) để phân
+    // biệt trước/sau khi xoay chủ thể, khớp chi tiết nhỏ (icon) trên mặt trước thiết bị ở ảnh tham khảo.
+    const frontMark = new THREE.Mesh(
+      new THREE.CircleGeometry(0.12, 16),
+      new THREE.MeshStandardMaterial({ color: 0x52525b, roughness: 0.6 })
+    );
+    frontMark.position.set(0, 0, 0.151);
+    subject.add(frontMark);
 
     const lightDot = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 12), new THREE.MeshBasicMaterial({ color: value.color }));
     scene.add(lightDot);
@@ -140,6 +157,18 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     const pos = sphericalToPosition(value.azimuth, value.elevation, radius);
     lightDot.position.copy(pos);
     lightHalo.position.copy(pos);
+
+    // Đèn mô phỏng THẬT — chiếu từ đúng vị trí chấm sáng (đèn 1) hướng về chủ thể, màu/độ sáng/góc
+    // lan toả đọc trực tiếp từ value (xem effect đồng bộ bên dưới) — đây là phần khách THẤY NGAY hiệu
+    // ứng khi đổi Màu sắc/Độ sáng/Lan toả hoặc kéo đèn, trước đây thiếu hẳn bước này.
+    const subjectTarget = new THREE.Object3D();
+    subjectTarget.position.set(0, 0, 0);
+    scene.add(subjectTarget);
+    const simLight = new THREE.SpotLight(value.color, (value.brightness / 100) * 6, 12, THREE.MathUtils.degToRad(12 + (value.spread / 100) * 45), 0.5, 1);
+    simLight.position.copy(pos);
+    simLight.target = subjectTarget;
+    scene.add(simLight);
+    simLightRef.current = simLight;
 
     // FOV 32° + camera cách gốc 6.5 đơn vị: nửa chiều rộng khung hình ở độ sâu z=0 (mặt phẳng chứa
     // "Phải"/"Bên trái", bán kính 2.5) chỉ ~2.65 — SÁT MÉP khung hình (bị cắt/gần như biến mất khi
@@ -171,15 +200,23 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Đổi màu/áp vị trí mới khi value đổi từ bên ngoài (vd bấm nút "Chọn nhanh").
+  // Đổi màu/áp vị trí mới khi value đổi từ bên ngoài (vd bấm nút "Chọn nhanh", kéo thanh Độ sáng/Lan
+  // toả) — đồng bộ cả chấm đèn, vòng đứng (xoay theo azimuth) và đèn mô phỏng thật (simLight).
   useEffect(() => {
     if (!lightDotRef.current || !lightHaloRef.current || !sceneRef.current || !cameraRef.current || !rendererRef.current) return;
     const pos = sphericalToPosition(value.azimuth, value.elevation, 2.5);
     lightDotRef.current.position.copy(pos);
     lightHaloRef.current.position.copy(pos);
     (lightDotRef.current.material as THREE.MeshBasicMaterial).color.set(value.color);
+    if (verticalRingGroupRef.current) verticalRingGroupRef.current.rotation.y = value.azimuth;
+    if (simLightRef.current) {
+      simLightRef.current.position.copy(pos);
+      simLightRef.current.color.set(value.color);
+      simLightRef.current.intensity = (value.brightness / 100) * 6;
+      simLightRef.current.angle = THREE.MathUtils.degToRad(12 + (value.spread / 100) * 45);
+    }
     rendererRef.current.render(sceneRef.current, cameraRef.current);
-  }, [value.azimuth, value.elevation, value.color]);
+  }, [value.azimuth, value.elevation, value.color, value.brightness, value.spread]);
 
   function render() {
     if (sceneRef.current && cameraRef.current && rendererRef.current) {
@@ -232,6 +269,8 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
       const pos = sphericalToPosition(nextAz, nextEl, 2.5);
       lightDotRef.current.position.copy(pos);
       lightHaloRef.current.position.copy(pos);
+      if (verticalRingGroupRef.current) verticalRingGroupRef.current.rotation.y = nextAz;
+      if (simLightRef.current) simLightRef.current.position.copy(pos);
       render();
     }
     onChange(next);
