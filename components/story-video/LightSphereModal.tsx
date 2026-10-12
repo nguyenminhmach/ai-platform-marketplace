@@ -141,8 +141,12 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     lightDot.position.copy(pos);
     lightHalo.position.copy(pos);
 
-    const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
-    camera.position.set(0, 1, 6.5);
+    // FOV 32° + camera cách gốc 6.5 đơn vị: nửa chiều rộng khung hình ở độ sâu z=0 (mặt phẳng chứa
+    // "Phải"/"Bên trái", bán kính 2.5) chỉ ~2.65 — SÁT MÉP khung hình (bị cắt/gần như biến mất khi
+    // đèn ở đúng 2 vị trí đó). Nới FOV lên 50° + lùi camera xa hơn (8 đơn vị) để toàn bộ 6 vị trí
+    // "Chọn nhanh" (kể cả Phải/Bên trái/Mặt sau) đều nằm thoải mái trong khung, có biên dư an toàn.
+    const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+    camera.position.set(0, 1, 8);
     camera.lookAt(0, 0, 0);
     cameraRef.current = camera;
     sceneRef.current = scene;
