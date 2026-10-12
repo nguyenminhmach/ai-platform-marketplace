@@ -185,10 +185,10 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     rendererRef.current = renderer;
 
     const scene = new THREE.Scene();
-    // Ánh sáng nền CỰC YẾU trong cả không gian (0.15 -> 0.06) — chỉ đủ để chủ thể không biến mất hoàn
-    // toàn khi đèn mô phỏng quay đi hướng khác, còn lại để simLight (đèn mô phỏng thật, xem bên dưới)
-    // một mình quyết định chủ thể sáng/tối thế nào, làm nổi bật rõ hiệu ứng luồng sáng hơn nữa.
-    scene.add(new THREE.AmbientLight(0xffffff, 0.06));
+    // Ánh sáng nền CỰC YẾU trong cả không gian (0.15 -> 0.06 -> 0.025) — chỉ đủ để chủ thể không biến
+    // mất hoàn toàn khi đèn mô phỏng quay đi hướng khác, còn lại để simLight (đèn mô phỏng thật, xem
+    // bên dưới) một mình quyết định chủ thể sáng/tối thế nào, làm nổi bật rõ hiệu ứng luồng sáng hơn nữa.
+    scene.add(new THREE.AmbientLight(0xffffff, 0.025));
 
     const radius = SPHERE_RADIUS;
     // Vòng đứng CỐ ĐỊNH — đường ray tham chiếu, không bao giờ xoay/trượt.
