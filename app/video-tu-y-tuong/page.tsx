@@ -2238,6 +2238,157 @@ export default function VideoTuYTuongPage() {
   const [createToast, setCreateToast] = useState<string | null>(null);
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // "Cài đặt camera" — bảng Máy ảnh/Thấu kính/Khẩu độ (xem ảnh tham khảo Higgsfield). Áp dụng CHUNG
+  // cho cả video, giống cơ chế máy quay/ánh sáng trước đó: không cần cột DB mới, chỉ ghép guidance
+  // text vào cuối storyDescription lúc submit. "Tự động" (null) = không ghép gì, giữ hành vi cũ.
+  const [cameraModalOpen, setCameraModalOpen] = useState(false);
+  const [promptCameraBody, setPromptCameraBody] = useState<string | null>(null);
+  const [promptCameraLens, setPromptCameraLens] = useState<string | null>(null);
+  const [promptCameraAperture, setPromptCameraAperture] = useState<string | null>(null);
+
+  type CameraPreset = { key: string; label: string; guidance: string; icon: React.ReactNode };
+
+  const CAMERA_BODY_PRESETS: CameraPreset[] = [
+    {
+      key: "phim-8mm",
+      label: "Phim 8mm",
+      guidance: "quay bằng máy phim 8mm cổ điển, hạt phim nhẹ, màu ám vàng hoài niệm",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-7 w-7">
+          <circle cx="7" cy="8" r="3" />
+          <circle cx="17" cy="8" r="3" />
+          <path d="M9.5 10.5L12 16l2.5-5.5" />
+          <rect x="9" y="16" width="6" height="4" rx="1" />
+        </svg>
+      ),
+    },
+    {
+      key: "may-quay-dv",
+      label: "Máy quay DV",
+      guidance: "quay bằng máy quay DV cầm tay kiểu thập niên 2000, chất lượng video thô mộc",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-7 w-7">
+          <rect x="3" y="9" width="11" height="8" rx="1.5" />
+          <path d="M14 11.5l6-2.5v9l-6-2.5" />
+          <rect x="6" y="6" width="5" height="3" rx="0.5" />
+        </svg>
+      ),
+    },
+    {
+      key: "tu-dong",
+      label: "Tự động",
+      guidance: "",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-7 w-7">
+          <rect x="3" y="7" width="18" height="12" rx="2" />
+          <circle cx="12" cy="13" r="3.5" />
+          <path d="M8 7l1.2-2h5.6L16 7" />
+        </svg>
+      ),
+    },
+  ];
+
+  const CAMERA_LENS_PRESETS: CameraPreset[] = [
+    {
+      key: "sach-se-sac-net",
+      label: "Sạch sẽ và sắc nét",
+      guidance: "ống kính sạch sắc nét, chi tiết rõ ràng, không méo mó",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-7 w-7">
+          <circle cx="12" cy="12" r="8" />
+          <circle cx="12" cy="12" r="3.5" />
+          <path d="M9 4l1-1.5M15 4l-1-1.5" />
+        </svg>
+      ),
+    },
+    {
+      key: "bien-dang",
+      label: "Biến dạng",
+      guidance: "ống kính fisheye biến dạng nhẹ ở rìa khung hình",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-7 w-7">
+          <circle cx="12" cy="12" r="8" />
+          <path d="M6 9c3 2 9 2 12 0M6 15c3-2 9-2 12 0" />
+        </svg>
+      ),
+    },
+    {
+      key: "halation-vintage",
+      label: "Halation Vintage",
+      guidance: "ống kính cổ điển có quầng sáng (halation) quanh nguồn sáng, cảm giác retro",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-7 w-7">
+          <circle cx="12" cy="12" r="8" strokeDasharray="2 2" />
+          <circle cx="12" cy="12" r="3.5" fill="currentColor" stroke="none" opacity="0.5" />
+        </svg>
+      ),
+    },
+    {
+      key: "tu-dong",
+      label: "Tự động",
+      guidance: "",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-7 w-7">
+          <circle cx="12" cy="12" r="8" />
+          <circle cx="12" cy="12" r="3.5" />
+        </svg>
+      ),
+    },
+  ];
+
+  const CAMERA_APERTURE_PRESETS: CameraPreset[] = [
+    {
+      key: "f1-4",
+      label: "f/1.4 Mở tối đa",
+      guidance: "khẩu độ mở tối đa f/1.4, hậu cảnh xoá mờ sâu (bokeh mạnh)",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-7 w-7">
+          <circle cx="12" cy="12" r="8" />
+          <circle cx="12" cy="12" r="6.5" fill="currentColor" opacity="0.35" stroke="none" />
+        </svg>
+      ),
+    },
+    {
+      key: "f4-vua-phai",
+      label: "f/4 Vừa phải",
+      guidance: "khẩu độ vừa phải f/4, hậu cảnh hơi mờ, chủ thể vẫn nổi bật",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-7 w-7">
+          <circle cx="12" cy="12" r="8" />
+          <circle cx="12" cy="12" r="3.5" fill="currentColor" opacity="0.35" stroke="none" />
+        </svg>
+      ),
+    },
+    {
+      key: "f11-lay-net-sau",
+      label: "f/11 Lấy nét sâu",
+      guidance: "khẩu độ khép nhỏ f/11, lấy nét sâu, toàn cảnh đều rõ nét",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-7 w-7">
+          <circle cx="12" cy="12" r="8" />
+          <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+        </svg>
+      ),
+    },
+    {
+      key: "tu-dong",
+      label: "Tự động",
+      guidance: "",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-7 w-7">
+          <circle cx="12" cy="12" r="8" />
+          <path d="M12 6v3M12 15v3M6 12h3M15 12h3" />
+        </svg>
+      ),
+    },
+  ];
+
+  const selectedCameraLabels = [
+    CAMERA_BODY_PRESETS.find((p) => p.key === promptCameraBody)?.label,
+    CAMERA_LENS_PRESETS.find((p) => p.key === promptCameraLens)?.label,
+    CAMERA_APERTURE_PRESETS.find((p) => p.key === promptCameraAperture)?.label,
+  ].filter((l): l is string => !!l);
+
   // Chèn "@element_id " vào đúng vị trí con trỏ trong ô "viết prompt" — mục 8 trong spec (gõ "@" chèn
   // thẳng @mention, không chỉ chọn ảnh rời). Dùng lại state `input` đã có sẵn (prompt truyện).
   function insertMentionAtCursor(elementId: string) {
@@ -2314,10 +2465,20 @@ export default function VideoTuYTuongPage() {
       // 2) Thay "@id" bằng tên thật (vd "@lan đi dạo" -> "Lan đi dạo") để câu vẫn đọc tự nhiên cho
       // Agent — @id không khớp element nào thì giữ nguyên nguyên văn (không chặn/crash).
       const foundById = new Map(mentionedElements.map((el) => [el.element_id, el]));
-      const storyDescription = rawText.replace(/@([a-z0-9_]+)/g, (full, id) => {
+      const mentionStrippedText = rawText.replace(/@([a-z0-9_]+)/g, (full, id) => {
         const el = foundById.get(id);
         return el ? el.name : full;
       });
+      // Gắn thêm chỉ dẫn máy ảnh/thấu kính/khẩu độ (nếu khách chọn ở modal "cài đặt camera") vào CUỐI
+      // câu truyện — Agent chia cảnh đọc nguyên văn storyDescription nên chỉ cần ghép câu, không cần
+      // cột DB riêng.
+      const cameraNotes = [
+        CAMERA_BODY_PRESETS.find((p) => p.key === promptCameraBody)?.guidance,
+        CAMERA_LENS_PRESETS.find((p) => p.key === promptCameraLens)?.guidance,
+        CAMERA_APERTURE_PRESETS.find((p) => p.key === promptCameraAperture)?.guidance,
+      ].filter((n): n is string => !!n);
+      const storyDescription =
+        cameraNotes.length > 0 ? `${mentionStrippedText}\n\n(Phong cách máy quay: ${cameraNotes.join(", ")}.)` : mentionStrippedText;
 
       // 3) Upload ảnh "+"-tải thêm trong session này (còn đang là data URL, chưa có URL thật).
       const uploadedPromptImages = await Promise.all(
@@ -2476,9 +2637,9 @@ export default function VideoTuYTuongPage() {
 
           <h1 className="mb-6 text-center text-3xl font-bold text-white sm:text-4xl">Không gian cho mọi ý tưởng</h1>
 
-          {/* Preset chips — chỉ "tài liệu tham khảo" mở modal thật (chính là modal chọn ảnh tham chiếu,
-              item B trong yêu cầu); các chip còn lại là hiển thị/placeholder, khách chưa chỉnh được ở
-              đợt này. */}
+          {/* Preset chips — "tài liệu tham khảo" mở modal chọn ảnh tham chiếu, "cài đặt camera" mở
+              bảng Máy ảnh/Thấu kính/Khẩu độ. 2 chip còn lại (thiết lập phim tự động/bảng màu tự động)
+              vẫn là placeholder, chưa làm ở đợt này. */}
           <div className="mb-6 flex flex-wrap justify-center gap-2">
             <button
               type="button"
@@ -2487,7 +2648,32 @@ export default function VideoTuYTuongPage() {
             >
               tài liệu tham khảo
             </button>
-            {["thiết lập phim tự động", "camera 8mm film", "bảng màu tự động", "ánh sáng tự động"].map((label) => (
+
+            {/* Chip "cài đặt camera" — icon ống kính phát sáng + 2 dòng chữ: "Máy ảnh" mờ phía trên,
+                tên preset đã chọn hiện rõ/đậm phía dưới (xem ảnh tham khảo Higgsfield). */}
+            <button
+              type="button"
+              onClick={() => setCameraModalOpen(true)}
+              className="flex items-center gap-2 rounded-full bg-zinc-900 py-1.5 pl-1.5 pr-4 text-left hover:bg-zinc-800"
+            >
+              <span
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                style={{ background: "radial-gradient(circle at 35% 35%, #60a5fa, #1e3a8a 70%)" }}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5" className="h-4 w-4">
+                  <circle cx="12" cy="12" r="7" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              </span>
+              <span className="flex flex-col leading-tight">
+                <span className="text-[10px] text-zinc-500">Máy ảnh</span>
+                <span className="max-w-[160px] truncate text-xs font-semibold text-zinc-100">
+                  {selectedCameraLabels.length > 0 ? selectedCameraLabels.join(", ") : "Tự động"}
+                </span>
+              </span>
+            </button>
+
+            {["thiết lập phim tự động", "bảng màu tự động", "ánh sáng tự động"].map((label) => (
               <button
                 key={label}
                 type="button"
@@ -2687,6 +2873,97 @@ export default function VideoTuYTuongPage() {
           onInsertMention={pickerModal.forMention ? insertMentionAtCursor : undefined}
           selectedUrls={promptImages}
         />
+      )}
+
+      {cameraModalOpen && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setCameraModalOpen(false)}
+        >
+          <div
+            className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 text-zinc-100 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
+              <h3 className="text-base font-semibold">Máy ảnh</h3>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPromptCameraBody(null);
+                    setPromptCameraLens(null);
+                    setPromptCameraAperture(null);
+                  }}
+                  className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800"
+                >
+                  Đặt lại tất cả
+                </button>
+                <button
+                  onClick={() => setCameraModalOpen(false)}
+                  className="rounded-full p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            <div className="flex min-h-0 flex-1">
+              {/* Sidebar — "Sự chuyển động" (camera movement) chưa làm ở đợt này, chỉ để chỗ. */}
+              <div className="w-44 shrink-0 border-r border-zinc-800 p-3">
+                <div className="flex items-center justify-between rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium">
+                  <span className="flex items-center gap-2">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4">
+                      <rect x="3" y="7" width="18" height="12" rx="2" />
+                      <circle cx="12" cy="13" r="3.5" />
+                    </svg>
+                    Cài đặt
+                  </span>
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                </div>
+                <div className="mt-1 flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-zinc-500" title="Sắp ra mắt">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4">
+                    <path d="M5 12h14M13 6l6 6-6 6" />
+                  </svg>
+                  Sự chuyển động
+                </div>
+              </div>
+
+              <div className="grid flex-1 grid-cols-3 gap-4 overflow-y-auto p-5">
+                {(
+                  [
+                    { title: "MÁY ẢNH", presets: CAMERA_BODY_PRESETS, selected: promptCameraBody, onSelect: setPromptCameraBody },
+                    { title: "THẤU KÍNH", presets: CAMERA_LENS_PRESETS, selected: promptCameraLens, onSelect: setPromptCameraLens },
+                    { title: "KHẨU ĐỘ", presets: CAMERA_APERTURE_PRESETS, selected: promptCameraAperture, onSelect: setPromptCameraAperture },
+                  ] as const
+                ).map((col) => (
+                  <div key={col.title}>
+                    <p className="mb-3 text-center text-[11px] font-semibold tracking-wide text-zinc-500">{col.title}</p>
+                    <div className="flex flex-col gap-3">
+                      {col.presets.map((p) => {
+                        const isSelected = col.selected === p.key;
+                        return (
+                          <button
+                            key={p.key}
+                            type="button"
+                            onClick={() => col.onSelect(isSelected ? null : p.key)}
+                            className={`flex flex-col items-center gap-2 rounded-2xl border-2 px-2 py-4 ${
+                              isSelected ? "border-white bg-zinc-900" : "border-transparent bg-zinc-900/60 hover:bg-zinc-900"
+                            }`}
+                          >
+                            <span className={isSelected ? "text-white" : "text-zinc-500"}>{p.icon}</span>
+                            <span className={`text-center text-[11px] font-medium leading-tight ${isSelected ? "text-white" : "text-zinc-500"}`}>
+                              {p.label}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
