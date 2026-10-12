@@ -20,6 +20,11 @@ export type LightSettings = {
 
 export const DEFAULT_LIGHT_SETTINGS: LightSettings = { azimuth: 0, elevation: 0, color: "#ffffff", brightness: 50, spread: 50 };
 
+// Bán kính quả cầu — xem video tham khảo (D:\ánh sáng.mp4): quả cầu Higgsfield NHỎ HƠN NHIỀU so với
+// chủ thể (đèn luôn ở gần sát chủ thể khi kéo), khác hẳn bản trước của mình (bán kính 2.5 quá lớn so
+// với chủ thể cỡ ~1.3x1.9, khiến đèn luôn ở xa). Giảm xuống còn 1.8 để tỉ lệ khớp hơn.
+const SPHERE_RADIUS = 1.8;
+
 export const LIGHT_QUICK_POSITIONS: { key: string; label: string; azimuth: number; elevation: number }[] = [
   { key: "dung-dau", label: "Đứng đầu", azimuth: 0, elevation: Math.PI / 2 - 0.05 },
   { key: "dang-truoc", label: "Đằng trước", azimuth: 0, elevation: 0 },
@@ -185,7 +190,7 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     // một mình quyết định chủ thể sáng/tối thế nào, làm nổi bật rõ hiệu ứng luồng sáng hơn nữa.
     scene.add(new THREE.AmbientLight(0xffffff, 0.06));
 
-    const radius = 2.5;
+    const radius = SPHERE_RADIUS;
     // Vòng đứng CỐ ĐỊNH — đường ray tham chiếu, không bao giờ xoay/trượt.
     scene.add(createFixedVerticalRing(radius, 0x71717a));
 
@@ -284,11 +289,11 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
   // luồng sáng nhìn thấy được.
   useEffect(() => {
     if (!lightDotRef.current || !lightHaloRef.current || !sceneRef.current || !cameraRef.current || !rendererRef.current) return;
-    const pos = sphericalToPosition(value.azimuth, value.elevation, 2.5);
+    const pos = sphericalToPosition(value.azimuth, value.elevation, SPHERE_RADIUS);
     lightDotRef.current.position.copy(pos);
     lightHaloRef.current.position.copy(pos);
     (lightDotRef.current.material as THREE.MeshBasicMaterial).color.set(value.color);
-    if (horizontalRingRef.current) updateSlidingHorizontalRing(horizontalRingRef.current, 2.5, value.elevation);
+    if (horizontalRingRef.current) updateSlidingHorizontalRing(horizontalRingRef.current, SPHERE_RADIUS, value.elevation);
     if (simLightRef.current) {
       simLightRef.current.position.copy(pos);
       simLightRef.current.color.set(value.color);
@@ -353,10 +358,10 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     const nextEl = Math.max(-elevLimit, Math.min(elevLimit, dragRef.current.startEl - dy * 0.012));
     const next = { ...valueRef.current, azimuth: nextAz, elevation: nextEl };
     if (lightDotRef.current && lightHaloRef.current) {
-      const pos = sphericalToPosition(nextAz, nextEl, 2.5);
+      const pos = sphericalToPosition(nextAz, nextEl, SPHERE_RADIUS);
       lightDotRef.current.position.copy(pos);
       lightHaloRef.current.position.copy(pos);
-      if (horizontalRingRef.current) updateSlidingHorizontalRing(horizontalRingRef.current, 2.5, nextEl);
+      if (horizontalRingRef.current) updateSlidingHorizontalRing(horizontalRingRef.current, SPHERE_RADIUS, nextEl);
       if (simLightRef.current) simLightRef.current.position.copy(pos);
       if (beamConeRef.current) {
         const beamRadius = 0.25 + (valueRef.current.spread / 100) * 0.9;
