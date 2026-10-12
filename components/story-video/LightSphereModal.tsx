@@ -159,9 +159,10 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     startOrbitAz: number;
     startSubjectRotY: number;
   }>({ mode: null, startX: 0, startY: 0, startAz: 0, startEl: 0, startOrbitAz: 0, startSubjectRotY: 0 });
-  // Toạ độ cầu của CAMERA (khác hẳn toạ độ cầu của đèn) — khởi tạo đúng giá trị tương đương vị trí
-  // camera cố định trước đây (3.2, 1.6, 7.3) để không đổi góc nhìn mặc định ban đầu.
-  const orbitRef = useRef({ azimuth: 0.4127, elevation: 0.198, distance: 8.13 });
+  // Toạ độ cầu của CAMERA (khác hẳn toạ độ cầu của đèn) — distance giảm (8.13 -> 6.0) để ZOOM GẦN hơn,
+  // vật thể + quả cầu/vòng tròn hiện to hơn rõ rệt trong khung (khớp yêu cầu "tăng khung hình to lên
+  // đồng nghĩa vật thể và vòng tròn cũng tăng lên"), giữ nguyên góc azimuth/elevation ban đầu.
+  const orbitRef = useRef({ azimuth: 0.4127, elevation: 0.198, distance: 6.0 });
   const valueRef = useRef(value);
   valueRef.current = value;
 
@@ -491,7 +492,7 @@ export function LightSphereModal({
           </div>
 
           <div
-            className="min-h-[280px] rounded-xl"
+            className="min-h-[380px] rounded-xl"
             style={{ background: "radial-gradient(circle at 50% 50%, #3f3f46 0%, #27272a 55%, #18181b 100%)" }}
           >
             <LightSphereCanvas value={value} onChange={setValue} />
