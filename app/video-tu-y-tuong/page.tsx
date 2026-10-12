@@ -2238,6 +2238,28 @@ export default function VideoTuYTuongPage() {
   const [createToast, setCreateToast] = useState<string | null>(null);
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Máy quay/ánh sáng cho prompt bar mới — hệ thống camera/light CŨ (activePresetModal,
+  // handleScriptLightDirectionChange...) gắn theo TỪNG CẢNH trong bước "xem trước kịch bản" (đã bỏ ở
+  // giao diện mới, autoVideo đi thẳng tới video). Đợt này chỉ làm preset ÁP DỤNG CHUNG CHO CẢ VIDEO —
+  // không cần cột DB mới, chỉ ghép thành 1 câu chỉ dẫn gắn thêm vào storyDescription lúc submit (xem
+  // handlePromptCreate). Chọn "Tự động" (giá trị null) = không ghép gì thêm, giữ hành vi cũ.
+  const [promptCameraStyle, setPromptCameraStyle] = useState<string | null>(null);
+  const [promptLightStyle, setPromptLightStyle] = useState<string | null>(null);
+  const [cameraModalOpen, setCameraModalOpen] = useState(false);
+
+  const CAMERA_STYLE_PRESETS: Array<{ key: string; label: string; guidance: string }> = [
+    { key: "8mm-hoai-co", label: "Phim 8mm hoài cổ", guidance: "quay bằng máy phim 8mm cổ điển, hạt phim nhẹ, màu ám vàng hoài niệm" },
+    { key: "dien-anh", label: "Điện ảnh (cinematic)", guidance: "khung hình điện ảnh chuyên nghiệp, chuyển động máy mượt mà, tỉ lệ rộng" },
+    { key: "vlog-cam-tay", label: "Vlog cầm tay", guidance: "góc quay tự nhiên như vlog cá nhân, máy hơi rung nhẹ, gần gũi chân thực" },
+    { key: "flycam", label: "Flycam toàn cảnh", guidance: "có cảnh toàn cảnh quay từ trên cao như flycam, rộng và hùng vĩ" },
+  ];
+  const LIGHT_STYLE_PRESETS: Array<{ key: string; label: string; guidance: string }> = [
+    { key: "tu-nhien-ban-ngay", label: "Ánh sáng tự nhiên ban ngày", guidance: "ánh sáng tự nhiên ban ngày, dịu và trong trẻo" },
+    { key: "hoang-hon-am", label: "Hoàng hôn ấm áp", guidance: "ánh sáng hoàng hôn ấm áp, tông vàng cam" },
+    { key: "studio-tuong-phan", label: "Studio tương phản cao", guidance: "ánh sáng studio tương phản cao, rõ khối" },
+    { key: "neon-dem", label: "Neon về đêm", guidance: "ánh sáng neon về đêm, màu sắc rực rỡ tương phản" },
+  ];
+
   // Chèn "@element_id " vào đúng vị trí con trỏ trong ô "viết prompt" — mục 8 trong spec (gõ "@" chèn
   // thẳng @mention, không chỉ chọn ảnh rời). Dùng lại state `input` đã có sẵn (prompt truyện).
   function insertMentionAtCursor(elementId: string) {
@@ -2314,10 +2336,18 @@ export default function VideoTuYTuongPage() {
       // 2) Thay "@id" bằng tên thật (vd "@lan đi dạo" -> "Lan đi dạo") để câu vẫn đọc tự nhiên cho
       // Agent — @id không khớp element nào thì giữ nguyên nguyên văn (không chặn/crash).
       const foundById = new Map(mentionedElements.map((el) => [el.element_id, el]));
-      const storyDescription = rawText.replace(/@([a-z0-9_]+)/g, (full, id) => {
+      const mentionStrippedText = rawText.replace(/@([a-z0-9_]+)/g, (full, id) => {
         const el = foundById.get(id);
         return el ? el.name : full;
       });
+      // Gắn thêm chỉ dẫn máy quay/ánh sáng (nếu khách chọn ở modal 🎥) vào CUỐI câu truyện — Agent chia
+      // cảnh đọc nguyên văn storyDescription nên chỉ cần ghép câu, không cần cột DB riêng.
+      const styleNotes = [
+        CAMERA_STYLE_PRESETS.find((p) => p.key === promptCameraStyle)?.guidance,
+        LIGHT_STYLE_PRESETS.find((p) => p.key === promptLightStyle)?.guidance,
+      ].filter((n): n is string => !!n);
+      const storyDescription =
+        styleNotes.length > 0 ? `${mentionStrippedText}\n\n(Phong cách hình ảnh xuyên suốt: ${styleNotes.join(", ")}.)` : mentionStrippedText;
 
       // 3) Upload ảnh "+"-tải thêm trong session này (còn đang là data URL, chưa có URL thật).
       const uploadedPromptImages = await Promise.all(
@@ -2476,9 +2506,10 @@ export default function VideoTuYTuongPage() {
 
           <h1 className="mb-6 text-center text-3xl font-bold text-white sm:text-4xl">Không gian cho mọi ý tưởng</h1>
 
-          {/* Preset chips — chỉ "tài liệu tham khảo" mở modal thật (chính là modal chọn ảnh tham chiếu,
-              item B trong yêu cầu); các chip còn lại là hiển thị/placeholder, khách chưa chỉnh được ở
-              đợt này. */}
+          {/* Preset chips — "tài liệu tham khảo" mở modal chọn ảnh tham chiếu, "camera 8mm film" áp
+              dụng nhanh preset máy quay tương ứng (cùng hệ với modal 🎥 bên dưới). Các chip còn lại
+              (thiết lập phim tự động/bảng màu tự động/ánh sáng tự động) vẫn là placeholder, chưa làm
+              ở đợt này. */}
           <div className="mb-6 flex flex-wrap justify-center gap-2">
             <button
               type="button"
@@ -2487,7 +2518,16 @@ export default function VideoTuYTuongPage() {
             >
               tài liệu tham khảo
             </button>
-            {["thiết lập phim tự động", "camera 8mm film", "bảng màu tự động", "ánh sáng tự động"].map((label) => (
+            <button
+              type="button"
+              onClick={() => setPromptCameraStyle((prev) => (prev === "8mm-hoai-co" ? null : "8mm-hoai-co"))}
+              className={`rounded-full px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800 ${
+                promptCameraStyle === "8mm-hoai-co" ? "bg-amber-400/20 ring-1 ring-amber-400/60" : "bg-zinc-900"
+              }`}
+            >
+              camera 8mm film
+            </button>
+            {["thiết lập phim tự động", "bảng màu tự động", "ánh sáng tự động"].map((label) => (
               <button
                 key={label}
                 type="button"
@@ -2571,10 +2611,23 @@ export default function VideoTuYTuongPage() {
                 </button>
                 <button
                   type="button"
-                  title="Thiết lập máy quay/ánh sáng — sắp ra mắt cho prompt bar"
-                  className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-base text-zinc-200 hover:bg-zinc-700"
+                  onClick={() => setCameraModalOpen(true)}
+                  title="Thiết lập máy quay/ánh sáng cho cả video"
+                  className={`flex h-9 items-center justify-center gap-1.5 rounded-full px-3 text-base text-zinc-200 hover:bg-zinc-700 ${
+                    promptCameraStyle || promptLightStyle ? "bg-amber-400/20 ring-1 ring-amber-400/60" : "bg-zinc-800"
+                  }`}
                 >
                   🎥
+                  {(promptCameraStyle || promptLightStyle) && (
+                    <span className="text-xs text-amber-300">
+                      {[
+                        CAMERA_STYLE_PRESETS.find((p) => p.key === promptCameraStyle)?.label,
+                        LIGHT_STYLE_PRESETS.find((p) => p.key === promptLightStyle)?.label,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  )}
                 </button>
 
                 {storyVideoModels.length > 0 && (
@@ -2687,6 +2740,87 @@ export default function VideoTuYTuongPage() {
           onInsertMention={pickerModal.forMention ? insertMentionAtCursor : undefined}
           selectedUrls={promptImages}
         />
+      )}
+
+      {cameraModalOpen && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setCameraModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-950 p-5 text-zinc-100 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-base font-semibold">Máy quay &amp; Ánh sáng</h3>
+              <button
+                onClick={() => setCameraModalOpen(false)}
+                className="rounded-full p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="mb-4 text-xs text-zinc-500">Áp dụng chung cho cả video — Agent sẽ giữ đúng phong cách này xuyên suốt mọi cảnh.</p>
+
+            <p className="mb-2 text-xs font-medium text-zinc-400">Phong cách máy quay</p>
+            <div className="mb-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setPromptCameraStyle(null)}
+                className={`rounded-full px-3 py-1.5 text-xs font-medium ${
+                  promptCameraStyle === null ? "bg-white text-zinc-900" : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+                }`}
+              >
+                Tự động
+              </button>
+              {CAMERA_STYLE_PRESETS.map((p) => (
+                <button
+                  key={p.key}
+                  type="button"
+                  onClick={() => setPromptCameraStyle(p.key)}
+                  className={`rounded-full px-3 py-1.5 text-xs font-medium ${
+                    promptCameraStyle === p.key ? "bg-amber-400 text-zinc-900" : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            <p className="mb-2 text-xs font-medium text-zinc-400">Phong cách ánh sáng</p>
+            <div className="mb-5 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setPromptLightStyle(null)}
+                className={`rounded-full px-3 py-1.5 text-xs font-medium ${
+                  promptLightStyle === null ? "bg-white text-zinc-900" : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+                }`}
+              >
+                Tự động
+              </button>
+              {LIGHT_STYLE_PRESETS.map((p) => (
+                <button
+                  key={p.key}
+                  type="button"
+                  onClick={() => setPromptLightStyle(p.key)}
+                  className={`rounded-full px-3 py-1.5 text-xs font-medium ${
+                    promptLightStyle === p.key ? "bg-amber-400 text-zinc-900" : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setCameraModalOpen(false)}
+              className="w-full rounded-full bg-zinc-900 py-2 text-sm font-medium text-white hover:bg-zinc-800"
+            >
+              Xong
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
