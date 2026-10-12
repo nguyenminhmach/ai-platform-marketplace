@@ -1,0 +1,329 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import * as THREE from "three";
+
+// "Thiết lập ánh sáng mới" — bảng 3D kiểu Higgsfield: quả cầu lưới quanh 1 "chủ thể" ở giữa, đèn là
+// 1 chấm sáng bấm-kéo được quanh bề mặt quả cầu (toạ độ cầu: azimuth ngang quanh trục Y, elevation
+// cao/thấp). Dùng chung kỹ thuật Three.js thuần (renderer/scene/camera dựng tay trong useEffect, kéo
+// bằng pointer events) đã có sẵn ở components/MannequinPreviewCard.tsx — không thêm thư viện mới
+// (three đã là dependency có sẵn). Chỉ làm 1 đèn (bỏ "+ Thêm ánh sáng" nhiều đèn và "Lưu dưới dạng cài
+// đặt sẵn" lưu DB riêng — 2 việc đó để đợt sau nếu cần).
+
+export type LightSettings = {
+  azimuth: number; // radian quanh trục Y — 0 = trước mặt, dương = quay phải
+  elevation: number; // radian lên/xuống — 0 = ngang tầm mắt, +PI/2 = đỉnh đầu, -PI/2 = đáy
+  color: string; // hex, vd "#ffffff"
+  brightness: number; // 0-100
+  spread: number; // 0-100
+};
+
+export const DEFAULT_LIGHT_SETTINGS: LightSettings = { azimuth: 0, elevation: 0, color: "#ffffff", brightness: 50, spread: 50 };
+
+export const LIGHT_QUICK_POSITIONS: { key: string; label: string; azimuth: number; elevation: number }[] = [
+  { key: "dung-dau", label: "Đứng đầu", azimuth: 0, elevation: Math.PI / 2 - 0.05 },
+  { key: "dang-truoc", label: "Đằng trước", azimuth: 0, elevation: 0 },
+  { key: "phai", label: "Phải", azimuth: Math.PI / 2, elevation: 0 },
+  { key: "ben-trai", label: "Bên trái", azimuth: -Math.PI / 2, elevation: 0 },
+  { key: "mat-sau", label: "Mặt sau", azimuth: Math.PI, elevation: 0 },
+  { key: "day", label: "Đáy", azimuth: 0, elevation: -Math.PI / 2 + 0.05 },
+];
+
+// Góc gần nhất trong 6 hướng "Chọn nhanh" — dùng để (1) tô sáng đúng nút khi kéo tay tới gần 1 hướng,
+// (2) viết guidance text mô tả hướng sáng bằng tiếng Việt lúc submit (xem app/video-tu-y-tuong/page.tsx).
+export function nearestLightQuickPosition(azimuth: number, elevation: number): (typeof LIGHT_QUICK_POSITIONS)[number] {
+  let best = LIGHT_QUICK_POSITIONS[0];
+  let bestDist = Infinity;
+  for (const p of LIGHT_QUICK_POSITIONS) {
+    let da = (azimuth - p.azimuth) % (Math.PI * 2);
+    if (da > Math.PI) da -= Math.PI * 2;
+    if (da <= -Math.PI) da += Math.PI * 2;
+    const de = elevation - p.elevation;
+    const dist = da * da + de * de;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = p;
+    }
+  }
+  return best;
+}
+
+function sphericalToPosition(azimuth: number, elevation: number, radius: number): THREE.Vector3 {
+  const y = radius * Math.sin(elevation);
+  const r = radius * Math.cos(elevation);
+  const x = r * Math.sin(azimuth);
+  const z = r * Math.cos(azimuth);
+  return new THREE.Vector3(x, y, z);
+}
+
+function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange: (v: LightSettings) => void }) {
+  const mountRef = useRef<HTMLDivElement | null>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const lightDotRef = useRef<THREE.Mesh | null>(null);
+  const lightHaloRef = useRef<THREE.Mesh | null>(null);
+  const dragRef = useRef<{ dragging: boolean; startX: number; startY: number; startAz: number; startEl: number }>({
+    dragging: false,
+    startX: 0,
+    startY: 0,
+    startAz: 0,
+    startEl: 0,
+  });
+  const valueRef = useRef(value);
+  valueRef.current = value;
+
+  useEffect(() => {
+    const mount = mountRef.current;
+    if (!mount) return;
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setClearColor(0x000000, 0);
+    mount.appendChild(renderer.domElement);
+    rendererRef.current = renderer;
+
+    const scene = new THREE.Scene();
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    dirLight.position.set(1, 2, 3);
+    scene.add(dirLight);
+
+    const radius = 2.5;
+    const wireframe = new THREE.Mesh(
+      new THREE.SphereGeometry(radius, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0x52525b, wireframe: true, transparent: true, opacity: 0.5 })
+    );
+    scene.add(wireframe);
+
+    // Chủ thể chung chung ở giữa (không phải mannequin thật) — hình khối dẹt kiểu thiết bị, đặt đúng
+    // vị trí/tỉ lệ đã tính sẵn giống Higgsfield, chỉ để hình dung hướng sáng, không đại diện nhân vật.
+    const subject = new THREE.Mesh(
+      new THREE.BoxGeometry(1.1, 1.6, 0.25),
+      new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.6, metalness: 0.3 })
+    );
+    scene.add(subject);
+
+    const lightDot = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 12), new THREE.MeshBasicMaterial({ color: value.color }));
+    scene.add(lightDot);
+    lightDotRef.current = lightDot;
+
+    const lightHalo = new THREE.Mesh(
+      new THREE.SphereGeometry(0.3, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0xa3e635, transparent: true, opacity: 0.35 })
+    );
+    scene.add(lightHalo);
+    lightHaloRef.current = lightHalo;
+
+    const pos = sphericalToPosition(value.azimuth, value.elevation, radius);
+    lightDot.position.copy(pos);
+    lightHalo.position.copy(pos);
+
+    const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
+    camera.position.set(0, 1, 6.5);
+    camera.lookAt(0, 0, 0);
+    cameraRef.current = camera;
+    sceneRef.current = scene;
+
+    const resize = () => {
+      const w = mount.clientWidth || 1;
+      const h = mount.clientHeight || 1;
+      renderer.setSize(w, h);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.render(scene, camera);
+    };
+    const ro = new ResizeObserver(resize);
+    ro.observe(mount);
+    resize();
+
+    return () => {
+      ro.disconnect();
+      renderer.dispose();
+      mount.removeChild(renderer.domElement);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Đổi màu/áp vị trí mới khi value đổi từ bên ngoài (vd bấm nút "Chọn nhanh").
+  useEffect(() => {
+    if (!lightDotRef.current || !lightHaloRef.current || !sceneRef.current || !cameraRef.current || !rendererRef.current) return;
+    const pos = sphericalToPosition(value.azimuth, value.elevation, 2.5);
+    lightDotRef.current.position.copy(pos);
+    lightHaloRef.current.position.copy(pos);
+    (lightDotRef.current.material as THREE.MeshBasicMaterial).color.set(value.color);
+    rendererRef.current.render(sceneRef.current, cameraRef.current);
+  }, [value.azimuth, value.elevation, value.color]);
+
+  function render() {
+    if (sceneRef.current && cameraRef.current && rendererRef.current) {
+      rendererRef.current.render(sceneRef.current, cameraRef.current);
+    }
+  }
+
+  function handlePointerDown(e: React.PointerEvent) {
+    (e.target as Element).setPointerCapture(e.pointerId);
+    dragRef.current = { dragging: true, startX: e.clientX, startY: e.clientY, startAz: valueRef.current.azimuth, startEl: valueRef.current.elevation };
+  }
+  function handlePointerMove(e: React.PointerEvent) {
+    if (!dragRef.current.dragging) return;
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    const nextAz = dragRef.current.startAz + dx * 0.012;
+    const elevLimit = Math.PI / 2 - 0.05;
+    const nextEl = Math.max(-elevLimit, Math.min(elevLimit, dragRef.current.startEl - dy * 0.012));
+    const next = { ...valueRef.current, azimuth: nextAz, elevation: nextEl };
+    if (lightDotRef.current && lightHaloRef.current) {
+      const pos = sphericalToPosition(nextAz, nextEl, 2.5);
+      lightDotRef.current.position.copy(pos);
+      lightHaloRef.current.position.copy(pos);
+      render();
+    }
+    onChange(next);
+  }
+  function handlePointerUp() {
+    dragRef.current.dragging = false;
+  }
+
+  return (
+    <div
+      ref={mountRef}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      className="h-full w-full cursor-grab touch-none active:cursor-grabbing"
+    />
+  );
+}
+
+export function LightSphereModal({
+  initial,
+  onClose,
+  onApply,
+}: {
+  initial: LightSettings | null;
+  onClose: () => void;
+  onApply: (settings: LightSettings) => void;
+}) {
+  const [value, setValue] = useState<LightSettings>(initial ?? DEFAULT_LIGHT_SETTINGS);
+  const nearest = nearestLightQuickPosition(value.azimuth, value.elevation);
+
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div
+        className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 text-zinc-100 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
+          <h3 className="text-base font-semibold">Thiết lập ánh sáng mới</h3>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setValue(DEFAULT_LIGHT_SETTINGS)}
+              className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800"
+            >
+              Đặt lại tất cả
+            </button>
+            <button onClick={onClose} className="rounded-full p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100">
+              ✕
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 border-b border-zinc-800 px-5 py-3">
+          <span className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-semibold">Đèn 1</span>
+          <button type="button" disabled title="Sắp ra mắt — hiện chỉ hỗ trợ 1 đèn" className="flex items-center gap-1 px-2 text-xs text-zinc-600">
+            + Thêm ánh sáng
+          </button>
+        </div>
+
+        <div className="grid flex-1 grid-cols-1 gap-4 overflow-y-auto p-5 md:grid-cols-[200px_1fr_180px]">
+          <div className="space-y-3">
+            <p className="text-xs font-medium text-zinc-500">Đèn 1</p>
+            <label className="flex items-center justify-between rounded-lg bg-zinc-900 px-3 py-2 text-xs">
+              <span className="text-zinc-500">Màu sắc</span>
+              <span className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={value.color}
+                  onChange={(e) => setValue((v) => ({ ...v, color: e.target.value }))}
+                  className="h-5 w-5 cursor-pointer rounded-full border-0 bg-transparent p-0"
+                />
+                <span className="font-mono text-zinc-300">{value.color.toUpperCase()}</span>
+              </span>
+            </label>
+            <label className="block rounded-lg bg-zinc-900 px-3 py-2 text-xs">
+              <span className="mb-1 flex items-center justify-between text-zinc-500">
+                Độ sáng <span className="text-zinc-300">{value.brightness}%</span>
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={value.brightness}
+                onChange={(e) => setValue((v) => ({ ...v, brightness: Number(e.target.value) }))}
+                className="w-full accent-lime-400"
+              />
+            </label>
+            <label className="block rounded-lg bg-zinc-900 px-3 py-2 text-xs">
+              <span className="mb-1 flex items-center justify-between text-zinc-500">
+                Lan toả <span className="text-zinc-300">{value.spread}%</span>
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={value.spread}
+                onChange={(e) => setValue((v) => ({ ...v, spread: Number(e.target.value) }))}
+                className="w-full accent-lime-400"
+              />
+            </label>
+          </div>
+
+          <div className="min-h-[280px] rounded-xl bg-zinc-900/40">
+            <LightSphereCanvas value={value} onChange={setValue} />
+          </div>
+
+          <div>
+            <p className="mb-2 text-xs font-medium text-zinc-500">Chọn nhanh</p>
+            <div className="grid grid-cols-2 gap-2">
+              {LIGHT_QUICK_POSITIONS.map((p) => (
+                <button
+                  key={p.key}
+                  type="button"
+                  onClick={() => setValue((v) => ({ ...v, azimuth: p.azimuth, elevation: p.elevation }))}
+                  className={`rounded-full px-3 py-2 text-xs font-medium ${
+                    nearest.key === p.key ? "border-2 border-white bg-zinc-900 text-white" : "border-2 border-transparent bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-center gap-3 border-t border-zinc-800 px-5 py-4">
+          <button
+            type="button"
+            onClick={() => {
+              onApply(value);
+              onClose();
+            }}
+            className="rounded-full bg-lime-400 px-6 py-2 text-sm font-semibold text-zinc-900 hover:bg-lime-300"
+          >
+            Áp dụng
+          </button>
+          <button
+            type="button"
+            disabled
+            title="Sắp ra mắt"
+            className="rounded-full bg-zinc-900 px-6 py-2 text-sm font-medium text-zinc-600"
+          >
+            Lưu dưới dạng cài đặt sẵn
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
