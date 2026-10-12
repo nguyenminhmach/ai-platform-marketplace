@@ -2685,6 +2685,7 @@ export default function VideoTuYTuongPage() {
           uploadImage={uploadOutfitSwapImage}
           onAddImages={(urls) => setPromptImages((prev) => [...prev, ...urls])}
           onInsertMention={pickerModal.forMention ? insertMentionAtCursor : undefined}
+          selectedUrls={promptImages}
         />
       )}
     </div>

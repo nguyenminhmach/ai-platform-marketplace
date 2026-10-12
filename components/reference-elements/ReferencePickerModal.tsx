@@ -24,6 +24,7 @@ export function ReferencePickerModal({
   uploadImage,
   onAddImages,
   onInsertMention,
+  selectedUrls = [],
 }: {
   defaultTab: TabKey;
   onClose: () => void;
@@ -31,6 +32,10 @@ export function ReferencePickerModal({
   uploadImage: (dataUrl: string) => Promise<string>;
   onAddImages: (urls: string[]) => void;
   onInsertMention?: (elementId: string) => void;
+  // Ảnh đang gắn sẵn vào prompt (promptImages ở trang cha) — dùng để tô dấu "✓ đã thêm" đúng ảnh,
+  // KHÔNG dùng để tự động gắn gì cả (xem handleFiles: tải ảnh lên chỉ lưu vào thư viện "Tải lên",
+  // phải bấm chọn đúng ảnh đó thì mới gắn vào prompt).
+  selectedUrls?: string[];
 }) {
   const [tab, setTab] = useState<TabKey>(defaultTab);
 
@@ -65,8 +70,9 @@ export function ReferencePickerModal({
       setUploads((prev) => [...prev, { dataUrl: compact, uploading: true }]);
       try {
         const url = await uploadImage(compact);
+        // Chỉ lưu vào thư viện "Tải lên" — KHÔNG tự gắn vào prompt, khách phải bấm chọn đúng ảnh đó
+        // (xem nút chọn trong lưới bên dưới) thì ảnh mới thêm vào prompt.
         setUploads((prev) => prev.map((u) => (u.dataUrl === compact ? { ...u, uploading: false, url } : u)));
-        onAddImages([url]);
         fetch("/api/prompt-uploads", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -164,7 +170,9 @@ export function ReferencePickerModal({
                 handleFiles(e.dataTransfer.files);
               }}
             >
-              <p className="mb-3 text-xs text-zinc-500">Tối đa {MAX_UPLOAD_PER_SESSION} ảnh/lượt tải — bấm vào ảnh để xem cỡ lớn.</p>
+              <p className="mb-3 text-xs text-zinc-500">
+                Tối đa {MAX_UPLOAD_PER_SESSION} ảnh/lượt tải — bấm vào ảnh để chọn làm ảnh tham chiếu.
+              </p>
               <div
                 className={`grid grid-cols-6 gap-2 overflow-x-auto pb-2 ${dragOver ? "opacity-70" : ""}`}
                 style={{ gridAutoFlow: uploads.length > 11 ? "column" : "row", gridTemplateRows: uploads.length > 11 ? "repeat(2, minmax(0,1fr))" : undefined }}
@@ -178,30 +186,51 @@ export function ReferencePickerModal({
                   <span className="text-2xl">☁️</span>
                   <span className="px-2 text-center text-[11px] font-medium leading-tight">Tải lên phương tiện</span>
                 </button>
-                {uploads.map((u, i) => (
-                  <button
-                    type="button"
-                    key={i}
-                    onClick={() => setZoomed(u.dataUrl)}
-                    className="relative aspect-square overflow-hidden rounded-xl border border-zinc-800"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={u.dataUrl} alt="" className="h-full w-full object-cover" />
-                    {u.uploading && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-[10px] text-white">Đang tải...</div>
-                    )}
-                    {u.error && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-red-950/70 p-1 text-center text-[9px] text-red-200">
-                        {u.error}
-                      </div>
-                    )}
-                    {u.url && !u.uploading && (
-                      <span className="absolute right-1 top-1 rounded-full bg-emerald-500 px-1.5 py-0.5 text-[9px] font-semibold text-white">
-                        ✓ đã thêm
-                      </span>
-                    )}
-                  </button>
-                ))}
+                {uploads.map((u, i) => {
+                  const added = !!u.url && selectedUrls.includes(u.url);
+                  return (
+                    <button
+                      type="button"
+                      key={i}
+                      disabled={!u.url || u.uploading}
+                      onClick={() => {
+                        if (!u.url) return;
+                        onAddImages([u.url]);
+                        onInsertMention && onClose();
+                      }}
+                      className="group relative aspect-square overflow-hidden rounded-xl border border-zinc-800 disabled:cursor-not-allowed"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={u.dataUrl} alt="" className="h-full w-full object-cover" />
+                      {u.uploading && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-[10px] text-white">Đang tải...</div>
+                      )}
+                      {u.error && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-red-950/70 p-1 text-center text-[9px] text-red-200">
+                          {u.error}
+                        </div>
+                      )}
+                      {added && (
+                        <span className="absolute right-1 top-1 rounded-full bg-emerald-500 px-1.5 py-0.5 text-[9px] font-semibold text-white">
+                          ✓ đã thêm
+                        </span>
+                      )}
+                      {u.url && !u.uploading && (
+                        <span
+                          role="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setZoomed(u.dataUrl);
+                          }}
+                          title="Xem cỡ lớn"
+                          className="absolute bottom-1 right-1 hidden rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white group-hover:block"
+                        >
+                          🔍
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
               <input
                 ref={fileInputRef}
