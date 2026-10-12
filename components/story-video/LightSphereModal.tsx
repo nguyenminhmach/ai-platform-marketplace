@@ -110,7 +110,7 @@ function createBeamCone(apex: THREE.Vector3, target: THREE.Vector3, baseRadius: 
   const material = new THREE.MeshBasicMaterial({
     color,
     transparent: true,
-    opacity: 0.16,
+    opacity: 0.07,
     side: THREE.DoubleSide,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
