@@ -56,6 +56,21 @@ function sphericalToPosition(azimuth: number, elevation: number, radius: number)
   return new THREE.Vector3(x, y, z);
 }
 
+// 1 vòng tròn (không phải cả lưới quả cầu dày đặc) — "axis" quyết định mặt phẳng: "horizontal" = quỹ
+// đạo ngang (đổi azimuth, elevation=0), "vertical" = quỹ đạo đứng trước-sau (đổi elevation, azimuth=0)
+// — đúng 2 trục đèn di chuyển trên đó, khớp ảnh tham khảo (bỏ lưới kinh/vĩ tuyến chằng chịt).
+function createAxisRing(radius: number, axis: "horizontal" | "vertical", color: number): THREE.LineLoop {
+  const segments = 64;
+  const points: THREE.Vector3[] = [];
+  for (let i = 0; i < segments; i++) {
+    const t = (i / segments) * Math.PI * 2;
+    points.push(axis === "horizontal" ? new THREE.Vector3(radius * Math.sin(t), 0, radius * Math.cos(t)) : new THREE.Vector3(0, radius * Math.sin(t), radius * Math.cos(t)));
+  }
+  const geometry = new THREE.BufferGeometry().setFromPoints(points);
+  const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.6 });
+  return new THREE.LineLoop(geometry, material);
+}
+
 function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange: (v: LightSettings) => void }) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -98,11 +113,8 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     scene.add(fillLight);
 
     const radius = 2.5;
-    const wireframe = new THREE.Mesh(
-      new THREE.SphereGeometry(radius, 16, 12),
-      new THREE.MeshBasicMaterial({ color: 0x71717a, wireframe: true, transparent: true, opacity: 0.45 })
-    );
-    scene.add(wireframe);
+    scene.add(createAxisRing(radius, "horizontal", 0x71717a));
+    scene.add(createAxisRing(radius, "vertical", 0x71717a));
 
     // Chủ thể chung chung ở giữa (không phải mannequin thật) — hình khối dẹt kiểu thiết bị, ĐỨNG YÊN
     // cố định (chỉ ĐÈN xoay quanh nó, khác tính năng mannequin cho xoay NHÂN VẬT) — chỉ để hình dung
