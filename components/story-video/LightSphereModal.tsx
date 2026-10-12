@@ -83,23 +83,27 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     rendererRef.current = renderer;
 
     const scene = new THREE.Scene();
-    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.1);
     dirLight.position.set(1, 2, 3);
     scene.add(dirLight);
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.5);
+    fillLight.position.set(-2, 0.5, 2);
+    scene.add(fillLight);
 
     const radius = 2.5;
     const wireframe = new THREE.Mesh(
       new THREE.SphereGeometry(radius, 16, 12),
-      new THREE.MeshBasicMaterial({ color: 0x52525b, wireframe: true, transparent: true, opacity: 0.5 })
+      new THREE.MeshBasicMaterial({ color: 0x71717a, wireframe: true, transparent: true, opacity: 0.45 })
     );
     scene.add(wireframe);
 
-    // Chủ thể chung chung ở giữa (không phải mannequin thật) — hình khối dẹt kiểu thiết bị, đặt đúng
-    // vị trí/tỉ lệ đã tính sẵn giống Higgsfield, chỉ để hình dung hướng sáng, không đại diện nhân vật.
+    // Chủ thể chung chung ở giữa (không phải mannequin thật) — hình khối dẹt kiểu thiết bị, ĐỨNG YÊN
+    // cố định (chỉ ĐÈN xoay quanh nó, khác tính năng mannequin cho xoay NHÂN VẬT) — chỉ để hình dung
+    // hướng sáng, không đại diện nhân vật. Màu xám sáng + 2 nguồn sáng để rõ hình khối trên nền tối.
     const subject = new THREE.Mesh(
-      new THREE.BoxGeometry(1.1, 1.6, 0.25),
-      new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.6, metalness: 0.3 })
+      new THREE.BoxGeometry(1.3, 1.9, 0.3),
+      new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.5, metalness: 0.2 })
     );
     scene.add(subject);
 
