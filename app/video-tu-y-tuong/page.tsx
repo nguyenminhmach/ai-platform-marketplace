@@ -2263,6 +2263,20 @@ export default function VideoTuYTuongPage() {
       ),
     },
     {
+      key: "phim-35mm",
+      label: "Phim 35mm",
+      guidance:
+        "quay bằng máy phim 35mm chuẩn điện ảnh, hạt phim tinh tế, màu sắc ấm tự nhiên, độ tương phản đặc trưng của phim nhựa — sắc nét và chuyên nghiệp hơn hẳn phim 8mm nghiệp dư",
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-7 w-7">
+          <rect x="3" y="8" width="18" height="11" rx="2" />
+          <path d="M8 8l1.5-3h5L16 8" />
+          <circle cx="12" cy="13.5" r="3.5" />
+          <circle cx="18" cy="10.5" r="0.8" fill="currentColor" stroke="none" />
+        </svg>
+      ),
+    },
+    {
       key: "may-quay-dv",
       label: "Máy quay DV",
       guidance: "quay bằng máy quay DV cầm tay kiểu thập niên 2000, chất lượng video thô mộc",
