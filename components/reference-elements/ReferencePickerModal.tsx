@@ -40,6 +40,20 @@ export function ReferencePickerModal({
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Ảnh tải lên qua "+" phải lưu lại thành thư viện (lib/prompt-uploads.ts) thay vì chỉ sống trong
+  // state phiên này — mở modal lần sau (job khác, hoặc quay lại sau khi đóng) vẫn thấy lại được.
+  useEffect(() => {
+    fetch("/api/prompt-uploads")
+      .then((res) => res.json())
+      .then((data) => {
+        if (!Array.isArray(data.uploads)) return;
+        const prior: UploadEntry[] = data.uploads.map((u: { url: string }) => ({ dataUrl: u.url, uploading: false, url: u.url }));
+        setUploads((prev) => [...prior, ...prev]);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
     const remainingSlots = MAX_UPLOAD_PER_SESSION - uploads.length;
@@ -53,6 +67,11 @@ export function ReferencePickerModal({
         const url = await uploadImage(compact);
         setUploads((prev) => prev.map((u) => (u.dataUrl === compact ? { ...u, uploading: false, url } : u)));
         onAddImages([url]);
+        fetch("/api/prompt-uploads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url }),
+        }).catch(() => {});
       } catch (err) {
         setUploads((prev) =>
           prev.map((u) => (u.dataUrl === compact ? { ...u, uploading: false, error: err instanceof Error ? err.message : "Lỗi tải ảnh" } : u))
