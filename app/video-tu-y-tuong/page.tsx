@@ -2403,6 +2403,47 @@ export default function VideoTuYTuongPage() {
     CAMERA_APERTURE_PRESETS.find((p) => p.key === promptCameraAperture)?.label,
   ].filter((l): l is string => !!l);
 
+  // "Cài đặt màu" — cùng cơ chế preset-chung-cho-cả-video như camera: không làm phần editor đầy đủ
+  // của Higgsfield (tạo bảng màu từ ảnh/bánh xe màu tuỳ chỉnh, lưu bảng màu riêng) — chỉ chọn 1 trong
+  // các preset màu có sẵn, ghép guidance vào storyDescription lúc submit, không cần DB mới.
+  const [colorModalOpen, setColorModalOpen] = useState(false);
+  const [promptColorPalette, setPromptColorPalette] = useState<string | null>(null);
+
+  type ColorPreset = { key: string; label: string; guidance: string; swatches: string[] };
+
+  const COLOR_PALETTE_PRESETS: ColorPreset[] = [
+    {
+      key: "am-ap-hoai-co",
+      label: "Ấm áp hoài cổ",
+      guidance: "tông màu ấm áp hoài cổ, cam-vàng chủ đạo, cảm giác hoài niệm",
+      swatches: ["#D97A3D", "#E8B45C", "#8B4A2B"],
+    },
+    {
+      key: "lanh-dien-anh",
+      label: "Lạnh điện ảnh",
+      guidance: "tông màu lạnh điện ảnh, xanh dương-xanh lục (teal-orange) chuyên nghiệp",
+      swatches: ["#2A6F7A", "#1B3A4B", "#4FA3B0"],
+    },
+    {
+      key: "den-trang-co-dien",
+      label: "Đen trắng cổ điển",
+      guidance: "hình ảnh đen trắng cổ điển, tương phản rõ, không màu",
+      swatches: ["#1a1a1a", "#808080", "#e5e5e5"],
+    },
+    {
+      key: "pastel-nhe-nhang",
+      label: "Pastel nhẹ nhàng",
+      guidance: "tông màu pastel nhẹ nhàng, sáng dịu, bão hoà thấp",
+      swatches: ["#F2C6C6", "#C6E2F2", "#D6C6F2"],
+    },
+    {
+      key: "ruc-ro-tuong-phan",
+      label: "Rực rỡ tương phản cao",
+      guidance: "màu sắc rực rỡ, bão hoà cao, tương phản mạnh, nổi bật",
+      swatches: ["#E8294B", "#2BD4C4", "#F2C12E"],
+    },
+  ];
+
   // Chèn "@element_id " vào đúng vị trí con trỏ trong ô "viết prompt" — mục 8 trong spec (gõ "@" chèn
   // thẳng @mention, không chỉ chọn ảnh rời). Dùng lại state `input` đã có sẵn (prompt truyện).
   function insertMentionAtCursor(elementId: string) {
@@ -2491,8 +2532,10 @@ export default function VideoTuYTuongPage() {
         CAMERA_LENS_PRESETS.find((p) => p.key === promptCameraLens)?.guidance,
         CAMERA_APERTURE_PRESETS.find((p) => p.key === promptCameraAperture)?.guidance,
       ].filter((n): n is string => !!n);
-      const storyDescription =
-        cameraNotes.length > 0 ? `${mentionStrippedText}\n\n(Phong cách máy quay: ${cameraNotes.join(", ")}.)` : mentionStrippedText;
+      const colorNote = COLOR_PALETTE_PRESETS.find((p) => p.key === promptColorPalette)?.guidance;
+      let storyDescription = mentionStrippedText;
+      if (cameraNotes.length > 0) storyDescription += `\n\n(Phong cách máy quay: ${cameraNotes.join(", ")}.)`;
+      if (colorNote) storyDescription += `\n\n(Phong cách màu sắc: ${colorNote}.)`;
 
       // 3) Upload ảnh "+"-tải thêm trong session này (còn đang là data URL, chưa có URL thật).
       const uploadedPromptImages = await Promise.all(
@@ -2652,8 +2695,8 @@ export default function VideoTuYTuongPage() {
           <h1 className="mb-6 text-center text-3xl font-bold text-white sm:text-4xl">Không gian cho mọi ý tưởng</h1>
 
           {/* Preset chips — "tài liệu tham khảo" mở modal chọn ảnh tham chiếu, "cài đặt camera" mở
-              bảng Máy ảnh/Thấu kính/Khẩu độ. 2 chip còn lại (thiết lập phim tự động/bảng màu tự động)
-              vẫn là placeholder, chưa làm ở đợt này. */}
+              bảng Máy ảnh/Thấu kính/Khẩu độ, "cài đặt màu" mở bảng chọn tông màu. 2 chip còn lại
+              (thiết lập phim tự động/ánh sáng tự động) vẫn là placeholder, chưa làm ở đợt này. */}
           <div className="mb-6 flex flex-wrap justify-center gap-2">
             <button
               type="button"
@@ -2687,7 +2730,35 @@ export default function VideoTuYTuongPage() {
               </span>
             </button>
 
-            {["thiết lập phim tự động", "bảng màu tự động", "ánh sáng tự động"].map((label) => (
+            {/* Chip "cài đặt màu" — cùng hình thức chip camera: ô swatch 3 màu + "Bảng màu" mờ trên,
+                tên preset đã chọn hiện rõ/đậm phía dưới. */}
+            <button
+              type="button"
+              onClick={() => setColorModalOpen(true)}
+              className="flex items-center gap-2 rounded-full bg-zinc-900 py-1.5 pl-1.5 pr-4 text-left hover:bg-zinc-800"
+            >
+              <span className="grid h-7 w-7 shrink-0 grid-cols-2 gap-0.5 overflow-hidden rounded-full">
+                {(() => {
+                  const active = COLOR_PALETTE_PRESETS.find((p) => p.key === promptColorPalette);
+                  const colors = active ? active.swatches : ["#52525b", "#71717a", "#3f3f46"];
+                  return (
+                    <>
+                      <span style={{ background: colors[0] }} />
+                      <span style={{ background: colors[1] ?? colors[0] }} />
+                      <span className="col-span-2" style={{ background: colors[2] ?? colors[0] }} />
+                    </>
+                  );
+                })()}
+              </span>
+              <span className="flex flex-col leading-tight">
+                <span className="text-[10px] text-zinc-500">Bảng màu</span>
+                <span className="max-w-[160px] truncate text-xs font-semibold text-zinc-100">
+                  {COLOR_PALETTE_PRESETS.find((p) => p.key === promptColorPalette)?.label ?? "Tự động"}
+                </span>
+              </span>
+            </button>
+
+            {["thiết lập phim tự động", "ánh sáng tự động"].map((label) => (
               <button
                 key={label}
                 type="button"
@@ -2975,6 +3046,62 @@ export default function VideoTuYTuongPage() {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {colorModalOpen && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setColorModalOpen(false)}
+        >
+          <div
+            className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 text-zinc-100 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
+              <h3 className="text-base font-semibold">Bảng màu</h3>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setPromptColorPalette(null)}
+                  className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800"
+                >
+                  Đặt lại
+                </button>
+                <button
+                  onClick={() => setColorModalOpen(false)}
+                  className="rounded-full p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 overflow-y-auto p-5 sm:grid-cols-3">
+              {COLOR_PALETTE_PRESETS.map((p) => {
+                const isSelected = promptColorPalette === p.key;
+                return (
+                  <button
+                    key={p.key}
+                    type="button"
+                    onClick={() => setPromptColorPalette(isSelected ? null : p.key)}
+                    className={`flex flex-col items-center gap-2 rounded-2xl border-2 p-3 ${
+                      isSelected ? "border-white bg-zinc-900" : "border-transparent bg-zinc-900/60 hover:bg-zinc-900"
+                    }`}
+                  >
+                    <span className="flex h-12 w-full overflow-hidden rounded-lg">
+                      {p.swatches.map((c, i) => (
+                        <span key={i} className="h-full flex-1" style={{ background: c }} />
+                      ))}
+                    </span>
+                    <span className={`text-center text-xs font-medium leading-tight ${isSelected ? "text-white" : "text-zinc-400"}`}>
+                      {p.label}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
