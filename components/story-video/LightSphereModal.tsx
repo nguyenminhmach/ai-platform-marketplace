@@ -56,19 +56,75 @@ function sphericalToPosition(azimuth: number, elevation: number, radius: number)
   return new THREE.Vector3(x, y, z);
 }
 
-// 1 vòng tròn (không phải cả lưới quả cầu dày đặc) — "axis" quyết định mặt phẳng: "horizontal" = quỹ
-// đạo ngang (đổi azimuth, elevation=0), "vertical" = quỹ đạo đứng trước-sau (đổi elevation, azimuth=0)
-// — đúng 2 trục đèn di chuyển trên đó, khớp ảnh tham khảo (bỏ lưới kinh/vĩ tuyến chằng chịt).
-function createAxisRing(radius: number, axis: "horizontal" | "vertical", color: number): THREE.LineLoop {
+// Vòng ĐỨNG — CỐ ĐỊNH, không bao giờ xoay/đổi — chỉ là "đường ray" tham chiếu cho trục lên/xuống,
+// luôn nằm ở mặt phẳng YZ (qua 2 cực + mặt trước/sau), bán kính đầy đủ.
+function createFixedVerticalRing(radius: number, color: number): THREE.LineLoop {
   const segments = 64;
   const points: THREE.Vector3[] = [];
   for (let i = 0; i < segments; i++) {
     const t = (i / segments) * Math.PI * 2;
-    points.push(axis === "horizontal" ? new THREE.Vector3(radius * Math.sin(t), 0, radius * Math.cos(t)) : new THREE.Vector3(0, radius * Math.sin(t), radius * Math.cos(t)));
+    points.push(new THREE.Vector3(0, radius * Math.sin(t), radius * Math.cos(t)));
   }
   const geometry = new THREE.BufferGeometry().setFromPoints(points);
-  const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.6 });
-  return new THREE.LineLoop(geometry, material);
+  return new THREE.LineLoop(geometry, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.6 }));
+}
+
+// Vòng NGANG — đây mới là vòng THỰC SỰ CHUYỂN ĐỘNG: trượt lên/xuống dọc vòng đứng cố định theo đúng
+// elevation hiện tại (thu nhỏ bán kính dần khi tới gần 2 cực, như 1 vòng vĩ tuyến trên địa cầu) — đèn
+// nằm TRÊN vòng này, di chuyển dọc nó khi đổi azimuth. Đây đúng cơ chế anh mô tả: "đèn gắn trên vòng
+// ngang, vòng ngang trượt trên vòng đứng" — KHÔNG phải vòng ngang cố định như bản trước.
+function horizontalRingPoints(radius: number, elevation: number): THREE.Vector3[] {
+  const segments = 64;
+  const y = radius * Math.sin(elevation);
+  const r = radius * Math.cos(elevation);
+  const points: THREE.Vector3[] = [];
+  for (let i = 0; i < segments; i++) {
+    const t = (i / segments) * Math.PI * 2;
+    points.push(new THREE.Vector3(r * Math.sin(t), y, r * Math.cos(t)));
+  }
+  return points;
+}
+function createSlidingHorizontalRing(radius: number, elevation: number, color: number): THREE.LineLoop {
+  const geometry = new THREE.BufferGeometry().setFromPoints(horizontalRingPoints(radius, elevation));
+  return new THREE.LineLoop(geometry, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.6 }));
+}
+function updateSlidingHorizontalRing(ring: THREE.LineLoop, radius: number, elevation: number) {
+  ring.geometry.dispose();
+  ring.geometry = new THREE.BufferGeometry().setFromPoints(horizontalRingPoints(radius, elevation));
+}
+
+// "Luồng sáng" nhìn thấy được từ đèn chiếu vào vật thể — hình nón mờ, đỉnh nhọn tại vị trí đèn, loe
+// rộng dần về phía chủ thể (độ loe theo "Lan toả"), dùng additive blending để trông như ánh sáng thật
+// thay vì 1 khối đặc. Tách biệt với simLight (đèn Three.js thật làm sáng/tối bề mặt chủ thể) — cone
+// này CHỈ để mắt thường thấy "có luồng sáng đi từ đèn vào không gian", không ảnh hưởng tới shading.
+function createBeamCone(apex: THREE.Vector3, target: THREE.Vector3, baseRadius: number, color: THREE.ColorRepresentation): THREE.Mesh {
+  const dir = new THREE.Vector3().subVectors(target, apex);
+  const length = Math.max(dir.length(), 0.001);
+  const geometry = new THREE.ConeGeometry(baseRadius, length, 24, 1, true);
+  geometry.translate(0, -length / 2, 0); // đỉnh nón về gốc cục bộ (0,0,0), đáy loe ở (0,-length,0)
+  const material = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0.16,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), dir.clone().normalize());
+  mesh.position.copy(apex);
+  return mesh;
+}
+function updateBeamCone(mesh: THREE.Mesh, apex: THREE.Vector3, target: THREE.Vector3, baseRadius: number, color: THREE.ColorRepresentation) {
+  const dir = new THREE.Vector3().subVectors(target, apex);
+  const length = Math.max(dir.length(), 0.001);
+  mesh.geometry.dispose();
+  const geometry = new THREE.ConeGeometry(baseRadius, length, 24, 1, true);
+  geometry.translate(0, -length / 2, 0);
+  mesh.geometry = geometry;
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), dir.clone().normalize());
+  mesh.position.copy(apex);
+  (mesh.material as THREE.MeshBasicMaterial).color.set(color);
 }
 
 function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange: (v: LightSettings) => void }) {
@@ -78,7 +134,8 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const lightDotRef = useRef<THREE.Mesh | null>(null);
   const lightHaloRef = useRef<THREE.Mesh | null>(null);
-  const verticalRingGroupRef = useRef<THREE.Group | null>(null);
+  const horizontalRingRef = useRef<THREE.LineLoop | null>(null);
+  const beamConeRef = useRef<THREE.Mesh | null>(null);
   const simLightRef = useRef<THREE.SpotLight | null>(null);
   const subjectRef = useRef<THREE.Mesh | null>(null);
   const raycasterRef = useRef(new THREE.Raycaster());
@@ -113,16 +170,14 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     scene.add(new THREE.AmbientLight(0xffffff, 0.15));
 
     const radius = 2.5;
-    scene.add(createAxisRing(radius, "horizontal", 0x71717a));
+    // Vòng đứng CỐ ĐỊNH — đường ray tham chiếu, không bao giờ xoay/trượt.
+    scene.add(createFixedVerticalRing(radius, 0x71717a));
 
-    // Vòng đứng đặt trong 1 Group riêng, rotation.y = azimuth hiện tại của đèn — luôn xoay theo để mặt
-    // phẳng vòng đứng đi QUA đúng vị trí đèn đang đứng, đèn trông như thật sự "nằm trên trục" thay vì
-    // trôi tự do khỏi vòng cố định (nguyên nhân khiến cảm giác giả trước đây).
-    const verticalRingGroup = new THREE.Group();
-    verticalRingGroup.add(createAxisRing(radius, "vertical", 0x71717a));
-    verticalRingGroup.rotation.y = value.azimuth;
-    scene.add(verticalRingGroup);
-    verticalRingGroupRef.current = verticalRingGroup;
+    // Vòng ngang TRƯỢT dọc vòng đứng theo elevation hiện tại (thu nhỏ bán kính khi gần cực) — đèn nằm
+    // trên vòng này. Đúng cơ chế: "đèn gắn trên vòng ngang, vòng ngang trượt trên vòng đứng".
+    const horizontalRing = createSlidingHorizontalRing(radius, value.elevation, 0x71717a);
+    scene.add(horizontalRing);
+    horizontalRingRef.current = horizontalRing;
 
     // Chủ thể chung chung ở giữa (không phải mannequin thật) — hình khối dẹt kiểu thiết bị, ĐỨNG YÊN
     // cố định (chỉ ĐÈN xoay quanh nó, khác tính năng mannequin cho xoay NHÂN VẬT) — chỉ để hình dung
@@ -170,6 +225,14 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     scene.add(simLight);
     simLightRef.current = simLight;
 
+    // Luồng sáng NHÌN THẤY ĐƯỢC (cone mờ) từ đèn chiếu vào chủ thể — khác simLight (chỉ làm sáng/tối bề
+    // mặt), cone này mô phỏng chính luồng ánh sáng đi qua không gian, khách thấy ngay "có ánh sáng đang
+    // chiếu" chứ không chỉ suy ra qua bóng đổ trên vật thể.
+    const beamRadius = 0.25 + (value.spread / 100) * 0.9;
+    const beamCone = createBeamCone(pos, new THREE.Vector3(0, 0, 0), beamRadius, value.color);
+    scene.add(beamCone);
+    beamConeRef.current = beamCone;
+
     // FOV 32° + camera cách gốc 6.5 đơn vị: nửa chiều rộng khung hình ở độ sâu z=0 (mặt phẳng chứa
     // "Phải"/"Bên trái", bán kính 2.5) chỉ ~2.65 — SÁT MÉP khung hình (bị cắt/gần như biến mất khi
     // đèn ở đúng 2 vị trí đó). Nới FOV lên 50° + lùi camera xa hơn (8 đơn vị) để toàn bộ 6 vị trí
@@ -201,19 +264,24 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
   }, []);
 
   // Đổi màu/áp vị trí mới khi value đổi từ bên ngoài (vd bấm nút "Chọn nhanh", kéo thanh Độ sáng/Lan
-  // toả) — đồng bộ cả chấm đèn, vòng đứng (xoay theo azimuth) và đèn mô phỏng thật (simLight).
+  // toả) — đồng bộ chấm đèn, vòng ngang (trượt theo elevation), đèn mô phỏng thật (simLight) và cone
+  // luồng sáng nhìn thấy được.
   useEffect(() => {
     if (!lightDotRef.current || !lightHaloRef.current || !sceneRef.current || !cameraRef.current || !rendererRef.current) return;
     const pos = sphericalToPosition(value.azimuth, value.elevation, 2.5);
     lightDotRef.current.position.copy(pos);
     lightHaloRef.current.position.copy(pos);
     (lightDotRef.current.material as THREE.MeshBasicMaterial).color.set(value.color);
-    if (verticalRingGroupRef.current) verticalRingGroupRef.current.rotation.y = value.azimuth;
+    if (horizontalRingRef.current) updateSlidingHorizontalRing(horizontalRingRef.current, 2.5, value.elevation);
     if (simLightRef.current) {
       simLightRef.current.position.copy(pos);
       simLightRef.current.color.set(value.color);
       simLightRef.current.intensity = (value.brightness / 100) * 6;
       simLightRef.current.angle = THREE.MathUtils.degToRad(12 + (value.spread / 100) * 45);
+    }
+    if (beamConeRef.current) {
+      const beamRadius = 0.25 + (value.spread / 100) * 0.9;
+      updateBeamCone(beamConeRef.current, pos, new THREE.Vector3(0, 0, 0), beamRadius, value.color);
     }
     rendererRef.current.render(sceneRef.current, cameraRef.current);
   }, [value.azimuth, value.elevation, value.color, value.brightness, value.spread]);
@@ -269,8 +337,12 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
       const pos = sphericalToPosition(nextAz, nextEl, 2.5);
       lightDotRef.current.position.copy(pos);
       lightHaloRef.current.position.copy(pos);
-      if (verticalRingGroupRef.current) verticalRingGroupRef.current.rotation.y = nextAz;
+      if (horizontalRingRef.current) updateSlidingHorizontalRing(horizontalRingRef.current, 2.5, nextEl);
       if (simLightRef.current) simLightRef.current.position.copy(pos);
+      if (beamConeRef.current) {
+        const beamRadius = 0.25 + (valueRef.current.spread / 100) * 0.9;
+        updateBeamCone(beamConeRef.current, pos, new THREE.Vector3(0, 0, 0), beamRadius, valueRef.current.color);
+      }
       render();
     }
     onChange(next);
