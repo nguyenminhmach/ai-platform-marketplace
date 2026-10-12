@@ -205,7 +205,7 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     // hướng sáng, không đại diện nhân vật.
     const subject = new THREE.Mesh(
       new THREE.BoxGeometry(1.3, 1.9, 0.3),
-      new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.5, metalness: 0.2 })
+      new THREE.MeshStandardMaterial({ color: 0xe4e4e7, roughness: 0.5, metalness: 0.2 })
     );
     scene.add(subject);
     subjectRef.current = subject;
