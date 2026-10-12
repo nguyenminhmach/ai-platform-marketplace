@@ -203,9 +203,14 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     // Chủ thể chung chung ở giữa (không phải mannequin thật) — hình khối dẹt kiểu thiết bị, ĐỨNG YÊN
     // cố định (chỉ ĐÈN xoay quanh nó, khác tính năng mannequin cho xoay NHÂN VẬT) — chỉ để hình dung
     // hướng sáng, không đại diện nhân vật.
+    // Thêm emissive nhẹ (tự phát sáng, KHÔNG phụ thuộc ambient/đèn mô phỏng) — vì ambient trong cảnh
+    // rất thấp (0.025) để làm nổi hiệu ứng luồng sáng, phần khối KHÔNG bị simLight chiếu trực tiếp
+    // trước đây gần như đen tuyệt đối dù màu vật liệu đã sáng (color chỉ phản chiếu ánh sáng CÓ SẴN,
+    // không tự sáng). emissive đảm bảo khối luôn nhìn rõ màu xám sáng ở mọi góc, đèn vẫn làm NỔI BẬT
+    // thêm phần được chiếu trực tiếp (sáng hơn hẳn phần còn lại) chứ không quyết định có thấy khối hay không.
     const subject = new THREE.Mesh(
       new THREE.BoxGeometry(1.3, 1.9, 0.3),
-      new THREE.MeshStandardMaterial({ color: 0xe4e4e7, roughness: 0.5, metalness: 0.2 })
+      new THREE.MeshStandardMaterial({ color: 0xe4e4e7, emissive: 0xe4e4e7, emissiveIntensity: 0.35, roughness: 0.5, metalness: 0.2 })
     );
     scene.add(subject);
     subjectRef.current = subject;
