@@ -343,10 +343,9 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     const dx = e.clientX - dragRef.current.startX;
 
     if (mode === "orbit") {
-      const dy = e.clientY - dragRef.current.startY;
-      const orbitElevLimit = Math.PI / 2 - 0.1;
+      // CHỈ xoay quanh 1 trục đứng (azimuth, theo dx ngang) — không nghiêng lên/xuống (elevation giữ
+      // nguyên cố định), khớp đúng yêu cầu "vật thể chỉ quay quanh 1 trục đứng thôi".
       orbitRef.current.azimuth = dragRef.current.startOrbitAz + dx * 0.012;
-      orbitRef.current.elevation = Math.max(-orbitElevLimit, Math.min(orbitElevLimit, dragRef.current.startOrbitEl + dy * 0.012));
       updateCameraFromOrbit();
       render();
       return;
