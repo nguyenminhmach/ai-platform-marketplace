@@ -63,13 +63,19 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const lightDotRef = useRef<THREE.Mesh | null>(null);
   const lightHaloRef = useRef<THREE.Mesh | null>(null);
-  const dragRef = useRef<{ dragging: boolean; startX: number; startY: number; startAz: number; startEl: number }>({
-    dragging: false,
-    startX: 0,
-    startY: 0,
-    startAz: 0,
-    startEl: 0,
-  });
+  const subjectRef = useRef<THREE.Mesh | null>(null);
+  const raycasterRef = useRef(new THREE.Raycaster());
+  // "light" = kéo di chuyển đèn quanh quả cầu (toạ độ cầu azimuth/elevation); "subject" = kéo XOAY
+  // chủ thể tại chỗ (chỉ rotation.y, giống cách mannequin cho xoay) để xem ánh sáng từ góc khác — bấm
+  // trúng đèn thì kéo đèn, bấm chỗ khác (kể cả trúng chủ thể) thì xoay chủ thể.
+  const dragRef = useRef<{
+    mode: "light" | "subject" | null;
+    startX: number;
+    startY: number;
+    startAz: number;
+    startEl: number;
+    startSubjectRotY: number;
+  }>({ mode: null, startX: 0, startY: 0, startAz: 0, startEl: 0, startSubjectRotY: 0 });
   const valueRef = useRef(value);
   valueRef.current = value;
 
@@ -106,6 +112,7 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
       new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.5, metalness: 0.2 })
     );
     scene.add(subject);
+    subjectRef.current = subject;
 
     const lightDot = new THREE.Mesh(new THREE.SphereGeometry(0.16, 16, 12), new THREE.MeshBasicMaterial({ color: value.color }));
     scene.add(lightDot);
@@ -164,13 +171,42 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     }
   }
 
+  // Bấm trúng đèn (raycast) -> kéo di chuyển đèn; bấm chỗ khác (kể cả trúng chủ thể) -> kéo XOAY chủ
+  // thể tại chỗ để xem ánh sáng từ góc khác, không di chuyển đèn.
   function handlePointerDown(e: React.PointerEvent) {
+    const mount = mountRef.current;
+    if (!mount || !cameraRef.current || !lightDotRef.current) return;
     (e.target as Element).setPointerCapture(e.pointerId);
-    dragRef.current = { dragging: true, startX: e.clientX, startY: e.clientY, startAz: valueRef.current.azimuth, startEl: valueRef.current.elevation };
+
+    const rect = mount.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+    raycasterRef.current.setFromCamera(ndc, cameraRef.current);
+    // Raycast vào đèn VÀ quầng sáng quanh nó (bán kính lớn hơn, dễ bấm trúng hơn vòng lõi nhỏ).
+    const targets = [lightDotRef.current, lightHaloRef.current].filter((o): o is THREE.Mesh => !!o);
+    const hitsLight = raycasterRef.current.intersectObjects(targets, false).length > 0;
+
+    dragRef.current = {
+      mode: hitsLight ? "light" : "subject",
+      startX: e.clientX,
+      startY: e.clientY,
+      startAz: valueRef.current.azimuth,
+      startEl: valueRef.current.elevation,
+      startSubjectRotY: subjectRef.current?.rotation.y ?? 0,
+    };
   }
   function handlePointerMove(e: React.PointerEvent) {
-    if (!dragRef.current.dragging) return;
+    const mode = dragRef.current.mode;
+    if (!mode) return;
     const dx = e.clientX - dragRef.current.startX;
+
+    if (mode === "subject") {
+      if (subjectRef.current) {
+        subjectRef.current.rotation.y = dragRef.current.startSubjectRotY + dx * 0.012;
+        render();
+      }
+      return;
+    }
+
     const dy = e.clientY - dragRef.current.startY;
     const nextAz = dragRef.current.startAz + dx * 0.012;
     const elevLimit = Math.PI / 2 - 0.05;
@@ -185,7 +221,7 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     onChange(next);
   }
   function handlePointerUp() {
-    dragRef.current.dragging = false;
+    dragRef.current.mode = null;
   }
 
   return (
