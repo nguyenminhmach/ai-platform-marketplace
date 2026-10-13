@@ -232,7 +232,10 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
         const targetHeight = 1.9;
         const scale = size.y > 0 ? targetHeight / size.y : 1;
         model.scale.setScalar(scale);
-        model.position.set(-center.x * scale, -center.y * scale - targetHeight / 2 + size.y * scale, -center.z * scale);
+        // Định tâm bounding box của model về ĐÚNG gốc toạ độ (0,0,0) — khớp tâm quả cầu/2 vòng tròn.
+        // (Bug trước: công thức cộng thừa "+ size.y*scale" làm model bị đẩy lệch lên cao ~0.95 đơn vị,
+        // khiến trọng tâm người không đồng tâm với vòng tròn — user phản hồi đúng, đã xác nhận qua ảnh.)
+        model.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
         // Model đứng thẳng mặt hướng +Z như mannequin/khối hộp cũ, không cần xoay thêm (Quaternius rig
         // export sẵn đúng hướng này).
         subject.add(model);
