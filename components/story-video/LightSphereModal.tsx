@@ -533,7 +533,7 @@ export function LightSphereModal({
           </div>
 
           <div
-            className="aspect-square min-h-[380px] w-full rounded-xl"
+            className="aspect-square min-h-[380px] w-full min-w-0 max-w-full rounded-xl"
             style={{ background: "radial-gradient(circle at 50% 50%, #3f3f46 0%, #27272a 55%, #18181b 100%)" }}
           >
             <LightSphereCanvas value={value} onChange={setValue} />
