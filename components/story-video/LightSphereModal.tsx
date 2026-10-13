@@ -186,7 +186,10 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     const y = distance * Math.sin(elevation);
     const r = distance * Math.cos(elevation);
     camera.position.set(r * Math.sin(azimuth), y, r * Math.cos(azimuth));
-    camera.lookAt(0, 0, 0);
+    // Nhắm camera vào điểm HƠI THẤP HƠN tâm thật (0,-0.4,0 thay vì 0,0,0) — đẩy cả vòng tròn + người lên
+    // cao hơn trong khung hình (người phản hồi muốn dịch lên), vì ảnh thấy trống nhiều phía trên, vòng
+    // tròn gần sát mép dưới.
+    camera.lookAt(0, -0.4, 0);
     // Vòng đứng billboard phải xoay mặt theo camera MỖI LẦN camera đổi vị trí (orbit), nếu không nó vẫn
     // giữ hướng facing cũ và lại bị méo như vòng phẳng cố định trước đây.
     if (verticalRingRef.current) verticalRingRef.current.quaternion.copy(camera.quaternion);
