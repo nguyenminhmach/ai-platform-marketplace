@@ -62,14 +62,21 @@ function sphericalToPosition(azimuth: number, elevation: number, radius: number)
   return new THREE.Vector3(x, y, z);
 }
 
-// Vòng ĐỨNG — CỐ ĐỊNH, không bao giờ xoay/đổi — chỉ là "đường ray" tham chiếu cho trục lên/xuống,
-// luôn nằm ở mặt phẳng YZ (qua 2 cực + mặt trước/sau), bán kính đầy đủ.
+// Vòng ĐỨNG — CỐ ĐỊNH (không theo elevation/azimuth của đèn), nhưng giờ là 1 "billboard" LUÔN XOAY
+// MẶT VỀ PHÍA CAMERA (cập nhật quaternion mỗi lần camera đổi vị trí do orbit) thay vì nằm cố định ở
+// mặt phẳng YZ. Lý do đổi: đo bằng toán học phát hiện vòng cũ (phẳng, cố định YZ) bị chiếu méo tỉ lệ
+// cao/rộng tới 2.45:1 ở góc camera mặc định — vì 1 đường tròn PHẲNG nằm đúng mặt phẳng đối xứng người
+// thì góc nhìn càng gần chính diện (để thấy mặt người) càng bị dẹt theo toán chiếu phối cảnh, không
+// có azimuth nào vừa cho người chính diện vừa cho vòng tròn đều — đây là giới hạn hình học, không sửa
+// được bằng cách đổi FOV/khoảng cách. Billboard (luôn vuông góc với tia nhìn) thì LUÔN là hình tròn
+// hoàn hảo trên màn hình bất kể camera ở góc nào, giống hệt viền 1 quả cầu thật nhìn từ bất kỳ đâu.
+// Hình học tạo ở mặt phẳng XY cục bộ (chưa facing), áp dụng quaternion facing camera ở nơi gọi.
 function createFixedVerticalRing(radius: number, color: number): THREE.LineLoop {
   const segments = 64;
   const points: THREE.Vector3[] = [];
   for (let i = 0; i < segments; i++) {
     const t = (i / segments) * Math.PI * 2;
-    points.push(new THREE.Vector3(0, radius * Math.sin(t), radius * Math.cos(t)));
+    points.push(new THREE.Vector3(radius * Math.cos(t), radius * Math.sin(t), 0));
   }
   const geometry = new THREE.BufferGeometry().setFromPoints(points);
   return new THREE.LineLoop(geometry, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.6 }));
@@ -141,6 +148,7 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
   const lightDotRef = useRef<THREE.Mesh | null>(null);
   const lightHaloRef = useRef<THREE.Mesh | null>(null);
   const horizontalRingRef = useRef<THREE.LineLoop | null>(null);
+  const verticalRingRef = useRef<THREE.LineLoop | null>(null);
   const beamConeRef = useRef<THREE.Mesh | null>(null);
   const simLightRef = useRef<THREE.SpotLight | null>(null);
   const subjectRef = useRef<THREE.Group | null>(null);
@@ -167,7 +175,7 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
   // CÓ VẺ xéo/nghiêng (ảo giác thị giác khi nhìn 1 vòng tròn từ góc trên/dưới chéo xuống). elevation=0
   // loại bỏ hẳn ảo giác này — ellipse hiện đối xứng dọc hoàn toàn, vẫn giữ azimuth lệch để tránh vòng
   // đứng nhìn dẹt thành 1 đường thẳng (edge-on) khi camera đúng x=0.
-  const orbitRef = useRef({ azimuth: 0.4127, elevation: 0, distance: 5.4 });
+  const orbitRef = useRef({ azimuth: 0.4127, elevation: 0, distance: 11.4 });
   const valueRef = useRef(value);
   valueRef.current = value;
 
@@ -179,6 +187,9 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     const r = distance * Math.cos(elevation);
     camera.position.set(r * Math.sin(azimuth), y, r * Math.cos(azimuth));
     camera.lookAt(0, 0, 0);
+    // Vòng đứng billboard phải xoay mặt theo camera MỖI LẦN camera đổi vị trí (orbit), nếu không nó vẫn
+    // giữ hướng facing cũ và lại bị méo như vòng phẳng cố định trước đây.
+    if (verticalRingRef.current) verticalRingRef.current.quaternion.copy(camera.quaternion);
   }
 
   useEffect(() => {
@@ -201,8 +212,11 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     scene.add(new THREE.HemisphereLight(0x71717a, 0x09090b, 0.55));
 
     const radius = SPHERE_RADIUS;
-    // Vòng đứng CỐ ĐỊNH — đường ray tham chiếu, không bao giờ xoay/trượt.
-    scene.add(createFixedVerticalRing(radius, 0x71717a));
+    // Vòng đứng — billboard LUÔN quay mặt về camera (xem ghi chú ở createFixedVerticalRing), facing
+    // ban đầu được set ngay sau khi camera khởi tạo xong (gọi updateCameraFromOrbit() bên dưới).
+    const verticalRing = createFixedVerticalRing(radius, 0x71717a);
+    scene.add(verticalRing);
+    verticalRingRef.current = verticalRing;
 
     // Trục tham chiếu DỌC xuyên tâm (từ cực trên xuống cực dưới, đúng trục Y qua gốc toạ độ) — hiện rõ
     // bằng mắt rằng 2 cực của vòng đứng và tâm chủ thể LUÔN thẳng hàng tuyệt đối (đã verify bằng toán
@@ -295,12 +309,15 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     scene.add(beamCone);
     beamConeRef.current = beamCone;
 
-    // FOV 50° + camera cách gốc ~8 đơn vị (giữ nguyên khoảng cách để toàn bộ 6 vị trí "Chọn nhanh" vẫn
-    // nằm thoải mái trong khung, xem ghi chú cũ). QUAN TRỌNG: camera trước đây đặt đúng x=0 — TRÙNG mặt
-    // phẳng chứa vòng đứng cố định (YZ plane) — nên nhìn vòng đứng bị DẸT THÀNH 1 ĐƯỜNG THẲNG (nhìn
-    // ngay cạnh/edge-on), trông như "bị khoá chết" không tròn. Lệch camera sang X>0 (góc 3/4) để NHÌN
-    // CHÉO vào cả 2 vòng, cả 2 đều hiện tròn/elip rõ ràng như ảnh tham khảo.
-    const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+    // FOV hẹp hơn (50 -> 25, kiểu ống kính tele) + camera lùi xa hơn tương ứng (orbitRef.distance tăng
+    // theo) — user phát hiện vòng tròn bị kéo dài/méo dọc so với ảnh tham khảo (tròn đều). Nguyên nhân:
+    // FOV 50° quá rộng kết hợp camera gần (distance=5.4, bán kính=2.2, tỉ lệ ~0.41) gây méo phối cảnh
+    // mạnh (như ảnh mắt cá nhẹ), KHÔNG phải do lệch trục hay sai tỉ lệ khung canvas (đã thử vuông canvas
+    // vẫn không hết méo). Ống kính tele (FOV hẹp + xa) giảm hẳn méo phối cảnh, vòng tròn tròn đều hơn,
+    // trong khi vẫn giữ đúng cỡ người trên màn hình nhờ tăng distance bù lại (xem orbitRef bên dưới).
+    // QUAN TRỌNG: camera không được đặt đúng x=0 — trùng mặt phẳng vòng đứng cố định (YZ plane) — nên
+    // nhìn vòng đứng bị dẹt thành 1 đường thẳng (edge-on); giữ azimuth lệch để nhìn chéo thấy rõ cả 2 vòng.
+    const camera = new THREE.PerspectiveCamera(25, 1, 0.1, 100);
     cameraRef.current = camera;
     updateCameraFromOrbit(); // đặt đúng vị trí ban đầu từ orbitRef (tương đương 3.2, 1.6, 7.3 cũ)
     sceneRef.current = scene;
@@ -527,7 +544,7 @@ export function LightSphereModal({
           </div>
 
           <div
-            className="min-h-[460px] rounded-xl"
+            className="aspect-square min-h-[380px] w-full rounded-xl"
             style={{ background: "radial-gradient(circle at 50% 50%, #3f3f46 0%, #27272a 55%, #18181b 100%)" }}
           >
             <LightSphereCanvas value={value} onChange={setValue} />
