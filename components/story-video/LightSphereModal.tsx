@@ -21,10 +21,10 @@ export type LightSettings = {
 
 export const DEFAULT_LIGHT_SETTINGS: LightSettings = { azimuth: 0, elevation: 0, color: "#ffffff", brightness: 50, spread: 50 };
 
-// Bán kính quả cầu — xem video tham khảo (D:\ánh sáng.mp4): quả cầu Higgsfield NHỎ HƠN NHIỀU so với
-// chủ thể (đèn luôn ở gần sát chủ thể khi kéo), khác hẳn bản trước của mình (bán kính 2.5 quá lớn so
-// với chủ thể cỡ ~1.3x1.9, khiến đèn luôn ở xa). Giảm xuống còn 1.8 để tỉ lệ khớp hơn.
-const SPHERE_RADIUS = 1.8;
+// Bán kính quả cầu — 1.8 -> 2.2: khi zoom camera gần hơn để chủ thể to ra, người (cao cố định ~1.9)
+// che gần hết vòng tròn bán kính 1.8 (user phản hồi "vòng tròn bị che") — tăng bán kính để vòng tròn
+// TO RA CÙNG TỈ LỆ với người thay vì chỉ phóng to khung hình chung, đảm bảo vòng luôn thấy rõ quanh người.
+const SPHERE_RADIUS = 2.2;
 
 export const LIGHT_QUICK_POSITIONS: { key: string; label: string; azimuth: number; elevation: number }[] = [
   { key: "dung-dau", label: "Đứng đầu", azimuth: 0, elevation: Math.PI / 2 - 0.05 },
@@ -167,7 +167,7 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
   // CÓ VẺ xéo/nghiêng (ảo giác thị giác khi nhìn 1 vòng tròn từ góc trên/dưới chéo xuống). elevation=0
   // loại bỏ hẳn ảo giác này — ellipse hiện đối xứng dọc hoàn toàn, vẫn giữ azimuth lệch để tránh vòng
   // đứng nhìn dẹt thành 1 đường thẳng (edge-on) khi camera đúng x=0.
-  const orbitRef = useRef({ azimuth: 0.4127, elevation: 0, distance: 4.6 });
+  const orbitRef = useRef({ azimuth: 0.4127, elevation: 0, distance: 5.4 });
   const valueRef = useRef(value);
   valueRef.current = value;
 
