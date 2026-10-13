@@ -2445,9 +2445,10 @@ export default function VideoTuYTuongPage() {
     },
   ];
 
-  // "Cài đặt ánh sáng" — bảng 3D thật (quả cầu + đèn kéo-thả được), xem components/story-video/LightSphereModal.tsx.
+  // "Cài đặt ánh sáng" — bảng 3D thật (quả cầu + đèn kéo-thả được, có thể nhiều đèn), xem
+  // components/story-video/LightSphereModal.tsx.
   const [lightModalOpen, setLightModalOpen] = useState(false);
-  const [promptLight, setPromptLight] = useState<LightSettings | null>(null);
+  const [promptLights, setPromptLights] = useState<LightSettings[] | null>(null);
 
   // Chèn "@element_id " vào đúng vị trí con trỏ trong ô "viết prompt" — mục 8 trong spec (gõ "@" chèn
   // thẳng @mention, không chỉ chọn ảnh rời). Dùng lại state `input` đã có sẵn (prompt truyện).
@@ -2541,9 +2542,13 @@ export default function VideoTuYTuongPage() {
       let storyDescription = mentionStrippedText;
       if (cameraNotes.length > 0) storyDescription += `\n\n(Phong cách máy quay: ${cameraNotes.join(", ")}.)`;
       if (colorNote) storyDescription += `\n\n(Phong cách màu sắc: ${colorNote}.)`;
-      if (promptLight) {
-        const dirLabel = nearestLightQuickPosition(promptLight.azimuth, promptLight.elevation).label;
-        storyDescription += `\n\n(Ánh sáng: hướng ${dirLabel.toLowerCase()}, độ sáng ${promptLight.brightness}%, màu ${promptLight.color}, độ lan toả ${promptLight.spread}%.)`;
+      if (promptLights && promptLights.length > 0) {
+        const lightDescs = promptLights.map((l, i) => {
+          const dirLabel = nearestLightQuickPosition(l.azimuth, l.elevation).label;
+          const prefix = promptLights.length > 1 ? `Đèn ${i + 1}: ` : "";
+          return `${prefix}hướng ${dirLabel.toLowerCase()}, độ sáng ${l.brightness}%, màu ${l.color}, độ lan toả ${l.spread}%`;
+        });
+        storyDescription += `\n\n(Ánh sáng: ${lightDescs.join("; ")}.)`;
       }
 
       // 3) Upload ảnh "+"-tải thêm trong session này (còn đang là data URL, chưa có URL thật).
@@ -2775,9 +2780,15 @@ export default function VideoTuYTuongPage() {
             >
               <span
                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
-                style={{ background: promptLight ? promptLight.color : "#3f3f46" }}
+                style={{ background: promptLights && promptLights.length > 0 ? promptLights[0].color : "#3f3f46" }}
               >
-                <svg viewBox="0 0 24 24" fill="none" stroke={promptLight ? "#18181b" : "white"} strokeWidth="1.5" className="h-4 w-4">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={promptLights && promptLights.length > 0 ? "#18181b" : "white"}
+                  strokeWidth="1.5"
+                  className="h-4 w-4"
+                >
                   <circle cx="12" cy="12" r="5" />
                   <path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" />
                 </svg>
@@ -2785,7 +2796,11 @@ export default function VideoTuYTuongPage() {
               <span className="flex flex-col leading-tight">
                 <span className="text-[10px] text-zinc-500">Ánh sáng</span>
                 <span className="max-w-[160px] truncate text-xs font-semibold text-zinc-100">
-                  {promptLight ? nearestLightQuickPosition(promptLight.azimuth, promptLight.elevation).label : "Tự động"}
+                  {promptLights && promptLights.length > 0
+                    ? promptLights.length === 1
+                      ? nearestLightQuickPosition(promptLights[0].azimuth, promptLights[0].elevation).label
+                      : `${promptLights.length} đèn`
+                    : "Tự động"}
                 </span>
               </span>
             </button>
@@ -3140,7 +3155,7 @@ export default function VideoTuYTuongPage() {
       )}
 
       {lightModalOpen && (
-        <LightSphereModal initial={promptLight} onClose={() => setLightModalOpen(false)} onApply={(settings) => setPromptLight(settings)} />
+        <LightSphereModal initial={promptLights} onClose={() => setLightModalOpen(false)} onApply={(settings) => setPromptLights(settings)} />
       )}
     </div>
   );

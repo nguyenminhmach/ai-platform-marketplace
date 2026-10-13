@@ -4,12 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
-// "Thiết lập ánh sáng mới" — bảng 3D kiểu Higgsfield: quả cầu lưới quanh 1 "chủ thể" ở giữa, đèn là
-// 1 chấm sáng bấm-kéo được quanh bề mặt quả cầu (toạ độ cầu: azimuth ngang quanh trục Y, elevation
-// cao/thấp). Dùng chung kỹ thuật Three.js thuần (renderer/scene/camera dựng tay trong useEffect, kéo
-// bằng pointer events) đã có sẵn ở components/MannequinPreviewCard.tsx — không thêm thư viện mới
-// (three đã là dependency có sẵn). Chỉ làm 1 đèn (bỏ "+ Thêm ánh sáng" nhiều đèn và "Lưu dưới dạng cài
-// đặt sẵn" lưu DB riêng — 2 việc đó để đợt sau nếu cần).
+// "Thiết lập ánh sáng mới" — bảng 3D kiểu Higgsfield: quả cầu lưới quanh 1 "chủ thể" ở giữa, MỖI đèn
+// (có thể nhiều đèn, xem "+ Thêm ánh sáng") là 1 chấm sáng bấm-kéo được quanh bề mặt quả cầu (toạ độ
+// cầu: azimuth ngang quanh trục Y, elevation cao/thấp). Dùng chung kỹ thuật Three.js thuần
+// (renderer/scene/camera dựng tay trong useEffect, kéo bằng pointer events) đã có sẵn ở
+// components/MannequinPreviewCard.tsx — không thêm thư viện mới (three đã là dependency có sẵn).
 
 export type LightSettings = {
   azimuth: number; // radian quanh trục Y — 0 = trước mặt, dương = quay phải
@@ -20,6 +19,16 @@ export type LightSettings = {
 };
 
 export const DEFAULT_LIGHT_SETTINGS: LightSettings = { azimuth: 0, elevation: 0, color: "#ffffff", brightness: 50, spread: 50 };
+
+// Đèn mới thêm (nút "+ Thêm ánh sáng") lệch azimuth 90° mỗi đèn kế tiếp để KHÔNG chồng lên đèn trước
+// đó — khách thấy ngay có thêm 1 chấm sáng mới ở vị trí khác, không cần tự kéo ra trước khi chỉnh.
+function makeNewLight(existingCount: number): LightSettings {
+  return { ...DEFAULT_LIGHT_SETTINGS, azimuth: (existingCount * Math.PI) / 2 };
+}
+
+// Giới hạn mềm số đèn tối đa — quá nhiều chấm sáng chồng lên nhau trên 1 quả cầu nhỏ sẽ khó bấm trúng
+// đúng đèn muốn kéo.
+const MAX_LIGHTS = 4;
 
 // Bán kính quả cầu — 1.8 -> 2.2: khi zoom camera gần hơn để chủ thể to ra, người (cao cố định ~1.9)
 // che gần hết vòng tròn bán kính 1.8 (user phản hồi "vòng tròn bị che") — tăng bán kính để vòng tròn
@@ -83,9 +92,9 @@ function createFixedVerticalRing(radius: number, color: number): THREE.LineLoop 
 }
 
 // Vòng NGANG — đây mới là vòng THỰC SỰ CHUYỂN ĐỘNG: trượt lên/xuống dọc vòng đứng cố định theo đúng
-// elevation hiện tại (thu nhỏ bán kính dần khi tới gần 2 cực, như 1 vòng vĩ tuyến trên địa cầu) — đèn
-// nằm TRÊN vòng này, di chuyển dọc nó khi đổi azimuth. Đây đúng cơ chế anh mô tả: "đèn gắn trên vòng
-// ngang, vòng ngang trượt trên vòng đứng" — KHÔNG phải vòng ngang cố định như bản trước.
+// elevation của ĐÈN ĐANG CHỌN (activeIndex) hiện tại (thu nhỏ bán kính dần khi tới gần 2 cực, như 1
+// vòng vĩ tuyến trên địa cầu) — đèn đang chọn nằm TRÊN vòng này. Đúng cơ chế: "đèn gắn trên vòng ngang,
+// vòng ngang trượt trên vòng đứng" — KHÔNG phải vòng ngang cố định.
 function horizontalRingPoints(radius: number, elevation: number): THREE.Vector3[] {
   const segments = 64;
   const y = radius * Math.sin(elevation);
@@ -140,34 +149,100 @@ function updateBeamCone(mesh: THREE.Mesh, apex: THREE.Vector3, target: THREE.Vec
   (mesh.material as THREE.MeshBasicMaterial).color.set(color);
 }
 
-function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange: (v: LightSettings) => void }) {
+// 1 bộ object Three.js đại diện cho 1 ĐÈN: chấm sáng + quầng sáng (bấm-kéo được), đèn mô phỏng thật
+// (SpotLight làm sáng/tối chủ thể) + điểm nhắm của nó, và cone luồng sáng nhìn thấy được.
+type LightObjects = {
+  dot: THREE.Mesh;
+  halo: THREE.Mesh;
+  simLight: THREE.SpotLight;
+  subjectTarget: THREE.Object3D;
+  beamCone: THREE.Mesh;
+};
+
+function createLightObjects(ls: LightSettings): LightObjects {
+  const pos = sphericalToPosition(ls.azimuth, ls.elevation, SPHERE_RADIUS);
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 12), new THREE.MeshBasicMaterial({ color: ls.color }));
+  dot.position.copy(pos);
+  const halo = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 12), new THREE.MeshBasicMaterial({ color: 0xa3e635, transparent: true, opacity: 0.35 }));
+  halo.position.copy(pos);
+  const subjectTarget = new THREE.Object3D();
+  subjectTarget.position.set(0, 0, 0);
+  const simLight = new THREE.SpotLight(ls.color, (ls.brightness / 100) * 6, 12, THREE.MathUtils.degToRad(12 + (ls.spread / 100) * 45), 0.5, 1);
+  simLight.position.copy(pos);
+  simLight.target = subjectTarget;
+  const beamRadius = 0.25 + (ls.spread / 100) * 0.9;
+  const beamCone = createBeamCone(pos, new THREE.Vector3(0, 0, 0), beamRadius, ls.color);
+  return { dot, halo, simLight, subjectTarget, beamCone };
+}
+function addLightObjectsToScene(scene: THREE.Scene, lo: LightObjects) {
+  scene.add(lo.dot, lo.halo, lo.simLight, lo.subjectTarget, lo.beamCone);
+}
+function removeLightObjectsFromScene(scene: THREE.Scene, lo: LightObjects) {
+  scene.remove(lo.dot, lo.halo, lo.simLight, lo.subjectTarget, lo.beamCone);
+  lo.dot.geometry.dispose();
+  (lo.dot.material as THREE.Material).dispose();
+  lo.halo.geometry.dispose();
+  (lo.halo.material as THREE.Material).dispose();
+  lo.beamCone.geometry.dispose();
+  (lo.beamCone.material as THREE.Material).dispose();
+}
+function updateLightObjects(lo: LightObjects, ls: LightSettings, isActive: boolean) {
+  const pos = sphericalToPosition(ls.azimuth, ls.elevation, SPHERE_RADIUS);
+  lo.dot.position.copy(pos);
+  lo.halo.position.copy(pos);
+  (lo.dot.material as THREE.MeshBasicMaterial).color.set(ls.color);
+  // Đèn đang được chọn (hiện bảng Màu sắc/Độ sáng/Lan toả bên trái) có quầng sáng rõ hơn hẳn các đèn
+  // còn lại, giúp khách luôn biết đang chỉnh đèn nào giữa nhiều đèn.
+  (lo.halo.material as THREE.MeshBasicMaterial).opacity = isActive ? 0.45 : 0.18;
+  lo.dot.scale.setScalar(isActive ? 1 : 0.8);
+  lo.simLight.position.copy(pos);
+  lo.simLight.color.set(ls.color);
+  lo.simLight.intensity = (ls.brightness / 100) * 6;
+  lo.simLight.angle = THREE.MathUtils.degToRad(12 + (ls.spread / 100) * 45);
+  const beamRadius = 0.25 + (ls.spread / 100) * 0.9;
+  updateBeamCone(lo.beamCone, pos, new THREE.Vector3(0, 0, 0), beamRadius, ls.color);
+}
+
+function LightSphereCanvas({
+  lights,
+  activeIndex,
+  onChangeLight,
+  onActiveChange,
+}: {
+  lights: LightSettings[];
+  activeIndex: number;
+  onChangeLight: (index: number, next: LightSettings) => void;
+  onActiveChange: (index: number) => void;
+}) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const lightDotRef = useRef<THREE.Mesh | null>(null);
-  const lightHaloRef = useRef<THREE.Mesh | null>(null);
+  const lightObjectsRef = useRef<LightObjects[]>([]);
   const horizontalRingRef = useRef<THREE.LineLoop | null>(null);
   const verticalRingRef = useRef<THREE.LineLoop | null>(null);
-  const beamConeRef = useRef<THREE.Mesh | null>(null);
-  const simLightRef = useRef<THREE.SpotLight | null>(null);
   const subjectRef = useRef<THREE.Group | null>(null);
   const raycasterRef = useRef(new THREE.Raycaster());
+  const lightsRef = useRef(lights);
+  lightsRef.current = lights;
+  const activeIndexRef = useRef(activeIndex);
+  activeIndexRef.current = activeIndex;
   // 3 thao tác kéo HOÀN TOÀN ĐỘC LẬP với nhau — bấm trúng đâu quyết định thao tác nào, không cái nào
-  // ảnh hưởng tới cái kia: "light" = kéo di chuyển đèn quanh quả cầu (azimuth/elevation của đèn);
-  // "subject" = kéo TRÚNG chủ thể để xoay riêng chủ thể tại chỗ (chỉ subject.rotation.y, không đụng gì
-  // tới đèn/camera); "orbit" = kéo chỗ TRỐNG (không trúng đèn, không trúng chủ thể) để xoay góc nhìn
-  // camera quanh cả cụm (quả cầu + 2 vòng), khớp yêu cầu "vòng tròn đứng cũng xoay được" mà không đụng
-  // tới chủ thể hay đèn.
+  // ảnh hưởng tới cái kia: "light" = kéo di chuyển ĐÚNG đèn bấm trúng (có thể không phải đèn đang active
+  // — bấm trúng đèn nào thì đèn đó tự động thành active, xem handlePointerDown); "subject" = kéo TRÚNG
+  // chủ thể để xoay riêng chủ thể tại chỗ (chỉ subject.rotation.y, không đụng gì tới đèn/camera);
+  // "orbit" = kéo chỗ TRỐNG (không trúng đèn nào, không trúng chủ thể) để xoay góc nhìn camera quanh cả
+  // cụm, khớp yêu cầu "vòng tròn đứng cũng xoay được" mà không đụng tới chủ thể hay đèn.
   const dragRef = useRef<{
     mode: "light" | "subject" | "orbit" | null;
+    lightIndex: number;
     startX: number;
     startY: number;
     startAz: number;
     startEl: number;
     startOrbitAz: number;
     startSubjectRotY: number;
-  }>({ mode: null, startX: 0, startY: 0, startAz: 0, startEl: 0, startOrbitAz: 0, startSubjectRotY: 0 });
+  }>({ mode: null, lightIndex: -1, startX: 0, startY: 0, startAz: 0, startEl: 0, startOrbitAz: 0, startSubjectRotY: 0 });
   // Toạ độ cầu của CAMERA (khác hẳn toạ độ cầu của đèn) — distance giảm (8.13 -> 6.0) để ZOOM GẦN hơn.
   // elevation đổi 0.198 -> 0 (camera NGANG TẦM, cùng độ cao với tâm quả cầu): đã verify bằng toán học
   // (chiếu 2 cực Bắc/Nam của vòng đứng lên màn hình) rằng trục cực LUÔN thẳng đứng tuyệt đối trên màn
@@ -176,8 +251,6 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
   // loại bỏ hẳn ảo giác này — ellipse hiện đối xứng dọc hoàn toàn, vẫn giữ azimuth lệch để tránh vòng
   // đứng nhìn dẹt thành 1 đường thẳng (edge-on) khi camera đúng x=0.
   const orbitRef = useRef({ azimuth: 0.4127, elevation: 0, distance: 14.5 });
-  const valueRef = useRef(value);
-  valueRef.current = value;
 
   function updateCameraFromOrbit() {
     const camera = cameraRef.current;
@@ -186,13 +259,18 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     const y = distance * Math.sin(elevation);
     const r = distance * Math.cos(elevation);
     camera.position.set(r * Math.sin(azimuth), y, r * Math.cos(azimuth));
-    // Nhắm camera vào điểm HƠI THẤP HƠN tâm thật (0,-0.4,0 thay vì 0,0,0) — đẩy cả vòng tròn + người lên
-    // cao hơn trong khung hình (người phản hồi muốn dịch lên), vì ảnh thấy trống nhiều phía trên, vòng
-    // tròn gần sát mép dưới.
+    // Nhắm camera vào điểm HƠI THẤP HƠN tâm thật (0,-0.9,0 thay vì 0,0,0) — đẩy cả vòng tròn + người lên
+    // cao hơn trong khung hình theo phản hồi, tránh vòng tròn sát mép dưới.
     camera.lookAt(0, -0.9, 0);
     // Vòng đứng billboard phải xoay mặt theo camera MỖI LẦN camera đổi vị trí (orbit), nếu không nó vẫn
     // giữ hướng facing cũ và lại bị méo như vòng phẳng cố định trước đây.
     if (verticalRingRef.current) verticalRingRef.current.quaternion.copy(camera.quaternion);
+  }
+
+  function render() {
+    if (sceneRef.current && cameraRef.current && rendererRef.current) {
+      rendererRef.current.render(sceneRef.current, cameraRef.current);
+    }
   }
 
   useEffect(() => {
@@ -205,14 +283,13 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     rendererRef.current = renderer;
 
     const scene = new THREE.Scene();
-    // Ánh sáng nền (0.15 -> 0.06 -> 0.025 -> 0.18) — user phản hồi người quá tối, tăng lại để chủ thể dễ
-    // nhìn hơn, vẫn để simLight làm nổi bật hướng sáng chính.
+    // Ánh sáng nền (0.15 -> 0.06 -> 0.025 -> 0.18 -> 0.32) — user phản hồi người quá tối, tăng lại để
+    // chủ thể dễ nhìn hơn, vẫn để simLight của từng đèn làm nổi bật hướng sáng chính.
     scene.add(new THREE.AmbientLight(0xffffff, 0.32));
     // Ánh sáng BÁN CẦU (trên sáng hơn dưới) — KHÁC ambient (ambient chiếu đều mọi mặt như nhau, làm
     // khối bẹt phẳng mất góc cạnh). Hemisphere tạo gradient sáng theo hướng pháp tuyến từng mặt (mặt
     // hướng lên sáng hơn mặt hướng xuống/ngang), giúp nhận biết rõ góc cạnh khối kể cả khi simLight
-    // không chiếu trực tiếp vào — đúng hiệu ứng "3 mặt sáng-tối khác nhau" ở ảnh tham khảo. Tăng
-    // 0.55 -> 0.85 cùng lúc với ambient để người sáng rõ hơn hẳn theo phản hồi.
+    // không chiếu trực tiếp vào — đúng hiệu ứng "3 mặt sáng-tối khác nhau" ở ảnh tham khảo.
     scene.add(new THREE.HemisphereLight(0xcbd5e1, 0x27272a, 1.15));
 
     const radius = SPHERE_RADIUS;
@@ -222,9 +299,10 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     scene.add(verticalRing);
     verticalRingRef.current = verticalRing;
 
-    // Vòng ngang TRƯỢT dọc vòng đứng theo elevation hiện tại (thu nhỏ bán kính khi gần cực) — đèn nằm
+    // Vòng ngang TRƯỢT dọc vòng đứng theo elevation của đèn đang active lúc khởi tạo — đèn active nằm
     // trên vòng này. Đúng cơ chế: "đèn gắn trên vòng ngang, vòng ngang trượt trên vòng đứng".
-    const horizontalRing = createSlidingHorizontalRing(radius, value.elevation, 0x71717a);
+    const initialActiveLight = lightsRef.current[activeIndexRef.current] ?? DEFAULT_LIGHT_SETTINGS;
+    const horizontalRing = createSlidingHorizontalRing(radius, initialActiveLight.elevation, 0x71717a);
     scene.add(horizontalRing);
     horizontalRingRef.current = horizontalRing;
 
@@ -267,40 +345,13 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
       (err) => console.error("Lỗi tải model chủ thể (man.glb):", err)
     );
 
-    const lightDot = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 12), new THREE.MeshBasicMaterial({ color: value.color }));
-    scene.add(lightDot);
-    lightDotRef.current = lightDot;
-
-    const lightHalo = new THREE.Mesh(
-      new THREE.SphereGeometry(0.17, 16, 12),
-      new THREE.MeshBasicMaterial({ color: 0xa3e635, transparent: true, opacity: 0.35 })
-    );
-    scene.add(lightHalo);
-    lightHaloRef.current = lightHalo;
-
-    const pos = sphericalToPosition(value.azimuth, value.elevation, radius);
-    lightDot.position.copy(pos);
-    lightHalo.position.copy(pos);
-
-    // Đèn mô phỏng THẬT — chiếu từ đúng vị trí chấm sáng (đèn 1) hướng về chủ thể, màu/độ sáng/góc
-    // lan toả đọc trực tiếp từ value (xem effect đồng bộ bên dưới) — đây là phần khách THẤY NGAY hiệu
-    // ứng khi đổi Màu sắc/Độ sáng/Lan toả hoặc kéo đèn, trước đây thiếu hẳn bước này.
-    const subjectTarget = new THREE.Object3D();
-    subjectTarget.position.set(0, 0, 0);
-    scene.add(subjectTarget);
-    const simLight = new THREE.SpotLight(value.color, (value.brightness / 100) * 6, 12, THREE.MathUtils.degToRad(12 + (value.spread / 100) * 45), 0.5, 1);
-    simLight.position.copy(pos);
-    simLight.target = subjectTarget;
-    scene.add(simLight);
-    simLightRef.current = simLight;
-
-    // Luồng sáng NHÌN THẤY ĐƯỢC (cone mờ) từ đèn chiếu vào chủ thể — khác simLight (chỉ làm sáng/tối bề
-    // mặt), cone này mô phỏng chính luồng ánh sáng đi qua không gian, khách thấy ngay "có ánh sáng đang
-    // chiếu" chứ không chỉ suy ra qua bóng đổ trên vật thể.
-    const beamRadius = 0.25 + (value.spread / 100) * 0.9;
-    const beamCone = createBeamCone(pos, new THREE.Vector3(0, 0, 0), beamRadius, value.color);
-    scene.add(beamCone);
-    beamConeRef.current = beamCone;
+    // Tạo object Three.js cho TỪNG đèn trong danh sách lights (thường chỉ có 1 lúc khởi tạo, nhưng
+    // modal có thể mở lại với nhiều đèn đã lưu từ trước).
+    lightObjectsRef.current = lightsRef.current.map((ls) => {
+      const lo = createLightObjects(ls);
+      addLightObjectsToScene(scene, lo);
+      return lo;
+    });
 
     // FOV hẹp hơn (50 -> 25, kiểu ống kính tele) + camera lùi xa hơn tương ứng (orbitRef.distance tăng
     // theo) — user phát hiện vòng tròn bị kéo dài/méo dọc so với ảnh tham khảo (tròn đều). Nguyên nhân:
@@ -336,59 +387,75 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Đổi màu/áp vị trí mới khi value đổi từ bên ngoài (vd bấm nút "Chọn nhanh", kéo thanh Độ sáng/Lan
-  // toả) — đồng bộ chấm đèn, vòng ngang (trượt theo elevation), đèn mô phỏng thật (simLight) và cone
-  // luồng sáng nhìn thấy được.
+  // Đồng bộ TOÀN BỘ danh sách đèn mỗi khi `lights` hoặc `activeIndex` đổi (bấm "Chọn nhanh", kéo thanh
+  // Độ sáng/Lan toả, đổi màu, thêm/xoá đèn, chuyển tab đèn...): tạo thêm/xoá bớt object Three.js cho
+  // khớp số lượng đèn, rồi cập nhật vị trí/màu/độ sáng từng đèn + vòng ngang (luôn bám theo đèn active).
   useEffect(() => {
-    if (!lightDotRef.current || !lightHaloRef.current || !sceneRef.current || !cameraRef.current || !rendererRef.current) return;
-    const pos = sphericalToPosition(value.azimuth, value.elevation, SPHERE_RADIUS);
-    lightDotRef.current.position.copy(pos);
-    lightHaloRef.current.position.copy(pos);
-    (lightDotRef.current.material as THREE.MeshBasicMaterial).color.set(value.color);
-    if (horizontalRingRef.current) updateSlidingHorizontalRing(horizontalRingRef.current, SPHERE_RADIUS, value.elevation);
-    if (simLightRef.current) {
-      simLightRef.current.position.copy(pos);
-      simLightRef.current.color.set(value.color);
-      simLightRef.current.intensity = (value.brightness / 100) * 6;
-      simLightRef.current.angle = THREE.MathUtils.degToRad(12 + (value.spread / 100) * 45);
-    }
-    if (beamConeRef.current) {
-      const beamRadius = 0.25 + (value.spread / 100) * 0.9;
-      updateBeamCone(beamConeRef.current, pos, new THREE.Vector3(0, 0, 0), beamRadius, value.color);
-    }
-    rendererRef.current.render(sceneRef.current, cameraRef.current);
-  }, [value.azimuth, value.elevation, value.color, value.brightness, value.spread]);
+    const scene = sceneRef.current;
+    if (!scene || !cameraRef.current || !rendererRef.current) return;
 
-  function render() {
-    if (sceneRef.current && cameraRef.current && rendererRef.current) {
-      rendererRef.current.render(sceneRef.current, cameraRef.current);
+    while (lightObjectsRef.current.length < lights.length) {
+      const ls = lights[lightObjectsRef.current.length];
+      const lo = createLightObjects(ls);
+      addLightObjectsToScene(scene, lo);
+      lightObjectsRef.current.push(lo);
     }
-  }
+    while (lightObjectsRef.current.length > lights.length) {
+      const lo = lightObjectsRef.current.pop();
+      if (lo) removeLightObjectsFromScene(scene, lo);
+    }
 
-  // Bấm trúng đèn -> kéo di chuyển đèn; bấm trúng chủ thể -> kéo xoay RIÊNG chủ thể; bấm chỗ trống
-  // khác -> kéo xoay góc nhìn camera quanh cả cụm. 3 thao tác độc lập hoàn toàn, không cái nào đụng
-  // tới cái kia (xem ghi chú dragRef phía trên).
+    lights.forEach((ls, i) => {
+      const lo = lightObjectsRef.current[i];
+      if (lo) updateLightObjects(lo, ls, i === activeIndex);
+    });
+
+    const activeLight = lights[activeIndex];
+    if (horizontalRingRef.current && activeLight) {
+      updateSlidingHorizontalRing(horizontalRingRef.current, SPHERE_RADIUS, activeLight.elevation);
+    }
+
+    render();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lights, activeIndex]);
+
+  // Bấm trúng 1 đèn bất kỳ -> đèn đó tự động thành active + kéo di chuyển đúng đèn đó; bấm trúng chủ
+  // thể -> kéo xoay RIÊNG chủ thể; bấm chỗ trống khác -> kéo xoay góc nhìn camera quanh cả cụm. 3 thao
+  // tác độc lập hoàn toàn, không cái nào đụng tới cái kia (xem ghi chú dragRef phía trên).
   function handlePointerDown(e: React.PointerEvent) {
     const mount = mountRef.current;
-    if (!mount || !cameraRef.current || !lightDotRef.current) return;
+    if (!mount || !cameraRef.current) return;
     (e.target as Element).setPointerCapture(e.pointerId);
 
     const rect = mount.getBoundingClientRect();
     const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
     raycasterRef.current.setFromCamera(ndc, cameraRef.current);
-    // Raycast vào đèn VÀ quầng sáng quanh nó trước (ưu tiên cao nhất — bán kính lớn hơn, dễ bấm trúng
-    // hơn vòng lõi nhỏ), rồi mới tới chủ thể, còn lại coi là chỗ trống.
-    const lightTargets = [lightDotRef.current, lightHaloRef.current].filter((o): o is THREE.Mesh => !!o);
-    const hitsLight = raycasterRef.current.intersectObjects(lightTargets, false).length > 0;
+    // Raycast vào TẤT CẢ chấm đèn + quầng sáng của mọi đèn (ưu tiên cao nhất — bán kính lớn hơn, dễ bấm
+    // trúng hơn vòng lõi nhỏ), tìm xem bấm trúng đèn nào qua đối chiếu object -> index.
+    const lightTargets: THREE.Mesh[] = [];
+    lightObjectsRef.current.forEach((lo) => lightTargets.push(lo.dot, lo.halo));
+    const lightHits = raycasterRef.current.intersectObjects(lightTargets, false);
+    const hitsLight = lightHits.length > 0;
+    let hitLightIndex = -1;
+    if (hitsLight) {
+      const hitObj = lightHits[0].object;
+      hitLightIndex = lightObjectsRef.current.findIndex((lo) => lo.dot === hitObj || lo.halo === hitObj);
+    }
     // true (đệ quy) — subject giờ là Group (nhiều mesh con: đầu/thân/tay/chân), không phải 1 Mesh đơn.
     const hitsSubject = !hitsLight && subjectRef.current ? raycasterRef.current.intersectObject(subjectRef.current, true).length > 0 : false;
 
+    if (hitsLight && hitLightIndex >= 0 && hitLightIndex !== activeIndexRef.current) {
+      onActiveChange(hitLightIndex);
+    }
+    const draggedLight = hitsLight && hitLightIndex >= 0 ? lightsRef.current[hitLightIndex] : null;
+
     dragRef.current = {
       mode: hitsLight ? "light" : hitsSubject ? "subject" : "orbit",
+      lightIndex: hitLightIndex,
       startX: e.clientX,
       startY: e.clientY,
-      startAz: valueRef.current.azimuth,
-      startEl: valueRef.current.elevation,
+      startAz: draggedLight?.azimuth ?? 0,
+      startEl: draggedLight?.elevation ?? 0,
       startOrbitAz: orbitRef.current.azimuth,
       startSubjectRotY: subjectRef.current?.rotation.y ?? 0,
     };
@@ -417,24 +484,25 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
       return;
     }
 
+    // mode === "light" — kéo ĐÚNG đèn đã bấm trúng ở pointerDown (dragRef.current.lightIndex).
+    const { lightIndex } = dragRef.current;
+    if (lightIndex < 0) return;
     const dy = e.clientY - dragRef.current.startY;
     const nextAz = dragRef.current.startAz + dx * 0.012;
     const elevLimit = Math.PI / 2 - 0.05;
     const nextEl = Math.max(-elevLimit, Math.min(elevLimit, dragRef.current.startEl - dy * 0.012));
-    const next = { ...valueRef.current, azimuth: nextAz, elevation: nextEl };
-    if (lightDotRef.current && lightHaloRef.current) {
-      const pos = sphericalToPosition(nextAz, nextEl, SPHERE_RADIUS);
-      lightDotRef.current.position.copy(pos);
-      lightHaloRef.current.position.copy(pos);
-      if (horizontalRingRef.current) updateSlidingHorizontalRing(horizontalRingRef.current, SPHERE_RADIUS, nextEl);
-      if (simLightRef.current) simLightRef.current.position.copy(pos);
-      if (beamConeRef.current) {
-        const beamRadius = 0.25 + (valueRef.current.spread / 100) * 0.9;
-        updateBeamCone(beamConeRef.current, pos, new THREE.Vector3(0, 0, 0), beamRadius, valueRef.current.color);
+    const current = lightsRef.current[lightIndex];
+    if (!current) return;
+    const next: LightSettings = { ...current, azimuth: nextAz, elevation: nextEl };
+    const lo = lightObjectsRef.current[lightIndex];
+    if (lo) {
+      updateLightObjects(lo, next, lightIndex === activeIndexRef.current);
+      if (horizontalRingRef.current && lightIndex === activeIndexRef.current) {
+        updateSlidingHorizontalRing(horizontalRingRef.current, SPHERE_RADIUS, nextEl);
       }
       render();
     }
-    onChange(next);
+    onChangeLight(lightIndex, next);
   }
   function handlePointerUp() {
     dragRef.current.mode = null;
@@ -457,12 +525,32 @@ export function LightSphereModal({
   onClose,
   onApply,
 }: {
-  initial: LightSettings | null;
+  initial: LightSettings[] | null;
   onClose: () => void;
-  onApply: (settings: LightSettings) => void;
+  onApply: (settings: LightSettings[]) => void;
 }) {
-  const [value, setValue] = useState<LightSettings>(initial ?? DEFAULT_LIGHT_SETTINGS);
-  const nearest = nearestLightQuickPosition(value.azimuth, value.elevation);
+  const [lights, setLights] = useState<LightSettings[]>(initial && initial.length > 0 ? initial : [DEFAULT_LIGHT_SETTINGS]);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const activeLight = lights[activeIndex] ?? lights[0];
+  const nearest = nearestLightQuickPosition(activeLight.azimuth, activeLight.elevation);
+
+  function updateActiveLight(patch: Partial<LightSettings>) {
+    setLights((prev) => prev.map((l, i) => (i === activeIndex ? { ...l, ...patch } : l)));
+  }
+  function addLight() {
+    if (lights.length >= MAX_LIGHTS) return;
+    setLights((prev) => [...prev, makeNewLight(prev.length)]);
+    setActiveIndex(lights.length); // trỏ sang đèn vừa thêm
+  }
+  function removeLight(index: number) {
+    if (lights.length <= 1) return; // luôn giữ ít nhất 1 đèn
+    setLights((prev) => prev.filter((_, i) => i !== index));
+    setActiveIndex((prevActive) => {
+      if (index < prevActive) return prevActive - 1;
+      if (index === prevActive) return Math.max(0, index - 1);
+      return prevActive;
+    });
+  }
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
@@ -475,7 +563,10 @@ export function LightSphereModal({
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => setValue(DEFAULT_LIGHT_SETTINGS)}
+              onClick={() => {
+                setLights([DEFAULT_LIGHT_SETTINGS]);
+                setActiveIndex(0);
+              }}
               className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800"
             >
               Đặt lại tất cả
@@ -487,50 +578,81 @@ export function LightSphereModal({
         </div>
 
         <div className="flex items-center gap-2 border-b border-zinc-800 px-5 py-3">
-          <span className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-semibold">Đèn 1</span>
-          <button type="button" disabled title="Sắp ra mắt — hiện chỉ hỗ trợ 1 đèn" className="flex items-center gap-1 px-2 text-xs text-zinc-600">
+          {lights.map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setActiveIndex(i)}
+              className={`group flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ${
+                i === activeIndex ? "bg-zinc-100 text-zinc-900" : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+              }`}
+            >
+              Đèn {i + 1}
+              {lights.length > 1 && (
+                <span
+                  role="button"
+                  tabIndex={-1}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeLight(i);
+                  }}
+                  className={`rounded-full px-1 text-[10px] ${i === activeIndex ? "text-zinc-500 hover:text-zinc-900" : "text-zinc-600 hover:text-zinc-200"}`}
+                  title="Xoá đèn này"
+                >
+                  ✕
+                </span>
+              )}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={addLight}
+            disabled={lights.length >= MAX_LIGHTS}
+            title={lights.length >= MAX_LIGHTS ? `Tối đa ${MAX_LIGHTS} đèn` : undefined}
+            className="flex items-center gap-1 px-2 text-xs text-zinc-400 hover:text-zinc-100 disabled:cursor-not-allowed disabled:text-zinc-700 disabled:hover:text-zinc-700"
+          >
             + Thêm ánh sáng
           </button>
         </div>
 
         <div className="grid flex-1 grid-cols-1 gap-4 overflow-y-auto p-5 md:grid-cols-[200px_1fr_180px]">
           <div className="space-y-3">
-            <p className="text-xs font-medium text-zinc-500">Đèn 1</p>
+            <p className="text-xs font-medium text-zinc-500">Đèn {activeIndex + 1}</p>
             <label className="flex items-center justify-between rounded-lg bg-zinc-900 px-3 py-2 text-xs">
               <span className="text-zinc-500">Màu sắc</span>
               <span className="flex items-center gap-2">
                 <input
                   type="color"
-                  value={value.color}
-                  onChange={(e) => setValue((v) => ({ ...v, color: e.target.value }))}
+                  value={activeLight.color}
+                  onChange={(e) => updateActiveLight({ color: e.target.value })}
                   className="h-5 w-5 cursor-pointer rounded-full border-0 bg-transparent p-0"
                 />
-                <span className="font-mono text-zinc-300">{value.color.toUpperCase()}</span>
+                <span className="font-mono text-zinc-300">{activeLight.color.toUpperCase()}</span>
               </span>
             </label>
             <label className="block rounded-lg bg-zinc-900 px-3 py-2 text-xs">
               <span className="mb-1 flex items-center justify-between text-zinc-500">
-                Độ sáng <span className="text-zinc-300">{value.brightness}%</span>
+                Độ sáng <span className="text-zinc-300">{activeLight.brightness}%</span>
               </span>
               <input
                 type="range"
                 min={0}
                 max={100}
-                value={value.brightness}
-                onChange={(e) => setValue((v) => ({ ...v, brightness: Number(e.target.value) }))}
+                value={activeLight.brightness}
+                onChange={(e) => updateActiveLight({ brightness: Number(e.target.value) })}
                 className="w-full accent-lime-400"
               />
             </label>
             <label className="block rounded-lg bg-zinc-900 px-3 py-2 text-xs">
               <span className="mb-1 flex items-center justify-between text-zinc-500">
-                Lan toả <span className="text-zinc-300">{value.spread}%</span>
+                Lan toả <span className="text-zinc-300">{activeLight.spread}%</span>
               </span>
               <input
                 type="range"
                 min={0}
                 max={100}
-                value={value.spread}
-                onChange={(e) => setValue((v) => ({ ...v, spread: Number(e.target.value) }))}
+                value={activeLight.spread}
+                onChange={(e) => updateActiveLight({ spread: Number(e.target.value) })}
                 className="w-full accent-lime-400"
               />
             </label>
@@ -540,7 +662,12 @@ export function LightSphereModal({
             className="aspect-square min-h-[380px] w-full min-w-0 max-w-full rounded-xl"
             style={{ background: "radial-gradient(circle at 50% 50%, #3f3f46 0%, #27272a 55%, #18181b 100%)" }}
           >
-            <LightSphereCanvas value={value} onChange={setValue} />
+            <LightSphereCanvas
+              lights={lights}
+              activeIndex={activeIndex}
+              onChangeLight={(index, next) => setLights((prev) => prev.map((l, i) => (i === index ? next : l)))}
+              onActiveChange={setActiveIndex}
+            />
           </div>
 
           <div>
@@ -550,7 +677,7 @@ export function LightSphereModal({
                 <button
                   key={p.key}
                   type="button"
-                  onClick={() => setValue((v) => ({ ...v, azimuth: p.azimuth, elevation: p.elevation }))}
+                  onClick={() => updateActiveLight({ azimuth: p.azimuth, elevation: p.elevation })}
                   className={`rounded-full px-3 py-2 text-xs font-medium ${
                     nearest.key === p.key ? "border-2 border-white bg-zinc-900 text-white" : "border-2 border-transparent bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
                   }`}
@@ -566,7 +693,7 @@ export function LightSphereModal({
           <button
             type="button"
             onClick={() => {
-              onApply(value);
+              onApply(lights);
               onClose();
             }}
             className="rounded-full bg-lime-400 px-6 py-2 text-sm font-semibold text-zinc-900 hover:bg-lime-300"
