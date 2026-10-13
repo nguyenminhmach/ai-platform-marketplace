@@ -457,7 +457,7 @@ export function LightSphereModal({
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
       <div
-        className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 text-zinc-100 shadow-2xl"
+        className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 text-zinc-100 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
@@ -527,7 +527,7 @@ export function LightSphereModal({
           </div>
 
           <div
-            className="min-h-[380px] rounded-xl"
+            className="min-h-[460px] rounded-xl"
             style={{ background: "radial-gradient(circle at 50% 50%, #3f3f46 0%, #27272a 55%, #18181b 100%)" }}
           >
             <LightSphereCanvas value={value} onChange={setValue} />
