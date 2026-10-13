@@ -205,14 +205,15 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     rendererRef.current = renderer;
 
     const scene = new THREE.Scene();
-    // Ánh sáng nền CỰC YẾU (0.15 -> 0.06 -> 0.025) — chỉ đủ để chủ thể không biến mất hoàn toàn khi đèn
-    // mô phỏng quay đi hướng khác, còn lại để simLight quyết định chủ thể sáng/tối thế nào.
-    scene.add(new THREE.AmbientLight(0xffffff, 0.05));
+    // Ánh sáng nền (0.15 -> 0.06 -> 0.025 -> 0.18) — user phản hồi người quá tối, tăng lại để chủ thể dễ
+    // nhìn hơn, vẫn để simLight làm nổi bật hướng sáng chính.
+    scene.add(new THREE.AmbientLight(0xffffff, 0.18));
     // Ánh sáng BÁN CẦU (trên sáng hơn dưới) — KHÁC ambient (ambient chiếu đều mọi mặt như nhau, làm
     // khối bẹt phẳng mất góc cạnh). Hemisphere tạo gradient sáng theo hướng pháp tuyến từng mặt (mặt
     // hướng lên sáng hơn mặt hướng xuống/ngang), giúp nhận biết rõ góc cạnh khối kể cả khi simLight
-    // không chiếu trực tiếp vào — đúng hiệu ứng "3 mặt sáng-tối khác nhau" ở ảnh tham khảo.
-    scene.add(new THREE.HemisphereLight(0x71717a, 0x09090b, 0.55));
+    // không chiếu trực tiếp vào — đúng hiệu ứng "3 mặt sáng-tối khác nhau" ở ảnh tham khảo. Tăng
+    // 0.55 -> 0.85 cùng lúc với ambient để người sáng rõ hơn hẳn theo phản hồi.
+    scene.add(new THREE.HemisphereLight(0x9ca3af, 0x18181b, 0.85));
 
     const radius = SPHERE_RADIUS;
     // Vòng đứng — billboard LUÔN quay mặt về camera (xem ghi chú ở createFixedVerticalRing), facing
