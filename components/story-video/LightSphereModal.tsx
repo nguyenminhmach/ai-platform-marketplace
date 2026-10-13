@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
+import { buildMannequin } from "@/lib/mannequin-preview";
 
 // "Thiết lập ánh sáng mới" — bảng 3D kiểu Higgsfield: quả cầu lưới quanh 1 "chủ thể" ở giữa, đèn là
 // 1 chấm sáng bấm-kéo được quanh bề mặt quả cầu (toạ độ cầu: azimuth ngang quanh trục Y, elevation
@@ -142,7 +143,7 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
   const horizontalRingRef = useRef<THREE.LineLoop | null>(null);
   const beamConeRef = useRef<THREE.Mesh | null>(null);
   const simLightRef = useRef<THREE.SpotLight | null>(null);
-  const subjectRef = useRef<THREE.Mesh | null>(null);
+  const subjectRef = useRef<THREE.Group | null>(null);
   const raycasterRef = useRef(new THREE.Raycaster());
   // 3 thao tác kéo HOÀN TOÀN ĐỘC LẬP với nhau — bấm trúng đâu quyết định thao tác nào, không cái nào
   // ảnh hưởng tới cái kia: "light" = kéo di chuyển đèn quanh quả cầu (azimuth/elevation của đèn);
@@ -205,27 +206,18 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     scene.add(horizontalRing);
     horizontalRingRef.current = horizontalRing;
 
-    // Chủ thể chung chung ở giữa (không phải mannequin thật) — hình khối dẹt kiểu thiết bị, ĐỨNG YÊN
-    // cố định (chỉ ĐÈN xoay quanh nó, khác tính năng mannequin cho xoay NHÂN VẬT) — chỉ để hình dung
-    // hướng sáng, không đại diện nhân vật.
-    // Bỏ emissive (thử trước đó) — emissive chiếu ĐỀU mọi mặt như nhau nên làm khối nhìn bẹt phẳng,
-    // mất hẳn độ tương phản góc cạnh. Giờ dùng HemisphereLight (phía trên) để tạo gradient sáng/tối tự
-    // nhiên theo từng mặt, màu nền vẫn sáng vừa đủ (0xc7c7cc) để không bị đen ở mặt ít sáng.
-    const subject = new THREE.Mesh(
-      new THREE.BoxGeometry(1.3, 1.9, 0.3),
-      new THREE.MeshStandardMaterial({ color: 0xc7c7cc, roughness: 0.5, metalness: 0.2 })
-    );
+    // Chủ thể giờ là HÌNH NGƯỜI — tái dùng đúng mannequin có sẵn (buildMannequin() từ
+    // lib/mannequin-preview.ts, đã dùng ở components/MannequinPreviewCard.tsx cho tính năng xem trước
+    // cảnh) thay vì khối hộp trừu tượng trước đây, để khách hình dung đúng "đây là người được quay".
+    // Mannequin build ở toạ độ gốc cao ~3.8 đơn vị (chân y=0, đỉnh đầu y≈3.8) — scale 0.5 rồi dịch
+    // xuống để chân/đầu nằm cân đối quanh gốc toạ độ (0,0,0), khớp cỡ chủ thể cũ (~1.9 đơn vị cao) so
+    // với SPHERE_RADIUS hiện tại. Mannequin ĐỨNG YÊN (không tự xoay theo cảnh), chỉ xoay khi khách kéo
+    // tay — khác tính năng mannequin preview cảnh (xoay theo 6 góc camera cố định).
+    const subject = buildMannequin();
+    subject.scale.setScalar(0.5);
+    subject.position.y = -0.95;
     scene.add(subject);
     subjectRef.current = subject;
-
-    // Dấu mặt trước — 1 khấc nhỏ nổi trên đúng mặt +Z (hướng về phía "Đằng trước", azimuth=0) để phân
-    // biệt trước/sau khi xoay chủ thể, khớp chi tiết nhỏ (icon) trên mặt trước thiết bị ở ảnh tham khảo.
-    const frontMark = new THREE.Mesh(
-      new THREE.CircleGeometry(0.12, 16),
-      new THREE.MeshStandardMaterial({ color: 0x52525b, roughness: 0.6 })
-    );
-    frontMark.position.set(0, 0, 0.151);
-    subject.add(frontMark);
 
     const lightDot = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 12), new THREE.MeshBasicMaterial({ color: value.color }));
     scene.add(lightDot);
@@ -336,7 +328,8 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     // hơn vòng lõi nhỏ), rồi mới tới chủ thể, còn lại coi là chỗ trống.
     const lightTargets = [lightDotRef.current, lightHaloRef.current].filter((o): o is THREE.Mesh => !!o);
     const hitsLight = raycasterRef.current.intersectObjects(lightTargets, false).length > 0;
-    const hitsSubject = !hitsLight && subjectRef.current ? raycasterRef.current.intersectObject(subjectRef.current, false).length > 0 : false;
+    // true (đệ quy) — subject giờ là Group (nhiều mesh con: đầu/thân/tay/chân), không phải 1 Mesh đơn.
+    const hitsSubject = !hitsLight && subjectRef.current ? raycasterRef.current.intersectObject(subjectRef.current, true).length > 0 : false;
 
     dragRef.current = {
       mode: hitsLight ? "light" : hitsSubject ? "subject" : "orbit",
