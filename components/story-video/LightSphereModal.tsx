@@ -175,7 +175,7 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
   // CÓ VẺ xéo/nghiêng (ảo giác thị giác khi nhìn 1 vòng tròn từ góc trên/dưới chéo xuống). elevation=0
   // loại bỏ hẳn ảo giác này — ellipse hiện đối xứng dọc hoàn toàn, vẫn giữ azimuth lệch để tránh vòng
   // đứng nhìn dẹt thành 1 đường thẳng (edge-on) khi camera đúng x=0.
-  const orbitRef = useRef({ azimuth: 0.4127, elevation: 0, distance: 11.4 });
+  const orbitRef = useRef({ azimuth: 0.4127, elevation: 0, distance: 13 });
   const valueRef = useRef(value);
   valueRef.current = value;
 
