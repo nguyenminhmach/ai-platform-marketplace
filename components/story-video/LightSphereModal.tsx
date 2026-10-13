@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-import { buildMannequin } from "@/lib/mannequin-preview";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 // "Thiết lập ánh sáng mới" — bảng 3D kiểu Higgsfield: quả cầu lưới quanh 1 "chủ thể" ở giữa, đèn là
 // 1 chấm sáng bấm-kéo được quanh bề mặt quả cầu (toạ độ cầu: azimuth ngang quanh trục Y, elevation
@@ -206,18 +206,41 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     scene.add(horizontalRing);
     horizontalRingRef.current = horizontalRing;
 
-    // Chủ thể giờ là HÌNH NGƯỜI — tái dùng đúng mannequin có sẵn (buildMannequin() từ
-    // lib/mannequin-preview.ts, đã dùng ở components/MannequinPreviewCard.tsx cho tính năng xem trước
-    // cảnh) thay vì khối hộp trừu tượng trước đây, để khách hình dung đúng "đây là người được quay".
-    // Mannequin build ở toạ độ gốc cao ~3.8 đơn vị (chân y=0, đỉnh đầu y≈3.8) — scale 0.5 rồi dịch
-    // xuống để chân/đầu nằm cân đối quanh gốc toạ độ (0,0,0), khớp cỡ chủ thể cũ (~1.9 đơn vị cao) so
-    // với SPHERE_RADIUS hiện tại. Mannequin ĐỨNG YÊN (không tự xoay theo cảnh), chỉ xoay khi khách kéo
-    // tay — khác tính năng mannequin preview cảnh (xoay theo 6 góc camera cố định).
-    const subject = buildMannequin();
-    subject.scale.setScalar(0.5);
-    subject.position.y = -0.95;
+    // Chủ thể giờ là HÌNH NGƯỜI THẬT — model 3D low-poly (public/models/man.glb, "Man" by Quaternius,
+    // CC0/Public Domain, tải từ poly.pizza) thay vì mannequin khối nguyên thuỷ (quá thô, user phản hồi
+    // "hình này thô quá"). subject là 1 Group RỖNG tạo sẵn ngay (để raycast/drag không bị null trong
+    // lúc chờ tải), model glTF được thêm vào làm con của nó SAU KHI tải xong (bất đồng bộ).
+    const subject = new THREE.Group();
     scene.add(subject);
     subjectRef.current = subject;
+
+    const gltfLoader = new GLTFLoader();
+    let disposed = false;
+    gltfLoader.load(
+      "/models/man.glb",
+      (gltf) => {
+        if (disposed) return;
+        const model = gltf.scene;
+        // Tự tính bounding box để scale/định tâm MODEL BẤT KỲ về cỡ chủ thể cũ (~1.9 đơn vị cao, tâm
+        // tại gốc toạ độ) — không phụ thuộc vào tỉ lệ gốc của file glb (mỗi model trên mạng có tỉ lệ
+        // export khác nhau).
+        const box = new THREE.Box3().setFromObject(model);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        const targetHeight = 1.9;
+        const scale = size.y > 0 ? targetHeight / size.y : 1;
+        model.scale.setScalar(scale);
+        model.position.set(-center.x * scale, -center.y * scale - targetHeight / 2 + size.y * scale, -center.z * scale);
+        // Model đứng thẳng mặt hướng +Z như mannequin/khối hộp cũ, không cần xoay thêm (Quaternius rig
+        // export sẵn đúng hướng này).
+        subject.add(model);
+        render();
+      },
+      undefined,
+      (err) => console.error("Lỗi tải model chủ thể (man.glb):", err)
+    );
 
     const lightDot = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 12), new THREE.MeshBasicMaterial({ color: value.color }));
     scene.add(lightDot);
@@ -277,6 +300,7 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     resize();
 
     return () => {
+      disposed = true;
       ro.disconnect();
       renderer.dispose();
       mount.removeChild(renderer.domElement);
