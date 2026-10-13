@@ -221,21 +221,21 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
       (gltf) => {
         if (disposed) return;
         const model = gltf.scene;
-        // Tự tính bounding box để scale/định tâm MODEL BẤT KỲ về cỡ chủ thể cũ (~1.9 đơn vị cao, tâm
-        // tại gốc toạ độ) — không phụ thuộc vào tỉ lệ gốc của file glb (mỗi model trên mạng có tỉ lệ
-        // export khác nhau).
+        // Chỉ dùng bounding box để lấy CHIỀU CAO (size.y) tính tỉ lệ scale — không dùng center.x/z của
+        // box để định tâm ngang. Lý do: đo thực tế model này size=[1.43, 4.83, 0.82], center=[0.002,
+        // 2.41, 0.084] — center.x gần 0 (đúng) nhưng center.z lệch hẳn 0.084 (≈10% độ sâu) vì tư thế
+        // đứng tự nhiên không đối xứng hoàn toàn trước/sau (vai/chân hơi lệch) — nếu định tâm theo
+        // center.z của BOX sẽ kéo cả người lệch khỏi trục thật, đúng như ảnh chụp user gửi (đường thẳng
+        // nối đỉnh-đáy vòng tròn KHÔNG đi qua người). Gốc toạ độ GỐC của model (x=0,z=0) mới là trục cột
+        // sống/điểm đứng thật do người tạo model đặt sẵn (min.y≈0 xác nhận gốc nằm đúng ở chân/mặt đất —
+        // quy ước chuẩn của model nhân vật có rig), nên giữ nguyên x=0,z=0, chỉ dịch theo Y để canh giữa.
         const box = new THREE.Box3().setFromObject(model);
         const size = new THREE.Vector3();
         box.getSize(size);
-        const center = new THREE.Vector3();
-        box.getCenter(center);
         const targetHeight = 1.9;
         const scale = size.y > 0 ? targetHeight / size.y : 1;
         model.scale.setScalar(scale);
-        // Định tâm bounding box của model về ĐÚNG gốc toạ độ (0,0,0) — khớp tâm quả cầu/2 vòng tròn.
-        // (Bug trước: công thức cộng thừa "+ size.y*scale" làm model bị đẩy lệch lên cao ~0.95 đơn vị,
-        // khiến trọng tâm người không đồng tâm với vòng tròn — user phản hồi đúng, đã xác nhận qua ảnh.)
-        model.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
+        model.position.set(0, -targetHeight / 2, 0);
         // Model đứng thẳng mặt hướng +Z như mannequin/khối hộp cũ, không cần xoay thêm (Quaternius rig
         // export sẵn đúng hướng này).
         subject.add(model);
