@@ -204,6 +204,17 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     // Vòng đứng CỐ ĐỊNH — đường ray tham chiếu, không bao giờ xoay/trượt.
     scene.add(createFixedVerticalRing(radius, 0x71717a));
 
+    // Trục tham chiếu DỌC xuyên tâm (từ cực trên xuống cực dưới, đúng trục Y qua gốc toạ độ) — hiện rõ
+    // bằng mắt rằng 2 cực của vòng đứng và tâm chủ thể LUÔN thẳng hàng tuyệt đối (đã verify bằng toán
+    // học: 2 điểm (0,±radius,0) luôn chiếu ra cùng 1 toạ độ x màn hình, bất kể góc camera orbit), không
+    // cần đoán bằng mắt qua hình elip (dễ nhầm vì rìa elip nhìn nghiêng không trùng vị trí 2 cực thật).
+    const axisLine = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, radius, 0), new THREE.Vector3(0, -radius, 0)]),
+      new THREE.LineDashedMaterial({ color: 0xef4444, dashSize: 0.08, gapSize: 0.06, transparent: true, opacity: 0.55 })
+    );
+    axisLine.computeLineDistances();
+    scene.add(axisLine);
+
     // Vòng ngang TRƯỢT dọc vòng đứng theo elevation hiện tại (thu nhỏ bán kính khi gần cực) — đèn nằm
     // trên vòng này. Đúng cơ chế: "đèn gắn trên vòng ngang, vòng ngang trượt trên vòng đứng".
     const horizontalRing = createSlidingHorizontalRing(radius, value.elevation, 0x71717a);
