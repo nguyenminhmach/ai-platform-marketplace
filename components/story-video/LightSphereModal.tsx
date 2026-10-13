@@ -160,10 +160,14 @@ function LightSphereCanvas({ value, onChange }: { value: LightSettings; onChange
     startOrbitAz: number;
     startSubjectRotY: number;
   }>({ mode: null, startX: 0, startY: 0, startAz: 0, startEl: 0, startOrbitAz: 0, startSubjectRotY: 0 });
-  // Toạ độ cầu của CAMERA (khác hẳn toạ độ cầu của đèn) — distance giảm (8.13 -> 6.0) để ZOOM GẦN hơn,
-  // vật thể + quả cầu/vòng tròn hiện to hơn rõ rệt trong khung (khớp yêu cầu "tăng khung hình to lên
-  // đồng nghĩa vật thể và vòng tròn cũng tăng lên"), giữ nguyên góc azimuth/elevation ban đầu.
-  const orbitRef = useRef({ azimuth: 0.4127, elevation: 0.198, distance: 6.0 });
+  // Toạ độ cầu của CAMERA (khác hẳn toạ độ cầu của đèn) — distance giảm (8.13 -> 6.0) để ZOOM GẦN hơn.
+  // elevation đổi 0.198 -> 0 (camera NGANG TẦM, cùng độ cao với tâm quả cầu): đã verify bằng toán học
+  // (chiếu 2 cực Bắc/Nam của vòng đứng lên màn hình) rằng trục cực LUÔN thẳng đứng tuyệt đối trên màn
+  // hình bất kể elevation (do camera.up=(0,1,0), không roll) — nhưng khi elevation≠0, hình ELIP TRÔNG
+  // CÓ VẺ xéo/nghiêng (ảo giác thị giác khi nhìn 1 vòng tròn từ góc trên/dưới chéo xuống). elevation=0
+  // loại bỏ hẳn ảo giác này — ellipse hiện đối xứng dọc hoàn toàn, vẫn giữ azimuth lệch để tránh vòng
+  // đứng nhìn dẹt thành 1 đường thẳng (edge-on) khi camera đúng x=0.
+  const orbitRef = useRef({ azimuth: 0.4127, elevation: 0, distance: 6.0 });
   const valueRef = useRef(value);
   valueRef.current = value;
 
