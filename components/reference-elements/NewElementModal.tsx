@@ -110,6 +110,31 @@ export function NewElementModal({
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Bấm "+" trước đây mở thẳng hộp thoại chọn file từ máy — khách phải tìm lại ảnh đã tải lên từ
+  // trước (ở thư viện "Tải lên" trong ReferencePickerModal) mỗi lần. Giờ "+" mở thư viện này trước,
+  // chọn ảnh có sẵn thì gắn thẳng (khỏi upload lại), còn muốn ảnh mới thì bấm "Tải ảnh mới từ máy".
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [libraryUploads, setLibraryUploads] = useState<string[] | null>(null);
+
+  function openLibrary() {
+    setLibraryOpen(true);
+    if (libraryUploads === null) {
+      fetch("/api/prompt-uploads")
+        .then((res) => res.json())
+        .then((data) => setLibraryUploads(Array.isArray(data.uploads) ? data.uploads.map((u: { url: string }) => u.url) : []))
+        .catch(() => setLibraryUploads([]));
+    }
+  }
+
+  function handlePickFromLibrary(url: string) {
+    if (images.length >= MAX_IMAGES) {
+      setError(`Tối đa ${MAX_IMAGES} ảnh/yếu tố`);
+      return;
+    }
+    if (images.some((img) => img.url === url)) return; // đã chọn ảnh này rồi
+    setImages((prev) => [...prev, { dataUrl: url, uploading: false, url }]);
+  }
+
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
     const remainingSlots = MAX_IMAGES - images.length;
@@ -318,7 +343,7 @@ export function NewElementModal({
               {!atCap && (
                 <button
                   type="button"
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={openLibrary}
                   className="flex h-20 w-20 flex-col items-center justify-center rounded-lg border-2 border-dashed border-zinc-300 text-zinc-400 hover:border-zinc-400 dark:border-zinc-700"
                 >
                   <span className="text-xl">+</span>
@@ -360,6 +385,70 @@ export function NewElementModal({
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={zoomed} alt="" className="max-h-full max-w-full rounded-lg object-contain" />
+        </div>
+      )}
+
+      {libraryOpen && (
+        <div
+          className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setLibraryOpen(false)}
+        >
+          <div
+            className="flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white dark:bg-zinc-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+              <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Chọn ảnh tham chiếu</h4>
+              <button
+                type="button"
+                onClick={() => setLibraryOpen(false)}
+                className="rounded-full p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="grid grid-cols-4 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLibraryOpen(false);
+                    fileInputRef.current?.click();
+                  }}
+                  className="flex aspect-square flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-zinc-300 text-zinc-400 hover:border-zinc-400 dark:border-zinc-700"
+                >
+                  <span className="text-lg">☁️</span>
+                  <span className="px-1 text-center text-[10px] font-medium leading-tight">Tải ảnh mới từ máy</span>
+                </button>
+                {libraryUploads === null && (
+                  <p className="col-span-3 self-center text-xs text-zinc-500">Đang tải thư viện...</p>
+                )}
+                {libraryUploads !== null && libraryUploads.length === 0 && (
+                  <p className="col-span-3 self-center text-xs text-zinc-500">Chưa có ảnh nào đã tải lên trước đó.</p>
+                )}
+                {libraryUploads?.map((url) => {
+                  const picked = images.some((img) => img.url === url);
+                  return (
+                    <button
+                      type="button"
+                      key={url}
+                      onClick={() => handlePickFromLibrary(url)}
+                      disabled={picked}
+                      className="relative aspect-square overflow-hidden rounded-lg border border-zinc-200 disabled:cursor-not-allowed dark:border-zinc-700"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={url} alt="" className="h-full w-full object-cover" />
+                      {picked && (
+                        <span className="absolute inset-0 flex items-center justify-center bg-black/50 text-[10px] font-semibold text-white">
+                          ✓ đã chọn
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
