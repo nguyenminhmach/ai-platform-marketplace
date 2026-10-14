@@ -2693,6 +2693,12 @@ export default function VideoTuYTuongPage() {
   // Nút "tạo" ở tab "hình ảnh" — sinh 1 ảnh TRỰC TIẾP từ prompt (khác hẳn handlePromptCreate ở trên,
   // vốn luôn tạo VIDEO qua luồng kịch bản/phân cảnh). Dùng đúng cùng 1 ô prompt + ảnh tham chiếu đã
   // tải ở "+" (promptImages), nhưng gửi tới job sinh ảnh riêng (lib/prompt-image.ts).
+  //
+  // Trước đây tab này KHÔNG tra @mention trong prompt — gõ "@mai" chỉ đi thẳng dạng chữ, không lấy
+  // được ảnh thật của Mai. Giờ mirror đúng bước 1-2 trong handlePromptCreate ở trên: quét @mention ->
+  // tra kho tham chiếu -> thay @id bằng tên thật trong câu + gộp ảnh của element đó vào imageUrls gửi
+  // cho model (prompt-image.ts không phân biệt nhân vật/địa điểm/vật phẩm như story-video, chỉ 1 mảng
+  // imageUrls duy nhất, nên gộp chung tất cả loại element được mention).
   async function handlePromptImageCreate() {
     if (!user) {
       setCreateToast("Vui lòng đăng nhập trước khi tạo ảnh");
@@ -2712,16 +2718,45 @@ export default function VideoTuYTuongPage() {
     setPromptImageError(null);
 
     try {
+      const mentionedIds = extractMentionedElementIdsClient(rawText);
+      let elements: ReferenceElement[] = [];
+      if (mentionedIds.length > 0) {
+        const res = await fetch("/api/reference-elements");
+        const data = await res.json();
+        if (res.ok && Array.isArray(data.elements)) elements = data.elements;
+      }
+      const mentionedElements = elements.filter((el) => mentionedIds.includes(el.element_id));
+      const foundById = new Map(mentionedElements.map((el) => [el.element_id, el]));
+      const mentionStrippedText = rawText.replace(/@([a-z0-9_]+)/g, (full, id) => {
+        const el = foundById.get(id);
+        return el ? el.name : full;
+      });
+
+      const MAX_REFERENCE_IMAGES_CLIENT = 20; // đúng MAX_CHARACTER_IMAGES ở lib/story-video.ts
+      const elementImageUrls = mentionedElements.flatMap((el) => el.image_urls);
       const uploadedPromptImages = await Promise.all(
         promptImages.map((img) => (img.startsWith("http") ? Promise.resolve(img) : uploadOutfitSwapImage(img)))
       );
+      const imageUrls = [...elementImageUrls, ...uploadedPromptImages].slice(0, MAX_REFERENCE_IMAGES_CLIENT);
+
+      // >1 ảnh tham chiếu gộp lại -> cần model hỗ trợ multi_image, mirror đúng điều kiện ở
+      // handlePromptCreate (dòng ~2614-2621) để không bị lỗi khi model đang chọn chỉ nhận 1 ảnh.
+      let imageModelKey = storyImageModelKey ?? storyImageModels[0]?.key ?? undefined;
+      if (imageUrls.length > 1 && imageModelKey) {
+        const current = storyImageModels.find((m) => m.key === imageModelKey);
+        if (!current?.multi_image) {
+          const fallback = storyImageModels.find((m) => m.multi_image);
+          if (fallback) imageModelKey = fallback.key;
+        }
+      }
+
       const res = await fetch("/api/prompt-image/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: rawText,
-          imageUrls: uploadedPromptImages,
-          modelKey: storyImageModelKey,
+          prompt: mentionStrippedText,
+          imageUrls,
+          modelKey: imageModelKey,
           aspectRatio: storyAspectRatio,
           resolutionKey: storyResolutionKey,
         }),
