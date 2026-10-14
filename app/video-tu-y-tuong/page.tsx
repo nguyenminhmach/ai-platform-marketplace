@@ -2710,7 +2710,11 @@ export default function VideoTuYTuongPage() {
 
           {/* Preset chips — "tài liệu tham khảo" mở modal chọn ảnh tham chiếu, "cài đặt camera" mở
               bảng Máy ảnh/Thấu kính/Khẩu độ, "cài đặt màu" mở bảng chọn tông màu. 2 chip còn lại
-              (thiết lập phim tự động/ánh sáng tự động) vẫn là placeholder, chưa làm ở đợt này. */}
+              (thiết lập phim tự động/ánh sáng tự động) vẫn là placeholder, chưa làm ở đợt này. CHỈ hiện
+              ở tab "video" — user phản hồi hàng này không thuộc về phần tạo ảnh (trùng camera/màu sắc
+              đã có riêng ở hàng dưới của tab "hình ảnh", còn Ánh sáng/thiết lập phim chỉ áp dụng cho
+              video). */}
+          {promptMediaTab === "video" && (
           <div className="mb-6 flex flex-wrap justify-center gap-2">
             <button
               type="button"
@@ -2816,6 +2820,7 @@ export default function VideoTuYTuongPage() {
               </button>
             ))}
           </div>
+          )}
 
           {/* Khối prompt chính */}
           <div className="flex items-stretch gap-3">
