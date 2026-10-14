@@ -2867,90 +2867,167 @@ export default function VideoTuYTuongPage() {
                 className="w-full flex-1 resize-none bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
               />
 
-              {/* Thanh icon dưới cùng — "+" mở modal ở tab Tải lên, "@" mở ở tab Hình ảnh tham chiếu kèm
-                  chèn @mention vào prompt. Camera/model/độ phân giải/tỉ lệ khung hình/thời gian/âm thanh
-                  nối vào state có sẵn khi khớp tự nhiên, còn lại là chip hiển thị (đúng phạm vi đợt này). */}
-              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-zinc-800 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setPickerModal({ defaultTab: "upload", forMention: false })}
-                  className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-base text-zinc-200 hover:bg-zinc-700"
-                  title="Tải ảnh lên"
-                >
-                  +
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPickerModal({ defaultTab: "reference", forMention: true })}
-                  className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-base text-zinc-200 hover:bg-zinc-700"
-                  title="Chèn @mention từ kho tham chiếu"
-                >
-                  @
-                </button>
-                <button
-                  type="button"
-                  title="Thiết lập máy quay/ánh sáng — sắp ra mắt cho prompt bar"
-                  className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-base text-zinc-200 hover:bg-zinc-700"
-                >
-                  🎥
-                </button>
+              {/* Thanh icon dưới cùng — ĐỔI theo promptMediaTab (xem ảnh wireframe "phần hình ảnh"):
+                  tab "video" giữ nguyên bộ nút cũ ("+" tải lên, "@" chèn mention, 🎥, model/độ phân
+                  giải/tỉ lệ/thời gian/âm thanh); tab "hình ảnh" dùng bộ nút riêng (+, character, camera,
+                  model ẢNH, 1080, tỉ lệ, màu sắc) — tái dùng ĐÚNG modal camera/màu đã có sẵn (chỉ đổi
+                  nhãn chip cho khớp wireframe), "character" tái dùng picker tham chiếu ở chế độ mention
+                  giống "@" cũ. Model ảnh đọc từ storyImageModels (đã có sẵn, dùng ở luồng Character cũ). */}
+              {promptMediaTab === "video" ? (
+                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-zinc-800 pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setPickerModal({ defaultTab: "upload", forMention: false })}
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-base text-zinc-200 hover:bg-zinc-700"
+                    title="Tải ảnh lên"
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPickerModal({ defaultTab: "reference", forMention: true })}
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-base text-zinc-200 hover:bg-zinc-700"
+                    title="Chèn @mention từ kho tham chiếu"
+                  >
+                    @
+                  </button>
+                  <button
+                    type="button"
+                    title="Thiết lập máy quay/ánh sáng — sắp ra mắt cho prompt bar"
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-base text-zinc-200 hover:bg-zinc-700"
+                  >
+                    🎥
+                  </button>
 
-                {storyVideoModels.length > 0 && (
+                  {storyVideoModels.length > 0 && (
+                    <select
+                      value={storyVideoModelKey ?? ""}
+                      onChange={(e) => setStoryVideoModelKey(e.target.value || null)}
+                      className="h-9 rounded-full bg-zinc-800 px-3 text-xs text-zinc-200 outline-none"
+                    >
+                      <option value="">model</option>
+                      {storyVideoModels.map((m) => (
+                        <option key={m.key} value={m.key}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {storyVideoModels.length === 0 && (
+                    <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">model</span>
+                  )}
+
+                  <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">{storyResolutionKey ?? "1080"}</span>
+
                   <select
-                    value={storyVideoModelKey ?? ""}
-                    onChange={(e) => setStoryVideoModelKey(e.target.value || null)}
+                    value={storyAspectRatio}
+                    onChange={(e) => setStoryAspectRatio(e.target.value)}
                     className="h-9 rounded-full bg-zinc-800 px-3 text-xs text-zinc-200 outline-none"
                   >
-                    <option value="">model</option>
-                    {storyVideoModels.map((m) => (
-                      <option key={m.key} value={m.key}>
-                        {m.label}
+                    {["16:9", "9:16", "1:1"].map((ratio) => (
+                      <option key={ratio} value={ratio}>
+                        {ratio}
                       </option>
                     ))}
                   </select>
-                )}
-                {storyVideoModels.length === 0 && (
-                  <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">model</span>
-                )}
 
-                <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">{storyResolutionKey ?? "1080"}</span>
+                  {storyVideoModels.find((m) => m.key === storyVideoModelKey)?.duration_price_vnd ? (
+                    <select
+                      value={storyDurationKey ?? ""}
+                      onChange={(e) => setStoryDurationKey(e.target.value || null)}
+                      className="h-9 rounded-full bg-zinc-800 px-3 text-xs text-zinc-200 outline-none"
+                    >
+                      <option value="">thời gian</option>
+                      {Object.keys(storyVideoModels.find((m) => m.key === storyVideoModelKey)?.duration_price_vnd ?? {}).map((key) => (
+                        <option key={key} value={key}>
+                          {key}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">thời gian</span>
+                  )}
 
-                <select
-                  value={storyAspectRatio}
-                  onChange={(e) => setStoryAspectRatio(e.target.value)}
-                  className="h-9 rounded-full bg-zinc-800 px-3 text-xs text-zinc-200 outline-none"
-                >
-                  {["16:9", "9:16", "1:1"].map((ratio) => (
-                    <option key={ratio} value={ratio}>
-                      {ratio}
-                    </option>
-                  ))}
-                </select>
+                  <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">âm thanh</span>
+                </div>
+              ) : (
+                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-zinc-800 pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setPickerModal({ defaultTab: "upload", forMention: false })}
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-base text-zinc-200 hover:bg-zinc-700"
+                    title="Tải ảnh lên"
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPickerModal({ defaultTab: "reference", forMention: true })}
+                    className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-200 hover:bg-zinc-700"
+                    title="Chèn @mention nhân vật từ kho tham chiếu"
+                  >
+                    character
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCameraModalOpen(true)}
+                    className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-200 hover:bg-zinc-700"
+                  >
+                    camera
+                  </button>
 
-                {storyVideoModels.find((m) => m.key === storyVideoModelKey)?.duration_price_vnd ? (
+                  {storyImageModels.length > 0 ? (
+                    <select
+                      value={storyImageModelKey ?? ""}
+                      onChange={(e) => setStoryImageModelKey(e.target.value || null)}
+                      className="h-9 rounded-full bg-zinc-800 px-3 text-xs text-zinc-200 outline-none"
+                    >
+                      <option value="">model</option>
+                      {storyImageModels.map((m) => (
+                        <option key={m.key} value={m.key}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">model</span>
+                  )}
+
+                  <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">{storyResolutionKey ?? "1080"}</span>
+
                   <select
-                    value={storyDurationKey ?? ""}
-                    onChange={(e) => setStoryDurationKey(e.target.value || null)}
+                    value={storyAspectRatio}
+                    onChange={(e) => setStoryAspectRatio(e.target.value)}
                     className="h-9 rounded-full bg-zinc-800 px-3 text-xs text-zinc-200 outline-none"
                   >
-                    <option value="">thời gian</option>
-                    {Object.keys(storyVideoModels.find((m) => m.key === storyVideoModelKey)?.duration_price_vnd ?? {}).map((key) => (
-                      <option key={key} value={key}>
-                        {key}
+                    {["16:9", "9:16", "1:1"].map((ratio) => (
+                      <option key={ratio} value={ratio}>
+                        {ratio}
                       </option>
                     ))}
                   </select>
-                ) : (
-                  <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">thời gian</span>
-                )}
 
-                <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">âm thanh</span>
-              </div>
+                  <button
+                    type="button"
+                    onClick={() => setColorModalOpen(true)}
+                    className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-200 hover:bg-zinc-700"
+                  >
+                    màu sắc
+                  </button>
+                </div>
+              )}
             </div>
 
             <button
               type="button"
-              onClick={handlePromptCreate}
+              onClick={() => {
+                if (promptMediaTab === "hinh-anh") {
+                  setCreateToast("Tạo ảnh trực tiếp từ đây — sắp ra mắt");
+                  setTimeout(() => setCreateToast(null), 3500);
+                  return;
+                }
+                handlePromptCreate();
+              }}
               disabled={storyRunning}
               className="shrink-0 self-stretch rounded-2xl bg-amber-400 px-6 text-sm font-semibold text-zinc-900 hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-60"
             >
