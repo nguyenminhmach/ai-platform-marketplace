@@ -582,7 +582,7 @@ type JobRow = {
   preplanned_actions: ScriptSceneResult[] | null;
 };
 
-async function getMiniAppModelConfig(miniAppId: string) {
+export async function getMiniAppModelConfig(miniAppId: string) {
   const supabase = getSupabaseAdmin();
   const { data } = await supabase.from("mini_apps").select("credit_cost, model_config").eq("id", miniAppId).single();
   if (!data) throw new Error("Không tìm thấy Mini App");
@@ -679,7 +679,7 @@ async function validateSceneSplit(
 
 // Chọn đúng entry theo key nếu còn bật (enabled) — key thiếu/sai/bị tắt thì rơi về entry bật đầu
 // tiên trong catalog (giữ app luôn chạy được kể cả khi admin vừa tắt model khách đang chọn dở).
-function resolveModelEntry<T extends { key: string; enabled: boolean }>(entries: T[], key: string | undefined): T {
+export function resolveModelEntry<T extends { key: string; enabled: boolean }>(entries: T[], key: string | undefined): T {
   const found = key ? entries.find((e) => e.key === key && e.enabled) : undefined;
   const fallback = found ?? entries.find((e) => e.enabled);
   if (!fallback) throw new Error("Không có model nào đang bật trong catalog");
@@ -688,7 +688,7 @@ function resolveModelEntry<T extends { key: string; enabled: boolean }>(entries:
 
 // Chọn key trong 1 bảng giá theo lựa chọn/độ phân giải/thời lượng — key thiếu/sai thì rơi về key
 // đầu tiên trong bảng (giữ app luôn tính được giá kể cả khi frontend gửi key cũ không còn tồn tại).
-function resolvePricedKey(priceMap: Record<string, number>, key: string | undefined): { key: string; costVnd: number } {
+export function resolvePricedKey(priceMap: Record<string, number>, key: string | undefined): { key: string; costVnd: number } {
   const resolvedKey = key && priceMap[key] !== undefined ? key : Object.keys(priceMap)[0];
   return { key: resolvedKey, costVnd: priceMap[resolvedKey] };
 }
@@ -781,7 +781,7 @@ function ordinalWord(n: number): string {
   return ORDINAL_WORDS[n - 1] ?? `#${n}`;
 }
 
-function buildImageRequestBody(
+export function buildImageRequestBody(
   model: string,
   prompt: string | null,
   characterImageUrls: string[],
@@ -979,7 +979,7 @@ function buildVideoRequestBody(
   return body;
 }
 
-async function submitFalJob(model: string, body: Record<string, unknown>, webhookUrl: string): Promise<string> {
+export async function submitFalJob(model: string, body: Record<string, unknown>, webhookUrl: string): Promise<string> {
   const apiKey = process.env.FAL_KEY;
   if (!apiKey) throw new Error("Chưa cấu hình FAL_KEY trong .env.local");
 
@@ -1006,7 +1006,7 @@ function extractVideoUrl(falPayload: Record<string, unknown>): string | undefine
   );
 }
 
-function extractImageUrl(falPayload: Record<string, unknown>): string | undefined {
+export function extractImageUrl(falPayload: Record<string, unknown>): string | undefined {
   const inner = falPayload.payload as Record<string, unknown> | undefined;
   const images = (inner?.images ?? falPayload.images) as { url?: string }[] | undefined;
   return images?.[0]?.url ?? (inner?.image as { url?: string } | undefined)?.url ?? (falPayload.image as { url?: string } | undefined)?.url;

@@ -514,6 +514,13 @@ export default function VideoTuYTuongPage() {
   const [storyResult, setStoryResult] = useState<string | null>(null);
   const [storyError, setStoryError] = useState<string | null>(null);
   const storyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Sinh ảnh trực tiếp từ prompt bar ở tab "hình ảnh" (lib/prompt-image.ts) — TÁCH RIÊNG hẳn khỏi
+  // storyRunning/storyResult (luồng video kịch bản cũ) vì đây là 1 job hoàn toàn khác (1 prompt -> 1
+  // ảnh, không qua Character/phân cảnh), submit xong poll /api/prompt-image/status tới khi xong.
+  const [promptImageRunning, setPromptImageRunning] = useState(false);
+  const [promptImageResult, setPromptImageResult] = useState<string | null>(null);
+  const [promptImageError, setPromptImageError] = useState<string | null>(null);
+  const promptImagePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const storyCharacterPreviewRef = useRef<HTMLDivElement | null>(null);
   const storyScenesPreviewRef = useRef<HTMLDivElement | null>(null);
   const storyScenePreviewSectionRef = useRef<HTMLDivElement | null>(null);
@@ -808,6 +815,7 @@ export default function VideoTuYTuongPage() {
   useEffect(() => {
     return () => {
       if (storyPollRef.current) clearInterval(storyPollRef.current);
+      if (promptImagePollRef.current) clearInterval(promptImagePollRef.current);
     };
   }, []);
 
@@ -2659,6 +2667,79 @@ export default function VideoTuYTuongPage() {
     }
   }
 
+  function pollPromptImageStatus(jobId: number) {
+    promptImagePollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/prompt-image/status?jobId=${jobId}`);
+        const data = await res.json();
+
+        if (data.status === "done" && data.outputUrl) {
+          if (promptImagePollRef.current) clearInterval(promptImagePollRef.current);
+          setPromptImageResult(data.outputUrl);
+          setPromptImageRunning(false);
+          window.dispatchEvent(new Event("balance-updated"));
+        } else if (data.status === "failed") {
+          if (promptImagePollRef.current) clearInterval(promptImagePollRef.current);
+          setPromptImageError(data.errorMessage ?? "Có lỗi xảy ra");
+          setPromptImageRunning(false);
+          window.dispatchEvent(new Event("balance-updated")); // credit đã hoàn lại
+        }
+      } catch {
+        // lỗi mạng tạm thời — vòng poll tiếp theo thử lại, không dừng hẳn
+      }
+    }, 3000);
+  }
+
+  // Nút "tạo" ở tab "hình ảnh" — sinh 1 ảnh TRỰC TIẾP từ prompt (khác hẳn handlePromptCreate ở trên,
+  // vốn luôn tạo VIDEO qua luồng kịch bản/phân cảnh). Dùng đúng cùng 1 ô prompt + ảnh tham chiếu đã
+  // tải ở "+" (promptImages), nhưng gửi tới job sinh ảnh riêng (lib/prompt-image.ts).
+  async function handlePromptImageCreate() {
+    if (!user) {
+      setCreateToast("Vui lòng đăng nhập trước khi tạo ảnh");
+      setTimeout(() => setCreateToast(null), 3500);
+      router.push("/login");
+      return;
+    }
+    const rawText = input.trim();
+    if (!rawText) {
+      setCreateToast("Nhập prompt trước đã");
+      setTimeout(() => setCreateToast(null), 3500);
+      return;
+    }
+
+    setPromptImageRunning(true);
+    setPromptImageResult(null);
+    setPromptImageError(null);
+
+    try {
+      const uploadedPromptImages = await Promise.all(
+        promptImages.map((img) => (img.startsWith("http") ? Promise.resolve(img) : uploadOutfitSwapImage(img)))
+      );
+      const res = await fetch("/api/prompt-image/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: rawText,
+          imageUrls: uploadedPromptImages,
+          modelKey: storyImageModelKey,
+          aspectRatio: storyAspectRatio,
+          resolutionKey: storyResolutionKey,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPromptImageError(data.error ?? "Có lỗi xảy ra");
+        setPromptImageRunning(false);
+        return;
+      }
+      window.dispatchEvent(new Event("balance-updated"));
+      pollPromptImageStatus(data.jobId);
+    } catch (err) {
+      setPromptImageError(err instanceof Error ? err.message : "Không kết nối được tới server");
+      setPromptImageRunning(false);
+    }
+  }
+
   return (
     <div className="flex min-h-full bg-black text-zinc-100">
       {/* Sidebar trái — xem video1.jpg. "Hình ảnh tham chiếu" trỏ sang trang quản lý kho tham chiếu đã
@@ -3027,16 +3108,15 @@ export default function VideoTuYTuongPage() {
               type="button"
               onClick={() => {
                 if (promptMediaTab === "hinh-anh") {
-                  setCreateToast("Tạo ảnh trực tiếp từ đây — sắp ra mắt");
-                  setTimeout(() => setCreateToast(null), 3500);
+                  handlePromptImageCreate();
                   return;
                 }
                 handlePromptCreate();
               }}
-              disabled={storyRunning}
+              disabled={promptMediaTab === "hinh-anh" ? promptImageRunning : storyRunning}
               className="shrink-0 self-stretch rounded-2xl bg-amber-400 px-6 text-sm font-semibold text-zinc-900 hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {storyRunning ? "đang tạo..." : "tạo"}
+              {(promptMediaTab === "hinh-anh" ? promptImageRunning : storyRunning) ? "đang tạo..." : "tạo"}
             </button>
           </div>
 
@@ -3069,6 +3149,35 @@ export default function VideoTuYTuongPage() {
                     className="rounded-full bg-zinc-800 px-4 py-2 text-xs font-medium text-zinc-200 hover:bg-zinc-700"
                   >
                     Tải video
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Khu vực tiến trình/kết quả cho tab "hình ảnh" — TÁCH RIÊNG khối trên (promptImageRunning/
+              promptImageResult/promptImageError, không phải storyRunning/storyResult/storyError). */}
+          {(promptImageRunning || promptImageResult || promptImageError) && (
+            <div className="mt-8 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6">
+              {promptImageRunning && (
+                <div className="flex items-center justify-center gap-3 py-6 text-sm text-zinc-300">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-600 border-t-amber-400" />
+                  <span>Đang tạo ảnh...</span>
+                </div>
+              )}
+
+              {!promptImageRunning && promptImageError && <p className="text-center text-sm text-red-400">{promptImageError}</p>}
+
+              {!promptImageRunning && promptImageResult && (
+                <div className="flex flex-col items-center gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={promptImageResult} alt="" className="max-h-[480px] w-full max-w-sm rounded-xl bg-black object-contain" />
+                  <a
+                    href={promptImageResult}
+                    download
+                    className="rounded-full bg-zinc-800 px-4 py-2 text-xs font-medium text-zinc-200 hover:bg-zinc-700"
+                  >
+                    Tải ảnh
                   </a>
                 </div>
               )}
