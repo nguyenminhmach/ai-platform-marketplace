@@ -133,6 +133,11 @@ export function NewElementModal({
     }
     if (images.some((img) => img.url === url)) return; // đã chọn ảnh này rồi
     setImages((prev) => [...prev, { dataUrl: url, uploading: false, url }]);
+    // Đóng ngay sau khi chọn — lớp nền mờ (fixed inset-0) của modal này phủ kín màn hình kể cả phần
+    // form bên dưới nó, nên để mở sẽ chặn luôn click vào nút "Tạo nên" dù nhìn vẫn thấy nút đó (khách
+    // bấm vào thì chỉ đóng modal, không submit được gì — đây là nguyên nhân báo "không tạo được").
+    // Muốn thêm ảnh khác thì bấm lại "+" để mở lại.
+    setLibraryOpen(false);
   }
 
   async function handleFiles(files: FileList | null) {
