@@ -86,6 +86,20 @@ export function ReferencePickerModal({
     }
   }
 
+  async function handleDeleteUpload(u: UploadEntry) {
+    if (!u.url) return;
+    setUploads((prev) => prev.filter((x) => x.dataUrl !== u.dataUrl));
+    try {
+      await fetch("/api/prompt-uploads", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: u.url }),
+      });
+    } catch {
+      // best-effort — ảnh đã ẩn khỏi lưới, không cần khôi phục lại nếu request lỗi vặt
+    }
+  }
+
   // ----- Tab "Hình ảnh tham chiếu" -----
   const [elements, setElements] = useState<ReferenceElement[]>([]);
   const [elementsLoading, setElementsLoading] = useState(false);
@@ -216,17 +230,30 @@ export function ReferencePickerModal({
                         </span>
                       )}
                       {u.url && !u.uploading && (
-                        <span
-                          role="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setZoomed(u.dataUrl);
-                          }}
-                          title="Xem cỡ lớn"
-                          className="absolute bottom-1 right-1 hidden rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white group-hover:block"
-                        >
-                          🔍
-                        </span>
+                        <div className="absolute bottom-1 right-1 hidden items-center gap-1 group-hover:flex">
+                          <span
+                            role="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setZoomed(u.dataUrl);
+                            }}
+                            title="Xem cỡ lớn"
+                            className="rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white"
+                          >
+                            🔍
+                          </span>
+                          <span
+                            role="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteUpload(u);
+                            }}
+                            title="Xoá"
+                            className="rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white hover:bg-red-600"
+                          >
+                            🗑
+                          </span>
+                        </div>
                       )}
                     </button>
                   );

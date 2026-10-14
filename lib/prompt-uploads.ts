@@ -36,3 +36,21 @@ export async function createPromptUpload(userId: string, url: string): Promise<P
   if (error) throw new Error(error.message);
   return data as PromptUpload;
 }
+
+// Xoá 1 ảnh khỏi thư viện "Tải lên" — khách bấm "Xoá" trong ReferencePickerModal. Xoá cả bản ghi DB
+// VÀ file thật trong Supabase Storage (bucket "outfit-swap-uploads", nơi /api/outfit-swap/upload lưu
+// ảnh gốc) để tránh rác dung lượng tích luỹ (đúng tinh thần theo dõi quota Supabase đã thống nhất) —
+// lỗi xoá storage KHÔNG chặn việc xoá bản ghi DB (best-effort, ảnh có thể đã bị xoá tay/hỏng từ trước).
+// Chỉ match theo user_id + url (không cần id riêng) — mỗi lần upload luôn ra url khác nhau (randomUUID
+// trong filePath), nên url ở đây vẫn đủ xác định đúng 1 hàng.
+export async function deletePromptUpload(userId: string, url: string): Promise<void> {
+  const supabase = getSupabaseAdmin();
+
+  const match = url.match(/\/outfit-swap-uploads\/(.+)$/);
+  if (match) {
+    await supabase.storage.from("outfit-swap-uploads").remove([decodeURIComponent(match[1])]);
+  }
+
+  const { error } = await supabase.from("prompt_uploads").delete().eq("user_id", userId).eq("url", url);
+  if (error) throw new Error(error.message);
+}
