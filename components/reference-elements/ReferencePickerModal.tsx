@@ -347,7 +347,16 @@ export function ReferencePickerModal({
       </div>
 
       {zoomed && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/90 p-6" onClick={() => setZoomed(null)}>
+        <div
+          className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/90 p-6"
+          onClick={(e) => {
+            // Thiếu stopPropagation trước đây khiến click đóng ảnh zoom "bắn" tiếp lên lớp modal cha
+            // (div ngoài cùng, onClick={onClose}) vì zoomed đang là sibling nằm LỒNG BÊN TRONG nó —
+            // kết quả bấm thu nhỏ ảnh lại đóng luôn cả popup "Tải lên"/"Hình ảnh tham chiếu".
+            e.stopPropagation();
+            setZoomed(null);
+          }}
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={zoomed} alt="" className="max-h-full max-w-full rounded-lg object-contain" />
         </div>
