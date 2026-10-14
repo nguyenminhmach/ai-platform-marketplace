@@ -121,6 +121,12 @@ export function ReferencePickerModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, elementFilter]);
 
+  async function handleDeleteElement(id: number) {
+    if (!confirm("Xoá phần tử này? Không thể hoàn tác.")) return;
+    const res = await fetch(`/api/reference-elements/${id}`, { method: "DELETE" });
+    if (res.ok) setElements((prev) => prev.filter((el) => el.id !== id));
+  }
+
   function handlePickElement(el: ReferenceElement) {
     if (el.image_urls.length > 0) onAddImages([el.image_urls[0]]);
     onInsertMention?.(el.element_id);
@@ -300,21 +306,28 @@ export function ReferencePickerModal({
                   </button>
                   {!elementsLoading &&
                     elements.map((el) => (
-                      <button
-                        type="button"
-                        key={el.id}
-                        onClick={() => handlePickElement(el)}
-                        className="group relative aspect-square overflow-hidden rounded-xl border border-zinc-800"
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={el.image_urls[0]} alt={el.name} className="h-full w-full object-cover" />
-                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-left">
-                          <p className="truncate text-xs font-medium text-white">{el.name}</p>
-                          <p className="truncate text-[10px] text-zinc-300">
-                            @{el.element_id} · {TYPE_LABEL[el.type]}
-                          </p>
-                        </div>
-                      </button>
+                      <div key={el.id} className="group relative aspect-square overflow-hidden rounded-xl border border-zinc-800">
+                        <button type="button" onClick={() => handlePickElement(el)} className="h-full w-full">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={el.image_urls[0]} alt={el.name} className="h-full w-full object-cover" />
+                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-left">
+                            <p className="truncate text-xs font-medium text-white">{el.name}</p>
+                            <p className="truncate text-[10px] text-zinc-300">
+                              @{el.element_id} · {TYPE_LABEL[el.type]}
+                            </p>
+                          </div>
+                        </button>
+                        <span
+                          role="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteElement(el.id);
+                          }}
+                          className="absolute right-1.5 top-1.5 hidden rounded-full bg-black/60 px-2 py-1 text-[10px] text-white hover:bg-red-600 group-hover:block"
+                        >
+                          Xoá
+                        </span>
+                      </div>
                     ))}
                 </div>
                 {!elementsLoading && elements.length === 0 && (
