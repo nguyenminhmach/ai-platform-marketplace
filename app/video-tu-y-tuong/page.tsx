@@ -2839,7 +2839,7 @@ export default function VideoTuYTuongPage() {
                   khảo/máy ảnh/bảng màu/ánh sáng/thiết lập phim tự động), dạng pill bo tròn hết cỡ, viền
                   neon riêng. */}
               <div
-                className="flex flex-wrap items-center gap-2 rounded-full border border-fuchsia-500/50 bg-zinc-900 p-2"
+                className="flex flex-wrap items-center gap-2 rounded-full border border-fuchsia-500/50 bg-zinc-900 px-3 py-2.5"
                 style={{ boxShadow: "0 0 30px -6px rgba(217,70,239,0.55), 0 0 2px rgba(217,70,239,0.8)" }}
               >
                 <div className="flex items-center gap-1 rounded-full bg-zinc-800 p-1">
@@ -2858,7 +2858,7 @@ export default function VideoTuYTuongPage() {
                 <button
                   type="button"
                   onClick={() => setPickerModal({ defaultTab: "reference", forMention: false })}
-                  className="flex items-center gap-1.5 rounded-full bg-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
+                  className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
                 >
                   <span className="text-base font-bold text-cyan-400">A</span>
                   tài liệu tham khảo
@@ -2867,7 +2867,7 @@ export default function VideoTuYTuongPage() {
                 <button
                   type="button"
                   onClick={() => setCameraModalOpen(true)}
-                  className="flex items-center gap-1.5 rounded-full bg-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
+                  className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="1.5" className="h-4 w-4 shrink-0">
                     <rect x="3" y="7" width="18" height="13" rx="2" />
@@ -2880,7 +2880,7 @@ export default function VideoTuYTuongPage() {
                 <button
                   type="button"
                   onClick={() => setColorModalOpen(true)}
-                  className="flex items-center gap-1.5 rounded-full bg-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
+                  className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
                 >
                   <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0">
                     <circle cx="12" cy="12" r="9" fill="none" stroke="#22d3ee" strokeWidth="1.5" />
@@ -2892,7 +2892,7 @@ export default function VideoTuYTuongPage() {
                 <button
                   type="button"
                   onClick={() => setLightModalOpen(true)}
-                  className="flex items-center gap-1.5 rounded-full bg-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
+                  className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="1.5" className="h-4 w-4 shrink-0">
                     <circle cx="12" cy="12" r="5" />
@@ -2904,7 +2904,7 @@ export default function VideoTuYTuongPage() {
                 <button
                   type="button"
                   title="Sắp ra mắt"
-                  className="rounded-full bg-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
+                  className="rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
                 >
                   thiết lập phim tự động
                 </button>
