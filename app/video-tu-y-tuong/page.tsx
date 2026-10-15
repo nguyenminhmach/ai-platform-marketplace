@@ -3020,19 +3020,19 @@ export default function VideoTuYTuongPage() {
                   </select>
                 )}
               </div>
-              </div>
 
-              {/* KHỐI 3/3 — nút "Tạo", TÁCH RIÊNG hẳn (không nằm trong khối ô prompt nữa) — cả khối này
-                  màu tím/viền neon, đúng ảnh mẫu ("khối tạo cả khối màu tím"). */}
+              {/* Nút "Tạo" — NẰM TRONG khối ô prompt (không tách khối riêng), nhưng tự nó có viền tím
+                  ĐẬM (border dày, màu rõ) + nền màu tím NHẠT hơn viền (không phải đen/zinc-950 nữa). */}
               <button
                 type="button"
                 onClick={handlePromptCreate}
                 disabled={storyRunning}
-                style={{ boxShadow: "0 0 25px -5px rgba(217,70,239,0.7), 0 0 2px rgba(217,70,239,0.9)" }}
-                className="w-full rounded-full border border-fuchsia-500/70 bg-zinc-950 py-3.5 text-base font-semibold text-white hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
+                style={{ boxShadow: "0 0 20px -4px rgba(217,70,239,0.6)" }}
+                className="w-full rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 py-3.5 text-base font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {storyRunning ? "Đang tạo..." : "Tạo"}
               </button>
+              </div>
             </div>
           ) : null}
 
