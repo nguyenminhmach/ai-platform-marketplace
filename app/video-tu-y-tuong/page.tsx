@@ -2840,7 +2840,7 @@ export default function VideoTuYTuongPage() {
                   thiết lập phim tự động) ở DÒNG RIÊNG bên dưới — đúng hướng mũi tên anh vẽ nhiều lần
                   (từ hàng chip chỉ lên khối tab, nghĩa là 2 dòng tách biệt, không chung 1 hàng). */}
               <div
-                className="flex flex-col gap-2 rounded-[28px] border border-fuchsia-500/50 bg-zinc-900 pb-3 pl-1 pr-4 pt-0"
+                className="flex flex-col gap-2 rounded-[40px] border border-fuchsia-500/50 bg-zinc-900 pb-3 pl-1 pr-4 pt-0"
                 style={{ boxShadow: "0 0 30px -6px rgba(217,70,239,0.55), 0 0 2px rgba(217,70,239,0.8)" }}
               >
                 {/* Viền TRÊN của tab toggle phải trùng/sát viền trên của khối lớn — không có khoảng đệm
