@@ -2835,15 +2835,16 @@ export default function VideoTuYTuongPage() {
           {promptMediaTab === "video" ? (
             <div className="flex flex-col gap-3">
               {/* KHỐI 1/2 — bản thiết kế có 2 khối riêng biệt (khối pill trên + khối box dưới), không
-                  phải 1 khối gộp chung như bản trước. Khối này: tab toggle + chip preset (tài liệu tham
-                  khảo/máy ảnh/bảng màu/ánh sáng/thiết lập phim tự động), dạng pill bo tròn hết cỡ, viền
-                  neon riêng. */}
+                  phải 1 khối gộp chung như bản trước. Khối này: tab toggle RIÊNG 1 DÒNG trên cùng (sát
+                  góc trên-trái của khối), chip preset (tài liệu tham khảo/máy ảnh/bảng màu/ánh sáng/
+                  thiết lập phim tự động) ở DÒNG RIÊNG bên dưới — đúng hướng mũi tên anh vẽ nhiều lần
+                  (từ hàng chip chỉ lên khối tab, nghĩa là 2 dòng tách biệt, không chung 1 hàng). */}
               <div
-                className="flex flex-wrap items-center gap-2 rounded-[28px] border border-fuchsia-500/50 bg-zinc-900 py-2 pl-3 pr-5"
+                className="flex flex-col gap-2 rounded-[28px] border border-fuchsia-500/50 bg-zinc-900 px-4 py-3"
                 style={{ boxShadow: "0 0 30px -6px rgba(217,70,239,0.55), 0 0 2px rgba(217,70,239,0.8)" }}
               >
                 <div
-                  className="flex items-center gap-1 rounded-full border border-fuchsia-500/60 bg-zinc-800 p-1"
+                  className="flex w-fit items-center gap-1 rounded-full border border-fuchsia-500/60 bg-zinc-800 p-1"
                   style={{ boxShadow: "0 0 10px -2px rgba(217,70,239,0.6)" }}
                 >
                   <button
@@ -2858,6 +2859,7 @@ export default function VideoTuYTuongPage() {
                   </button>
                 </div>
 
+                <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setPickerModal({ defaultTab: "reference", forMention: false })}
@@ -2910,6 +2912,7 @@ export default function VideoTuYTuongPage() {
                 >
                   thiết lập phim tự động
                 </button>
+                </div>
               </div>
 
               {/* KHỐI 2/3 — ô "viết prompt" + icon toolbar — khối này KHÔNG viền tím (bình thường), đúng
