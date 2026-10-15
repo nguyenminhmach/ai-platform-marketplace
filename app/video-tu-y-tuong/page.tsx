@@ -2824,117 +2824,88 @@ export default function VideoTuYTuongPage() {
 
           <h1 className="mb-6 text-center text-3xl font-bold text-white sm:text-4xl">Không gian cho mọi ý tưởng</h1>
 
-          {/* Preset chips — "tài liệu tham khảo" mở modal chọn ảnh tham chiếu, "cài đặt camera" mở
-              bảng Máy ảnh/Thấu kính/Khẩu độ, "cài đặt màu" mở bảng chọn tông màu. 2 chip còn lại
-              (thiết lập phim tự động/ánh sáng tự động) vẫn là placeholder, chưa làm ở đợt này. CHỈ hiện
-              ở tab "video" — user phản hồi hàng này không thuộc về phần tạo ảnh (trùng camera/màu sắc
-              đã có riêng ở hàng dưới của tab "hình ảnh", còn Ánh sáng/thiết lập phim chỉ áp dụng cho
-              video). */}
+          {/* Hàng icon trên cùng của tab "video" — anh yêu cầu đảo vị trí với hàng chip preset (xem
+              annotation mũi tên đỏ): hàng "+/@/🎥/model/1080/tỉ lệ/thời gian/âm thanh" (trước đây nằm
+              dưới ô viết prompt) giờ chuyển lên ĐÂY, còn hàng chip preset (tài liệu tham khảo/máy
+              ảnh/bảng màu/ánh sáng/thiết lập phim tự động) chuyển xuống vị trí cũ của hàng này, ngay
+              dưới ô viết prompt (xem trong "Khối prompt chính" bên dưới). Giữ NGUYÊN số nút, chỉ đổi
+              thứ tự trên/dưới — CHỈ áp dụng tab "video" theo đúng yêu cầu. */}
           {promptMediaTab === "video" && (
-          <div className="mb-6 flex flex-wrap justify-center gap-2">
+          <div className="mb-6 flex flex-wrap items-center justify-center gap-2">
             <button
               type="button"
-              onClick={() => setPickerModal({ defaultTab: "reference", forMention: false })}
-              className="rounded-full bg-zinc-900 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
+              onClick={() => setPickerModal({ defaultTab: "upload", forMention: false })}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-base text-zinc-200 hover:bg-zinc-700"
+              title="Tải ảnh lên"
             >
-              tài liệu tham khảo
+              +
+            </button>
+            <button
+              type="button"
+              onClick={() => setPickerModal({ defaultTab: "reference", forMention: true })}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-base text-zinc-200 hover:bg-zinc-700"
+              title="Chèn @mention từ kho tham chiếu"
+            >
+              @
+            </button>
+            <button
+              type="button"
+              title="Thiết lập máy quay/ánh sáng — sắp ra mắt cho prompt bar"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-base text-zinc-200 hover:bg-zinc-700"
+            >
+              🎥
             </button>
 
-            {/* Chip "cài đặt camera" — icon ống kính phát sáng + 2 dòng chữ: "Máy ảnh" mờ phía trên,
-                tên preset đã chọn hiện rõ/đậm phía dưới (xem ảnh tham khảo Higgsfield). */}
-            <button
-              type="button"
-              onClick={() => setCameraModalOpen(true)}
-              className="flex items-center gap-2 rounded-full bg-zinc-900 py-1.5 pl-1.5 pr-4 text-left hover:bg-zinc-800"
-            >
-              <span
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
-                style={{ background: "radial-gradient(circle at 35% 35%, #60a5fa, #1e3a8a 70%)" }}
+            {storyVideoModels.length > 0 && (
+              <select
+                value={storyVideoModelKey ?? ""}
+                onChange={(e) => setStoryVideoModelKey(e.target.value || null)}
+                className="h-9 rounded-full bg-zinc-800 px-3 text-xs text-zinc-200 outline-none"
               >
-                <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5" className="h-4 w-4">
-                  <circle cx="12" cy="12" r="7" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-              </span>
-              <span className="flex flex-col leading-tight">
-                <span className="text-[10px] text-zinc-500">Máy ảnh</span>
-                <span className="max-w-[160px] truncate text-xs font-semibold text-zinc-100">
-                  {selectedCameraLabels.length > 0 ? selectedCameraLabels.join(", ") : "Tự động"}
-                </span>
-              </span>
-            </button>
+                <option value="">model</option>
+                {storyVideoModels.map((m) => (
+                  <option key={m.key} value={m.key}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            )}
+            {storyVideoModels.length === 0 && (
+              <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">model</span>
+            )}
 
-            {/* Chip "cài đặt màu" — cùng hình thức chip camera: ô swatch 3 màu + "Bảng màu" mờ trên,
-                tên preset đã chọn hiện rõ/đậm phía dưới. */}
-            <button
-              type="button"
-              onClick={() => setColorModalOpen(true)}
-              className="flex items-center gap-2 rounded-full bg-zinc-900 py-1.5 pl-1.5 pr-4 text-left hover:bg-zinc-800"
+            <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">{storyResolutionKey ?? "1080"}</span>
+
+            <select
+              value={storyAspectRatio}
+              onChange={(e) => setStoryAspectRatio(e.target.value)}
+              className="h-9 rounded-full bg-zinc-800 px-3 text-xs text-zinc-200 outline-none"
             >
-              <span className="grid h-7 w-7 shrink-0 grid-cols-2 gap-0.5 overflow-hidden rounded-full">
-                {(() => {
-                  const active = COLOR_PALETTE_PRESETS.find((p) => p.key === promptColorPalette);
-                  const colors = active ? active.swatches : ["#52525b", "#71717a", "#3f3f46"];
-                  return (
-                    <>
-                      <span style={{ background: colors[0] }} />
-                      <span style={{ background: colors[1] ?? colors[0] }} />
-                      <span className="col-span-2" style={{ background: colors[2] ?? colors[0] }} />
-                    </>
-                  );
-                })()}
-              </span>
-              <span className="flex flex-col leading-tight">
-                <span className="text-[10px] text-zinc-500">Bảng màu</span>
-                <span className="max-w-[160px] truncate text-xs font-semibold text-zinc-100">
-                  {COLOR_PALETTE_PRESETS.find((p) => p.key === promptColorPalette)?.label ?? "Tự động"}
-                </span>
-              </span>
-            </button>
+              {["16:9", "9:16", "1:1"].map((ratio) => (
+                <option key={ratio} value={ratio}>
+                  {ratio}
+                </option>
+              ))}
+            </select>
 
-            {/* Chip "ánh sáng tự động" — mở bảng 3D (Thiết lập ánh sáng mới). */}
-            <button
-              type="button"
-              onClick={() => setLightModalOpen(true)}
-              className="flex items-center gap-2 rounded-full bg-zinc-900 py-1.5 pl-1.5 pr-4 text-left hover:bg-zinc-800"
-            >
-              <span
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
-                style={{ background: promptLights && promptLights.length > 0 ? promptLights[0].color : "#3f3f46" }}
+            {storyVideoModels.find((m) => m.key === storyVideoModelKey)?.duration_price_vnd ? (
+              <select
+                value={storyDurationKey ?? ""}
+                onChange={(e) => setStoryDurationKey(e.target.value || null)}
+                className="h-9 rounded-full bg-zinc-800 px-3 text-xs text-zinc-200 outline-none"
               >
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke={promptLights && promptLights.length > 0 ? "#18181b" : "white"}
-                  strokeWidth="1.5"
-                  className="h-4 w-4"
-                >
-                  <circle cx="12" cy="12" r="5" />
-                  <path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" />
-                </svg>
-              </span>
-              <span className="flex flex-col leading-tight">
-                <span className="text-[10px] text-zinc-500">Ánh sáng</span>
-                <span className="max-w-[160px] truncate text-xs font-semibold text-zinc-100">
-                  {promptLights && promptLights.length > 0
-                    ? promptLights.length === 1
-                      ? nearestLightQuickPosition(promptLights[0].azimuth, promptLights[0].elevation).label
-                      : `${promptLights.length} đèn`
-                    : "Tự động"}
-                </span>
-              </span>
-            </button>
+                <option value="">thời gian</option>
+                {Object.keys(storyVideoModels.find((m) => m.key === storyVideoModelKey)?.duration_price_vnd ?? {}).map((key) => (
+                  <option key={key} value={key}>
+                    {key}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">thời gian</span>
+            )}
 
-            {["thiết lập phim tự động"].map((label) => (
-              <button
-                key={label}
-                type="button"
-                className="rounded-full bg-zinc-900 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
-                title="Sắp ra mắt"
-              >
-                {label}
-              </button>
-            ))}
+            <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">âm thanh</span>
           </div>
           )}
 
@@ -2998,78 +2969,107 @@ export default function VideoTuYTuongPage() {
                 <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-zinc-800 pt-3">
                   <button
                     type="button"
-                    onClick={() => setPickerModal({ defaultTab: "upload", forMention: false })}
-                    className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-base text-zinc-200 hover:bg-zinc-700"
-                    title="Tải ảnh lên"
+                    onClick={() => setPickerModal({ defaultTab: "reference", forMention: false })}
+                    className="rounded-full bg-zinc-900 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
                   >
-                    +
+                    tài liệu tham khảo
                   </button>
+
+                  {/* Chip "cài đặt camera" — icon ống kính phát sáng + 2 dòng chữ: "Máy ảnh" mờ phía trên,
+                      tên preset đã chọn hiện rõ/đậm phía dưới (xem ảnh tham khảo Higgsfield). */}
                   <button
                     type="button"
-                    onClick={() => setPickerModal({ defaultTab: "reference", forMention: true })}
-                    className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-base text-zinc-200 hover:bg-zinc-700"
-                    title="Chèn @mention từ kho tham chiếu"
+                    onClick={() => setCameraModalOpen(true)}
+                    className="flex items-center gap-2 rounded-full bg-zinc-900 py-1.5 pl-1.5 pr-4 text-left hover:bg-zinc-800"
                   >
-                    @
+                    <span
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                      style={{ background: "radial-gradient(circle at 35% 35%, #60a5fa, #1e3a8a 70%)" }}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5" className="h-4 w-4">
+                        <circle cx="12" cy="12" r="7" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    </span>
+                    <span className="flex flex-col leading-tight">
+                      <span className="text-[10px] text-zinc-500">Máy ảnh</span>
+                      <span className="max-w-[160px] truncate text-xs font-semibold text-zinc-100">
+                        {selectedCameraLabels.length > 0 ? selectedCameraLabels.join(", ") : "Tự động"}
+                      </span>
+                    </span>
                   </button>
+
+                  {/* Chip "cài đặt màu" — cùng hình thức chip camera: ô swatch 3 màu + "Bảng màu" mờ trên,
+                      tên preset đã chọn hiện rõ/đậm phía dưới. */}
                   <button
                     type="button"
-                    title="Thiết lập máy quay/ánh sáng — sắp ra mắt cho prompt bar"
-                    className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-base text-zinc-200 hover:bg-zinc-700"
+                    onClick={() => setColorModalOpen(true)}
+                    className="flex items-center gap-2 rounded-full bg-zinc-900 py-1.5 pl-1.5 pr-4 text-left hover:bg-zinc-800"
                   >
-                    🎥
+                    <span className="grid h-7 w-7 shrink-0 grid-cols-2 gap-0.5 overflow-hidden rounded-full">
+                      {(() => {
+                        const active = COLOR_PALETTE_PRESETS.find((p) => p.key === promptColorPalette);
+                        const colors = active ? active.swatches : ["#52525b", "#71717a", "#3f3f46"];
+                        return (
+                          <>
+                            <span style={{ background: colors[0] }} />
+                            <span style={{ background: colors[1] ?? colors[0] }} />
+                            <span className="col-span-2" style={{ background: colors[2] ?? colors[0] }} />
+                          </>
+                        );
+                      })()}
+                    </span>
+                    <span className="flex flex-col leading-tight">
+                      <span className="text-[10px] text-zinc-500">Bảng màu</span>
+                      <span className="max-w-[160px] truncate text-xs font-semibold text-zinc-100">
+                        {COLOR_PALETTE_PRESETS.find((p) => p.key === promptColorPalette)?.label ?? "Tự động"}
+                      </span>
+                    </span>
                   </button>
 
-                  {storyVideoModels.length > 0 && (
-                    <select
-                      value={storyVideoModelKey ?? ""}
-                      onChange={(e) => setStoryVideoModelKey(e.target.value || null)}
-                      className="h-9 rounded-full bg-zinc-800 px-3 text-xs text-zinc-200 outline-none"
-                    >
-                      <option value="">model</option>
-                      {storyVideoModels.map((m) => (
-                        <option key={m.key} value={m.key}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  {storyVideoModels.length === 0 && (
-                    <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">model</span>
-                  )}
-
-                  <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">{storyResolutionKey ?? "1080"}</span>
-
-                  <select
-                    value={storyAspectRatio}
-                    onChange={(e) => setStoryAspectRatio(e.target.value)}
-                    className="h-9 rounded-full bg-zinc-800 px-3 text-xs text-zinc-200 outline-none"
+                  {/* Chip "ánh sáng tự động" — mở bảng 3D (Thiết lập ánh sáng mới). */}
+                  <button
+                    type="button"
+                    onClick={() => setLightModalOpen(true)}
+                    className="flex items-center gap-2 rounded-full bg-zinc-900 py-1.5 pl-1.5 pr-4 text-left hover:bg-zinc-800"
                   >
-                    {["16:9", "9:16", "1:1"].map((ratio) => (
-                      <option key={ratio} value={ratio}>
-                        {ratio}
-                      </option>
-                    ))}
-                  </select>
-
-                  {storyVideoModels.find((m) => m.key === storyVideoModelKey)?.duration_price_vnd ? (
-                    <select
-                      value={storyDurationKey ?? ""}
-                      onChange={(e) => setStoryDurationKey(e.target.value || null)}
-                      className="h-9 rounded-full bg-zinc-800 px-3 text-xs text-zinc-200 outline-none"
+                    <span
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                      style={{ background: promptLights && promptLights.length > 0 ? promptLights[0].color : "#3f3f46" }}
                     >
-                      <option value="">thời gian</option>
-                      {Object.keys(storyVideoModels.find((m) => m.key === storyVideoModelKey)?.duration_price_vnd ?? {}).map((key) => (
-                        <option key={key} value={key}>
-                          {key}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">thời gian</span>
-                  )}
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke={promptLights && promptLights.length > 0 ? "#18181b" : "white"}
+                        strokeWidth="1.5"
+                        className="h-4 w-4"
+                      >
+                        <circle cx="12" cy="12" r="5" />
+                        <path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" />
+                      </svg>
+                    </span>
+                    <span className="flex flex-col leading-tight">
+                      <span className="text-[10px] text-zinc-500">Ánh sáng</span>
+                      <span className="max-w-[160px] truncate text-xs font-semibold text-zinc-100">
+                        {promptLights && promptLights.length > 0
+                          ? promptLights.length === 1
+                            ? nearestLightQuickPosition(promptLights[0].azimuth, promptLights[0].elevation).label
+                            : `${promptLights.length} đèn`
+                          : "Tự động"}
+                      </span>
+                    </span>
+                  </button>
 
-                  <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">âm thanh</span>
+                  {["thiết lập phim tự động"].map((label) => (
+                    <button
+                      key={label}
+                      type="button"
+                      className="rounded-full bg-zinc-900 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
+                      title="Sắp ra mắt"
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
               ) : (
                 <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-zinc-800 pt-3">
