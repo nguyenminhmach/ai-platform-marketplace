@@ -2861,7 +2861,7 @@ export default function VideoTuYTuongPage() {
                   </button>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="ml-[95px] flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setPickerModal({ defaultTab: "reference", forMention: false })}
