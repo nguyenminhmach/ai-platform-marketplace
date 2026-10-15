@@ -2839,7 +2839,7 @@ export default function VideoTuYTuongPage() {
                   khảo/máy ảnh/bảng màu/ánh sáng/thiết lập phim tự động), dạng pill bo tròn hết cỡ, viền
                   neon riêng. */}
               <div
-                className="flex flex-wrap items-center gap-2 rounded-[28px] border border-fuchsia-500/50 bg-zinc-900 px-5 py-4"
+                className="flex flex-wrap items-center gap-2 rounded-[28px] border border-fuchsia-500/50 bg-zinc-900 py-2 pl-3 pr-5"
                 style={{ boxShadow: "0 0 30px -6px rgba(217,70,239,0.55), 0 0 2px rgba(217,70,239,0.8)" }}
               >
                 <div
