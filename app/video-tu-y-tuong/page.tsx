@@ -2910,14 +2910,10 @@ export default function VideoTuYTuongPage() {
                 </button>
               </div>
 
-              {/* KHỐI 2/2 — box riêng (viền neon riêng) chứa ảnh đính kèm + ô prompt + icon toolbar
-                  (+/@/🎥/model/1080p/tỉ lệ) + nút "Tạo" dính liền cuối khối này, KHÔNG dính với khối 1
-                  (khối pill chip ở trên) — đúng 2 khối tách biệt như bản thiết kế, có khoảng cách nhỏ
-                  giữa 2 khối (gap-3 ở div cha). */}
-              <div
-                className="flex flex-col gap-3 rounded-[28px] border border-fuchsia-500/50 bg-zinc-900 p-4"
-                style={{ boxShadow: "0 0 30px -6px rgba(217,70,239,0.55), 0 0 2px rgba(217,70,239,0.8)" }}
-              >
+              {/* KHỐI 2/3 — ô "viết prompt" + icon toolbar — khối này KHÔNG viền tím (bình thường), đúng
+                  ảnh mẫu: chỉ có khối chip (khối 1) và khối nút "Tạo" (khối 3) mới có viền neon, khối ô
+                  prompt này chỉ là box tối thường, không glow. */}
+              <div className="flex flex-col gap-3 rounded-[28px] bg-zinc-900 p-4">
                 {promptImages.length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {promptImages.map((url, i) => (
@@ -3024,19 +3020,19 @@ export default function VideoTuYTuongPage() {
                   </select>
                 )}
               </div>
+              </div>
 
-              {/* Nút "Tạo" — dính liền trong CÙNG khối viền neon (không tách khối riêng/không có khoảng
-                  hở như bản trước), đúng ảnh mẫu. */}
+              {/* KHỐI 3/3 — nút "Tạo", TÁCH RIÊNG hẳn (không nằm trong khối ô prompt nữa) — cả khối này
+                  màu tím/viền neon, đúng ảnh mẫu ("khối tạo cả khối màu tím"). */}
               <button
                 type="button"
                 onClick={handlePromptCreate}
                 disabled={storyRunning}
-                style={{ boxShadow: "0 0 18px -4px rgba(217,70,239,0.8)" }}
-                className="w-full rounded-full border border-fuchsia-400/80 bg-zinc-950 py-3.5 text-base font-semibold text-white hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
+                style={{ boxShadow: "0 0 25px -5px rgba(217,70,239,0.7), 0 0 2px rgba(217,70,239,0.9)" }}
+                className="w-full rounded-full border border-fuchsia-500/70 bg-zinc-950 py-3.5 text-base font-semibold text-white hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {storyRunning ? "Đang tạo..." : "Tạo"}
               </button>
-              </div>
             </div>
           ) : null}
 
