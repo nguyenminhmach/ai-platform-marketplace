@@ -2833,7 +2833,10 @@ export default function VideoTuYTuongPage() {
               Tab "hình ảnh" CHƯA đổi — anh nói sẽ gửi ảnh mẫu riêng cho tab đó sau, nên giữ nguyên
               layout cũ (cột tab riêng bên trái + box riêng + nút "tạo" đứng ngoài) ở nhánh else. */}
           {promptMediaTab === "video" ? (
-            <div className="flex flex-col gap-3 rounded-2xl bg-zinc-900 p-4">
+            <div
+              className="flex flex-col gap-3 rounded-[28px] border border-fuchsia-500/50 bg-zinc-900 p-4"
+              style={{ boxShadow: "0 0 30px -6px rgba(217,70,239,0.55), 0 0 2px rgba(217,70,239,0.8)" }}
+            >
               <div className="flex flex-wrap items-center gap-2">
                 <div className="flex items-center gap-1 rounded-full bg-zinc-800 p-1">
                   <button
@@ -2954,25 +2957,25 @@ export default function VideoTuYTuongPage() {
                 <button
                   type="button"
                   onClick={() => setPickerModal({ defaultTab: "reference", forMention: false })}
-                  className="rounded-full bg-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
+                  className="flex items-center gap-2 rounded-full bg-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
                 >
+                  <span className="text-base font-bold text-cyan-400">A</span>
                   tài liệu tham khảo
                 </button>
 
                 {/* Chip "cài đặt camera" — icon ống kính phát sáng + 2 dòng chữ: "Máy ảnh" mờ phía trên,
-                    tên preset đã chọn hiện rõ/đậm phía dưới (xem ảnh tham khảo Higgsfield). */}
+                    tên preset đã chọn hiện rõ/đậm phía dưới (xem ảnh tham khảo Higgsfield — icon màu
+                    cyan trên nền tối, không phải gradient xanh dương như trước). */}
                 <button
                   type="button"
                   onClick={() => setCameraModalOpen(true)}
                   className="flex items-center gap-2 rounded-full bg-zinc-800 py-1.5 pl-1.5 pr-4 text-left hover:bg-zinc-700"
                 >
-                  <span
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
-                    style={{ background: "radial-gradient(circle at 35% 35%, #60a5fa, #1e3a8a 70%)" }}
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5" className="h-4 w-4">
-                      <circle cx="12" cy="12" r="7" />
-                      <circle cx="12" cy="12" r="3" />
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-cyan-500/15">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="1.5" className="h-4 w-4">
+                      <rect x="3" y="7" width="18" height="13" rx="2" />
+                      <path d="M8 7l2-3h4l2 3" />
+                      <circle cx="12" cy="13.5" r="3.2" />
                     </svg>
                   </span>
                   <span className="flex flex-col leading-tight">
@@ -2990,10 +2993,10 @@ export default function VideoTuYTuongPage() {
                   onClick={() => setColorModalOpen(true)}
                   className="flex items-center gap-2 rounded-full bg-zinc-800 py-1.5 pl-1.5 pr-4 text-left hover:bg-zinc-700"
                 >
-                  <span className="grid h-7 w-7 shrink-0 grid-cols-2 gap-0.5 overflow-hidden rounded-full">
+                  <span className="grid h-7 w-7 shrink-0 grid-cols-2 gap-0.5 overflow-hidden rounded-full ring-1 ring-cyan-400/50">
                     {(() => {
                       const active = COLOR_PALETTE_PRESETS.find((p) => p.key === promptColorPalette);
-                      const colors = active ? active.swatches : ["#52525b", "#71717a", "#3f3f46"];
+                      const colors = active ? active.swatches : ["#0e7490", "#22d3ee", "#164e63"];
                       return (
                         <>
                           <span style={{ background: colors[0] }} />
@@ -3019,12 +3022,12 @@ export default function VideoTuYTuongPage() {
                 >
                   <span
                     className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
-                    style={{ background: promptLights && promptLights.length > 0 ? promptLights[0].color : "#3f3f46" }}
+                    style={{ background: promptLights && promptLights.length > 0 ? promptLights[0].color : "rgba(34,211,238,0.15)" }}
                   >
                     <svg
                       viewBox="0 0 24 24"
                       fill="none"
-                      stroke={promptLights && promptLights.length > 0 ? "#18181b" : "white"}
+                      stroke={promptLights && promptLights.length > 0 ? "#18181b" : "#22d3ee"}
                       strokeWidth="1.5"
                       className="h-4 w-4"
                     >
@@ -3056,16 +3059,22 @@ export default function VideoTuYTuongPage() {
                 ))}
               </div>
 
-              <button
-                type="button"
-                onClick={handlePromptCreate}
-                disabled={storyRunning}
-                className="w-full rounded-2xl bg-amber-400 py-3 text-sm font-semibold text-zinc-900 hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {storyRunning ? "đang tạo..." : "tạo"}
-              </button>
             </div>
-          ) : (
+          ) : null}
+
+          {promptMediaTab === "video" && (
+            <button
+              type="button"
+              onClick={handlePromptCreate}
+              disabled={storyRunning}
+              style={{ boxShadow: "0 0 25px -5px rgba(217,70,239,0.7), 0 0 2px rgba(217,70,239,0.9)" }}
+              className="mt-3 w-full rounded-full border border-fuchsia-500/70 bg-zinc-950 py-3.5 text-base font-semibold text-white hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {storyRunning ? "Đang tạo..." : "Tạo"}
+            </button>
+          )}
+
+          {promptMediaTab !== "video" && (
             <div className="flex items-stretch gap-3">
               <div className="flex shrink-0 flex-col gap-2">
                 <button
