@@ -2837,6 +2837,9 @@ export default function VideoTuYTuongPage() {
               className="flex flex-col gap-3 rounded-[28px] border border-fuchsia-500/50 bg-zinc-900 p-4"
               style={{ boxShadow: "0 0 30px -6px rgba(217,70,239,0.55), 0 0 2px rgba(217,70,239,0.8)" }}
             >
+              {/* Hàng trên cùng — ĐÚNG thứ tự ảnh mẫu Higgsfield: tab toggle + chip preset (tài liệu
+                  tham khảo/máy ảnh/bảng màu/ánh sáng/thiết lập phim tự động), MỘT dòng chữ (không có
+                  "Tự động" phụ phía dưới như bản trước — khách yêu cầu khớp y hệt ảnh). */}
               <div className="flex flex-wrap items-center gap-2">
                 <div className="flex items-center gap-1 rounded-full bg-zinc-800 p-1">
                   <button
@@ -2851,6 +2854,91 @@ export default function VideoTuYTuongPage() {
                   </button>
                 </div>
 
+                <button
+                  type="button"
+                  onClick={() => setPickerModal({ defaultTab: "reference", forMention: false })}
+                  className="flex items-center gap-1.5 rounded-full bg-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
+                >
+                  <span className="text-base font-bold text-cyan-400">A</span>
+                  tài liệu tham khảo
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCameraModalOpen(true)}
+                  className="flex items-center gap-1.5 rounded-full bg-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="1.5" className="h-4 w-4 shrink-0">
+                    <rect x="3" y="7" width="18" height="13" rx="2" />
+                    <path d="M8 7l2-3h4l2 3" />
+                    <circle cx="12" cy="13.5" r="3.2" />
+                  </svg>
+                  máy ảnh
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setColorModalOpen(true)}
+                  className="flex items-center gap-1.5 rounded-full bg-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
+                >
+                  <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0">
+                    <circle cx="12" cy="12" r="9" fill="none" stroke="#22d3ee" strokeWidth="1.5" />
+                    <path d="M12 3a9 9 0 0 1 9 9h-9z" fill="#22d3ee" />
+                  </svg>
+                  bảng màu
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setLightModalOpen(true)}
+                  className="flex items-center gap-1.5 rounded-full bg-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="1.5" className="h-4 w-4 shrink-0">
+                    <circle cx="12" cy="12" r="5" />
+                    <path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" />
+                  </svg>
+                  ánh sáng
+                </button>
+
+                <button
+                  type="button"
+                  title="Sắp ra mắt"
+                  className="rounded-full bg-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
+                >
+                  thiết lập phim tự động
+                </button>
+              </div>
+
+              {promptImages.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {promptImages.map((url, i) => (
+                    <div key={i} className="group relative h-14 w-14 overflow-hidden rounded-lg border border-zinc-700">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={url} alt="" className="h-full w-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => setPromptImages((prev) => prev.filter((_, idx) => idx !== i))}
+                        className="absolute inset-0 hidden items-center justify-center bg-black/60 text-xs text-white group-hover:flex"
+                      >
+                        Xoá
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <textarea
+                ref={promptTextareaRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="viết prompt"
+                rows={4}
+                className="w-full resize-none bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
+              />
+
+              {/* Hàng dưới ô prompt — icon toolbar (+/@/🎥/model/1080/tỉ lệ), ĐÚNG vị trí ảnh mẫu.
+                  Giữ thêm "thời gian"/"âm thanh" (không có trong ảnh mẫu nhưng là chức năng thật đã có
+                  sẵn — chọn độ dài clip/âm thanh — không xoá để tránh mất tính năng). */}
+              <div className="flex flex-wrap items-center gap-2 border-t border-zinc-800 pt-3">
                 <button
                   type="button"
                   onClick={() => setPickerModal({ defaultTab: "upload", forMention: false })}
@@ -2927,152 +3015,19 @@ export default function VideoTuYTuongPage() {
                 <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">âm thanh</span>
               </div>
 
-              {promptImages.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {promptImages.map((url, i) => (
-                    <div key={i} className="group relative h-14 w-14 overflow-hidden rounded-lg border border-zinc-700">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={url} alt="" className="h-full w-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => setPromptImages((prev) => prev.filter((_, idx) => idx !== i))}
-                        className="absolute inset-0 hidden items-center justify-center bg-black/60 text-xs text-white group-hover:flex"
-                      >
-                        Xoá
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <textarea
-                ref={promptTextareaRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="viết prompt"
-                rows={4}
-                className="w-full resize-none bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
-              />
-
-              <div className="flex flex-wrap items-center gap-2 border-t border-zinc-800 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setPickerModal({ defaultTab: "reference", forMention: false })}
-                  className="flex items-center gap-2 rounded-full bg-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
-                >
-                  <span className="text-base font-bold text-cyan-400">A</span>
-                  tài liệu tham khảo
-                </button>
-
-                {/* Chip "cài đặt camera" — icon ống kính phát sáng + 2 dòng chữ: "Máy ảnh" mờ phía trên,
-                    tên preset đã chọn hiện rõ/đậm phía dưới (xem ảnh tham khảo Higgsfield — icon màu
-                    cyan trên nền tối, không phải gradient xanh dương như trước). */}
-                <button
-                  type="button"
-                  onClick={() => setCameraModalOpen(true)}
-                  className="flex items-center gap-2 rounded-full bg-zinc-800 py-1.5 pl-1.5 pr-4 text-left hover:bg-zinc-700"
-                >
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-cyan-500/15">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="1.5" className="h-4 w-4">
-                      <rect x="3" y="7" width="18" height="13" rx="2" />
-                      <path d="M8 7l2-3h4l2 3" />
-                      <circle cx="12" cy="13.5" r="3.2" />
-                    </svg>
-                  </span>
-                  <span className="flex flex-col leading-tight">
-                    <span className="text-[10px] text-zinc-500">Máy ảnh</span>
-                    <span className="max-w-[160px] truncate text-xs font-semibold text-zinc-100">
-                      {selectedCameraLabels.length > 0 ? selectedCameraLabels.join(", ") : "Tự động"}
-                    </span>
-                  </span>
-                </button>
-
-                {/* Chip "cài đặt màu" — cùng hình thức chip camera: ô swatch 3 màu + "Bảng màu" mờ trên,
-                    tên preset đã chọn hiện rõ/đậm phía dưới. */}
-                <button
-                  type="button"
-                  onClick={() => setColorModalOpen(true)}
-                  className="flex items-center gap-2 rounded-full bg-zinc-800 py-1.5 pl-1.5 pr-4 text-left hover:bg-zinc-700"
-                >
-                  <span className="grid h-7 w-7 shrink-0 grid-cols-2 gap-0.5 overflow-hidden rounded-full ring-1 ring-cyan-400/50">
-                    {(() => {
-                      const active = COLOR_PALETTE_PRESETS.find((p) => p.key === promptColorPalette);
-                      const colors = active ? active.swatches : ["#0e7490", "#22d3ee", "#164e63"];
-                      return (
-                        <>
-                          <span style={{ background: colors[0] }} />
-                          <span style={{ background: colors[1] ?? colors[0] }} />
-                          <span className="col-span-2" style={{ background: colors[2] ?? colors[0] }} />
-                        </>
-                      );
-                    })()}
-                  </span>
-                  <span className="flex flex-col leading-tight">
-                    <span className="text-[10px] text-zinc-500">Bảng màu</span>
-                    <span className="max-w-[160px] truncate text-xs font-semibold text-zinc-100">
-                      {COLOR_PALETTE_PRESETS.find((p) => p.key === promptColorPalette)?.label ?? "Tự động"}
-                    </span>
-                  </span>
-                </button>
-
-                {/* Chip "ánh sáng tự động" — mở bảng 3D (Thiết lập ánh sáng mới). */}
-                <button
-                  type="button"
-                  onClick={() => setLightModalOpen(true)}
-                  className="flex items-center gap-2 rounded-full bg-zinc-800 py-1.5 pl-1.5 pr-4 text-left hover:bg-zinc-700"
-                >
-                  <span
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
-                    style={{ background: promptLights && promptLights.length > 0 ? promptLights[0].color : "rgba(34,211,238,0.15)" }}
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke={promptLights && promptLights.length > 0 ? "#18181b" : "#22d3ee"}
-                      strokeWidth="1.5"
-                      className="h-4 w-4"
-                    >
-                      <circle cx="12" cy="12" r="5" />
-                      <path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" />
-                    </svg>
-                  </span>
-                  <span className="flex flex-col leading-tight">
-                    <span className="text-[10px] text-zinc-500">Ánh sáng</span>
-                    <span className="max-w-[160px] truncate text-xs font-semibold text-zinc-100">
-                      {promptLights && promptLights.length > 0
-                        ? promptLights.length === 1
-                          ? nearestLightQuickPosition(promptLights[0].azimuth, promptLights[0].elevation).label
-                          : `${promptLights.length} đèn`
-                        : "Tự động"}
-                    </span>
-                  </span>
-                </button>
-
-                {["thiết lập phim tự động"].map((label) => (
-                  <button
-                    key={label}
-                    type="button"
-                    className="rounded-full bg-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
-                    title="Sắp ra mắt"
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-
+              {/* Nút "Tạo" — dính liền trong CÙNG khối viền neon (không tách khối riêng/không có khoảng
+                  hở như bản trước), đúng ảnh mẫu. */}
+              <button
+                type="button"
+                onClick={handlePromptCreate}
+                disabled={storyRunning}
+                style={{ boxShadow: "0 0 18px -4px rgba(217,70,239,0.8)" }}
+                className="w-full rounded-full border border-fuchsia-400/80 bg-zinc-950 py-3.5 text-base font-semibold text-white hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {storyRunning ? "Đang tạo..." : "Tạo"}
+              </button>
             </div>
           ) : null}
-
-          {promptMediaTab === "video" && (
-            <button
-              type="button"
-              onClick={handlePromptCreate}
-              disabled={storyRunning}
-              style={{ boxShadow: "0 0 25px -5px rgba(217,70,239,0.7), 0 0 2px rgba(217,70,239,0.9)" }}
-              className="mt-3 w-full rounded-full border border-fuchsia-500/70 bg-zinc-950 py-3.5 text-base font-semibold text-white hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {storyRunning ? "Đang tạo..." : "Tạo"}
-            </button>
-          )}
 
           {promptMediaTab !== "video" && (
             <div className="flex items-stretch gap-3">
