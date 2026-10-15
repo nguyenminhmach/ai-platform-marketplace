@@ -2833,14 +2833,15 @@ export default function VideoTuYTuongPage() {
               Tab "hình ảnh" CHƯA đổi — anh nói sẽ gửi ảnh mẫu riêng cho tab đó sau, nên giữ nguyên
               layout cũ (cột tab riêng bên trái + box riêng + nút "tạo" đứng ngoài) ở nhánh else. */}
           {promptMediaTab === "video" ? (
-            <div
-              className="flex flex-col gap-3 rounded-[28px] border border-fuchsia-500/50 bg-zinc-900 p-4"
-              style={{ boxShadow: "0 0 30px -6px rgba(217,70,239,0.55), 0 0 2px rgba(217,70,239,0.8)" }}
-            >
-              {/* Hàng trên cùng — ĐÚNG thứ tự ảnh mẫu Higgsfield: tab toggle + chip preset (tài liệu
-                  tham khảo/máy ảnh/bảng màu/ánh sáng/thiết lập phim tự động), MỘT dòng chữ (không có
-                  "Tự động" phụ phía dưới như bản trước — khách yêu cầu khớp y hệt ảnh). */}
-              <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-col gap-3">
+              {/* KHỐI 1/2 — bản thiết kế có 2 khối riêng biệt (khối pill trên + khối box dưới), không
+                  phải 1 khối gộp chung như bản trước. Khối này: tab toggle + chip preset (tài liệu tham
+                  khảo/máy ảnh/bảng màu/ánh sáng/thiết lập phim tự động), dạng pill bo tròn hết cỡ, viền
+                  neon riêng. */}
+              <div
+                className="flex flex-wrap items-center gap-2 rounded-full border border-fuchsia-500/50 bg-zinc-900 p-2"
+                style={{ boxShadow: "0 0 30px -6px rgba(217,70,239,0.55), 0 0 2px rgba(217,70,239,0.8)" }}
+              >
                 <div className="flex items-center gap-1 rounded-full bg-zinc-800 p-1">
                   <button
                     type="button"
@@ -2909,36 +2910,45 @@ export default function VideoTuYTuongPage() {
                 </button>
               </div>
 
-              {promptImages.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {promptImages.map((url, i) => (
-                    <div key={i} className="group relative h-14 w-14 overflow-hidden rounded-lg border border-zinc-700">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={url} alt="" className="h-full w-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => setPromptImages((prev) => prev.filter((_, idx) => idx !== i))}
-                        className="absolute inset-0 hidden items-center justify-center bg-black/60 text-xs text-white group-hover:flex"
-                      >
-                        Xoá
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <textarea
-                ref={promptTextareaRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="viết prompt"
-                rows={4}
-                className="w-full resize-none bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
-              />
+              {/* KHỐI 2/2 — box riêng (viền neon riêng) chứa ảnh đính kèm + ô prompt + icon toolbar
+                  (+/@/🎥/model/1080p/tỉ lệ) + nút "Tạo" dính liền cuối khối này, KHÔNG dính với khối 1
+                  (khối pill chip ở trên) — đúng 2 khối tách biệt như bản thiết kế, có khoảng cách nhỏ
+                  giữa 2 khối (gap-3 ở div cha). */}
+              <div
+                className="flex flex-col gap-3 rounded-[28px] border border-fuchsia-500/50 bg-zinc-900 p-4"
+                style={{ boxShadow: "0 0 30px -6px rgba(217,70,239,0.55), 0 0 2px rgba(217,70,239,0.8)" }}
+              >
+                {promptImages.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {promptImages.map((url, i) => (
+                      <div key={i} className="group relative h-14 w-14 overflow-hidden rounded-lg border border-zinc-700">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={url} alt="" className="h-full w-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => setPromptImages((prev) => prev.filter((_, idx) => idx !== i))}
+                          className="absolute inset-0 hidden items-center justify-center bg-black/60 text-xs text-white group-hover:flex"
+                        >
+                          Xoá
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <textarea
+                  ref={promptTextareaRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="viết prompt"
+                  rows={4}
+                  className="w-full resize-none bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
+                />
 
-              {/* Hàng dưới ô prompt — icon toolbar (+/@/🎥/model/1080/tỉ lệ), ĐÚNG vị trí ảnh mẫu.
-                  Giữ thêm "thời gian"/"âm thanh" (không có trong ảnh mẫu nhưng là chức năng thật đã có
-                  sẵn — chọn độ dài clip/âm thanh — không xoá để tránh mất tính năng). */}
-              <div className="flex flex-wrap items-center gap-2 border-t border-zinc-800 pt-3">
+                {/* Hàng dưới ô prompt — icon toolbar (+/@/🎥/model/1080p/tỉ lệ), ĐÚNG vị trí ảnh mẫu.
+                    Giữ thêm "thời gian" khi model cần chọn độ dài clip (chức năng thật, ảnh mẫu không
+                    có vì model mặc định không cần) — "âm thanh" đã xoá hẳn vì vốn chỉ trang trí, không
+                    có chức năng gì. */}
+                <div className="flex flex-wrap items-center gap-2 border-t border-zinc-800 pt-3">
                 <button
                   type="button"
                   onClick={() => setPickerModal({ defaultTab: "upload", forMention: false })}
@@ -2981,7 +2991,7 @@ export default function VideoTuYTuongPage() {
                   <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">model</span>
                 )}
 
-                <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">{storyResolutionKey ?? "1080"}</span>
+                <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">{storyResolutionKey ?? "1080"}p</span>
 
                 <select
                   value={storyAspectRatio}
@@ -2995,7 +3005,11 @@ export default function VideoTuYTuongPage() {
                   ))}
                 </select>
 
-                {storyVideoModels.find((m) => m.key === storyVideoModelKey)?.duration_price_vnd ? (
+                {/* "thời gian" (chọn độ dài clip) CHỈ hiện khi model đang chọn thật sự có giá theo thời
+                    lượng — ảnh mẫu không có chip này (model mặc định không cần chọn), và "âm thanh" đã
+                    bỏ hẳn vì vốn chỉ là placeholder trang trí, không có chức năng gì (không onClick/
+                    không select) — xoá đi khớp ảnh mẫu mà không mất tính năng thật nào. */}
+                {storyVideoModels.find((m) => m.key === storyVideoModelKey)?.duration_price_vnd && (
                   <select
                     value={storyDurationKey ?? ""}
                     onChange={(e) => setStoryDurationKey(e.target.value || null)}
@@ -3008,11 +3022,7 @@ export default function VideoTuYTuongPage() {
                       </option>
                     ))}
                   </select>
-                ) : (
-                  <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">thời gian</span>
                 )}
-
-                <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">âm thanh</span>
               </div>
 
               {/* Nút "Tạo" — dính liền trong CÙNG khối viền neon (không tách khối riêng/không có khoảng
@@ -3026,6 +3036,7 @@ export default function VideoTuYTuongPage() {
               >
                 {storyRunning ? "Đang tạo..." : "Tạo"}
               </button>
+              </div>
             </div>
           ) : null}
 
