@@ -2776,7 +2776,7 @@ export default function VideoTuYTuongPage() {
   }
 
   return (
-    <div className="m-3 flex min-h-[calc(100vh-24px)] overflow-hidden rounded-[32px] bg-zinc-800 text-zinc-100">
+    <div className="flex min-h-screen bg-black text-zinc-100">
       {/* Sidebar trái — xem video1.jpg. "Hình ảnh tham chiếu" trỏ sang trang quản lý kho tham chiếu đã
           có sẵn (/reference-elements); các mục còn lại chưa có trang đích riêng nên để dạng nút tĩnh
           (chrome bố cục, chưa phải navigation thật — đúng mô tả trong yêu cầu đợt này). */}
@@ -2832,7 +2832,9 @@ export default function VideoTuYTuongPage() {
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 overflow-y-auto">
+      {/* Khối nội dung chính TÁCH RIÊNG khỏi sidebar — sidebar vuông góc, dính sát viền trang; khối
+          này mới có bo góc + lề ngoài, nền sáng hơn (zinc-800) các khối con bên trong (zinc-900). */}
+      <main className="m-3 min-w-0 flex-1 overflow-y-auto rounded-[32px] bg-zinc-800">
         <div className="mx-auto max-w-5xl px-6 py-8">
           {/* Carousel/slider — placeholder tĩnh, chưa cần logic carousel thật ở đợt này. */}
           <div className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-3">
