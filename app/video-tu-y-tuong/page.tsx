@@ -2783,8 +2783,11 @@ export default function VideoTuYTuongPage() {
       <aside className="hidden w-60 shrink-0 flex-col border-r border-zinc-900 p-5 lg:flex">
         {/* Logo "Video từ ý tưởng" — icon tròn thu nhỏ (không chữ, sidebar hẹp 240px), đặt trên cùng
             theo đúng vị trí thương hiệu chuẩn (góc trên-trái sidebar). */}
-        <div className="mb-4 flex items-center gap-2">
-          <svg width="32" height="32" viewBox="0 0 680 320" role="img" aria-label="Video từ ý tưởng">
+        <div className="mb-5 flex items-center gap-3">
+          {/* viewBox cắt sát quanh khối tròn (trước đây dùng chung viewBox "0 0 680 320" của logo đầy đủ
+              — khiến icon chỉ chiếm 1 góc nhỏ trong khung rộng, hiển thị bé tí dù width/height=32. Giờ
+              cắt sát tâm (340,120) bán kính 92 nên icon lấp đầy khung, phóng to lên 48px mới thấy rõ. */}
+          <svg width="48" height="48" viewBox="238 18 204 204" role="img" aria-label="Video từ ý tưởng">
             <defs>
               <linearGradient id="sidebarLogoGlow" x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" stopColor="#22d3ee" />
@@ -2800,7 +2803,7 @@ export default function VideoTuYTuongPage() {
             <path d="M312 78 L312 162 L376 120 Z" fill="url(#sidebarLogoGlow)" />
             <path d="M402 72 L408 86 L422 90 L408 94 L402 108 L396 94 L382 90 L396 86 Z" fill="#22d3ee" />
           </svg>
-          <span className="text-sm font-semibold text-zinc-100">Video từ ý tưởng</span>
+          <span className="text-base font-semibold leading-tight text-zinc-100">Video từ ý tưởng</span>
         </div>
         <Link href="/" className="mb-6 text-sm font-medium text-zinc-400 hover:text-zinc-100">
           ← Danh mục
