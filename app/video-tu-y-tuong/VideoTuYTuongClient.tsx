@@ -3159,30 +3159,10 @@ export default function VideoTuYTuongClient({
                     </svg>
                     màu sắc
                   </button>
-                </div>
-              </div>
 
-              {/* KHỐI 2/2 tab "hình ảnh" — ô "viết prompt" + icon toolbar, không viền tím (đúng tab
-                  video); nút "Tạo" dính liền cuối khối, có viền tím đậm + nền tím nhạt. */}
-              <div className="flex flex-col gap-3 rounded-[28px] bg-zinc-800 p-4">
-                {promptImages.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {promptImages.map((url, i) => (
-                      <div key={i} className="group relative h-14 w-14 overflow-hidden rounded-lg border border-zinc-700">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={url} alt="" className="h-full w-full object-cover" />
-                        <button
-                          type="button"
-                          onClick={() => setPromptImages((prev) => prev.filter((_, idx) => idx !== i))}
-                          className="absolute inset-0 hidden items-center justify-center bg-black/60 text-xs text-white group-hover:flex"
-                        >
-                          Xoá
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <div className="flex flex-wrap items-center gap-2">
+                  {/* Cụm "+/model/1080/tỉ lệ" — chuyển từ khối 2 lên đây theo yêu cầu (gộp chung vào
+                      khối viền tím trên cùng với character/camera/màu sắc, không nằm ở khối ô prompt
+                      bên dưới nữa). */}
                   <button
                     type="button"
                     onClick={() => setPickerModal({ defaultTab: "upload", forMention: false })}
@@ -3192,7 +3172,6 @@ export default function VideoTuYTuongClient({
                     +
                   </button>
 
-                  {/* Khung viền bao quanh cụm model/độ phân giải/tỉ lệ — đúng tab "video". */}
                   <div className="flex items-center gap-2 rounded-full border border-zinc-600 p-1">
                     {storyImageModels.length > 0 ? (
                       <select
@@ -3226,6 +3205,28 @@ export default function VideoTuYTuongClient({
                     </select>
                   </div>
                 </div>
+              </div>
+
+              {/* KHỐI 2/2 tab "hình ảnh" — ô "viết prompt", không viền tím (đúng tab video); nút "Tạo"
+                  dính liền cuối khối, có viền tím đậm + nền tím nhạt. */}
+              <div className="flex flex-col gap-3 rounded-[28px] bg-zinc-800 p-4">
+                {promptImages.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {promptImages.map((url, i) => (
+                      <div key={i} className="group relative h-14 w-14 overflow-hidden rounded-lg border border-zinc-700">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={url} alt="" className="h-full w-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => setPromptImages((prev) => prev.filter((_, idx) => idx !== i))}
+                          className="absolute inset-0 hidden items-center justify-center bg-black/60 text-xs text-white group-hover:flex"
+                        >
+                          Xoá
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 <textarea
                   ref={promptTextareaRef}
