@@ -2841,7 +2841,7 @@ export default function VideoTuYTuongPage() {
                   (từ hàng chip chỉ lên khối tab, nghĩa là 2 dòng tách biệt, không chung 1 hàng). */}
               <div
                 className="flex flex-col gap-2 rounded-[40px] border border-fuchsia-500/50 bg-zinc-900 pb-3 pl-1 pr-4 pt-0"
-                style={{ boxShadow: "0 0 30px -6px rgba(217,70,239,0.55), 0 0 2px rgba(217,70,239,0.8)" }}
+                style={{ boxShadow: "0 0 45px -4px rgba(217,70,239,0.75), 0 0 4px rgba(217,70,239,0.95)" }}
               >
                 {/* Viền TRÊN của tab toggle phải trùng/sát viền trên của khối lớn — không có khoảng đệm
                     phía trên (pt-0 ở div cha), tab nằm sát ngay mép trong của viền ngoài. */}
@@ -3034,7 +3034,7 @@ export default function VideoTuYTuongPage() {
                 type="button"
                 onClick={handlePromptCreate}
                 disabled={storyRunning}
-                style={{ boxShadow: "0 0 20px -4px rgba(217,70,239,0.6)" }}
+                style={{ boxShadow: "0 0 32px -3px rgba(217,70,239,0.8)" }}
                 className="w-full rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 py-3.5 text-base font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {storyRunning ? "Đang tạo..." : "Tạo"}
