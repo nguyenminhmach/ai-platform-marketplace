@@ -3182,16 +3182,7 @@ export default function VideoTuYTuongClient({
                     ))}
                   </div>
                 )}
-                <textarea
-                  ref={promptTextareaRef}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder="viết prompt"
-                  rows={4}
-                  className="w-full resize-none bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
-                />
-
-                <div className="flex flex-wrap items-center gap-2 pt-3">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setPickerModal({ defaultTab: "upload", forMention: false })}
@@ -3235,6 +3226,15 @@ export default function VideoTuYTuongClient({
                     </select>
                   </div>
                 </div>
+
+                <textarea
+                  ref={promptTextareaRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="viết prompt"
+                  rows={4}
+                  className="w-full resize-none bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
+                />
 
                 <button
                   type="button"
