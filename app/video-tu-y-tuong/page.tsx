@@ -2781,6 +2781,27 @@ export default function VideoTuYTuongPage() {
           có sẵn (/reference-elements); các mục còn lại chưa có trang đích riêng nên để dạng nút tĩnh
           (chrome bố cục, chưa phải navigation thật — đúng mô tả trong yêu cầu đợt này). */}
       <aside className="hidden w-60 shrink-0 flex-col border-r border-zinc-900 p-5 lg:flex">
+        {/* Logo "Video từ ý tưởng" — icon tròn thu nhỏ (không chữ, sidebar hẹp 240px), đặt trên cùng
+            theo đúng vị trí thương hiệu chuẩn (góc trên-trái sidebar). */}
+        <div className="mb-4 flex items-center gap-2">
+          <svg width="32" height="32" viewBox="0 0 680 320" role="img" aria-label="Video từ ý tưởng">
+            <defs>
+              <linearGradient id="sidebarLogoGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#22d3ee" />
+                <stop offset="100%" stopColor="#d946ef" />
+              </linearGradient>
+              <radialGradient id="sidebarLogoBg" cx="35%" cy="30%" r="80%">
+                <stop offset="0%" stopColor="#27272a" />
+                <stop offset="100%" stopColor="#09090b" />
+              </radialGradient>
+            </defs>
+            <circle cx="340" cy="120" r="92" fill="url(#sidebarLogoBg)" />
+            <circle cx="340" cy="120" r="92" fill="none" stroke="url(#sidebarLogoGlow)" strokeWidth="6" opacity="0.9" />
+            <path d="M312 78 L312 162 L376 120 Z" fill="url(#sidebarLogoGlow)" />
+            <path d="M402 72 L408 86 L422 90 L408 94 L402 108 L396 94 L382 90 L396 86 Z" fill="#22d3ee" />
+          </svg>
+          <span className="text-sm font-semibold text-zinc-100">Video từ ý tưởng</span>
+        </div>
         <Link href="/" className="mb-6 text-sm font-medium text-zinc-400 hover:text-zinc-100">
           ← Danh mục
         </Link>
