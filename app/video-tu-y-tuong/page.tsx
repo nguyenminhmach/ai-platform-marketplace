@@ -2780,7 +2780,7 @@ export default function VideoTuYTuongPage() {
       {/* Sidebar trái — xem video1.jpg. "Hình ảnh tham chiếu" trỏ sang trang quản lý kho tham chiếu đã
           có sẵn (/reference-elements); các mục còn lại chưa có trang đích riêng nên để dạng nút tĩnh
           (chrome bố cục, chưa phải navigation thật — đúng mô tả trong yêu cầu đợt này). */}
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-zinc-900 bg-black p-5 lg:flex">
+      <aside className="hidden w-60 shrink-0 flex-col border-r border-zinc-900 bg-zinc-800 p-5 lg:flex">
         {/* Logo "Video từ ý tưởng" — icon tròn thu nhỏ (không chữ, sidebar hẹp 240px), đặt trên cùng
             theo đúng vị trí thương hiệu chuẩn (góc trên-trái sidebar). */}
         <div className="mb-5 flex items-center gap-3">
