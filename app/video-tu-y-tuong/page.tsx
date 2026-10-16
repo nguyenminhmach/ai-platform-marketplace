@@ -2776,7 +2776,7 @@ export default function VideoTuYTuongPage() {
   }
 
   return (
-    <div className="flex min-h-full bg-black text-zinc-100">
+    <div className="m-3 flex min-h-[calc(100vh-24px)] overflow-hidden rounded-[32px] bg-zinc-800 text-zinc-100">
       {/* Sidebar trái — xem video1.jpg. "Hình ảnh tham chiếu" trỏ sang trang quản lý kho tham chiếu đã
           có sẵn (/reference-elements); các mục còn lại chưa có trang đích riêng nên để dạng nút tĩnh
           (chrome bố cục, chưa phải navigation thật — đúng mô tả trong yêu cầu đợt này). */}
