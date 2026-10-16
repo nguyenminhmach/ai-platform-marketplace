@@ -3002,6 +3002,9 @@ export default function VideoTuYTuongPage() {
                   🎥
                 </button>
 
+                {/* Khung viền bao quanh cụm model/độ phân giải/tỉ lệ — đúng ảnh mẫu (3 chip này đi
+                    chung 1 khối có viền, tách biệt trực quan khỏi +/@/🎥 đứng riêng bên trái). */}
+                <div className="flex items-center gap-2 rounded-full border border-zinc-600 p-1">
                 {storyVideoModels.length > 0 && (
                   <select
                     value={storyVideoModelKey ?? ""}
@@ -3033,6 +3036,7 @@ export default function VideoTuYTuongPage() {
                     </option>
                   ))}
                 </select>
+                </div>
 
                 {/* "thời gian" (chọn độ dài clip) CHỈ hiện khi model đang chọn thật sự có giá theo thời
                     lượng — ảnh mẫu không có chip này (model mặc định không cần chọn), và "âm thanh" đã
