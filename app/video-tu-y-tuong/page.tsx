@@ -2977,7 +2977,7 @@ export default function VideoTuYTuongPage() {
                     Giữ thêm "thời gian" khi model cần chọn độ dài clip (chức năng thật, ảnh mẫu không
                     có vì model mặc định không cần) — "âm thanh" đã xoá hẳn vì vốn chỉ trang trí, không
                     có chức năng gì. */}
-                <div className="flex flex-wrap items-center gap-2 border-t border-zinc-700 pt-3">
+                <div className="flex flex-wrap items-center gap-2 pt-3">
                 <button
                   type="button"
                   onClick={() => setPickerModal({ defaultTab: "upload", forMention: false })}
