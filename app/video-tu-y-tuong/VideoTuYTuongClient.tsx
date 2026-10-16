@@ -3100,26 +3100,73 @@ export default function VideoTuYTuongClient({
           ) : null}
 
           {promptMediaTab !== "video" && (
-            <div className="flex items-stretch gap-3">
-              <div className="flex shrink-0 flex-col gap-2">
-                <button
-                  type="button"
-                  className="rounded-xl bg-zinc-200 px-4 py-2.5 text-sm font-medium text-zinc-900"
+            <div className="flex flex-col gap-6">
+              {/* KHỐI 1/2 tab "hình ảnh" — ĐÚNG cấu trúc tab "video": tab toggle riêng 1 dòng trên cùng
+                  (sát góc trên-trái), chip cấu hình (character/camera/màu sắc) ở dòng riêng bên dưới,
+                  cả khối viền tím phát sáng. */}
+              <div
+                className="flex flex-col gap-2 rounded-[40px] border border-fuchsia-500/50 bg-zinc-800 pb-3 pl-1 pr-4 pt-0"
+                style={{ boxShadow: "0 0 45px -4px rgba(217,70,239,0.75), 0 0 4px rgba(217,70,239,0.95)" }}
+              >
+                <div
+                  className="flex w-fit items-center gap-1 rounded-full border border-fuchsia-500/60 bg-zinc-700 p-1"
+                  style={{ boxShadow: "0 0 10px -2px rgba(217,70,239,0.6)" }}
                 >
-                  hình ảnh
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPromptMediaTab("video")}
-                  className="rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-medium text-zinc-300 hover:bg-zinc-800"
-                >
-                  video
-                </button>
+                  <button
+                    type="button"
+                    className="rounded-full bg-zinc-200 px-4 py-1.5 text-sm font-medium text-zinc-900"
+                  >
+                    hình ảnh
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPromptMediaTab("video")}
+                    className="rounded-full px-4 py-1.5 text-sm font-medium text-zinc-300 hover:text-zinc-100"
+                  >
+                    video
+                  </button>
+                </div>
+
+                <div className="ml-[95px] flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPickerModal({ defaultTab: "reference", forMention: true })}
+                    className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
+                    title="Chèn @mention nhân vật từ kho tham chiếu"
+                  >
+                    character
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCameraModalOpen(true)}
+                    className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="1.5" className="h-4 w-4 shrink-0">
+                      <rect x="3" y="7" width="18" height="13" rx="2" />
+                      <path d="M8 7l2-3h4l2 3" />
+                      <circle cx="12" cy="13.5" r="3.2" />
+                    </svg>
+                    camera
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setColorModalOpen(true)}
+                    className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0">
+                      <circle cx="12" cy="12" r="9" fill="none" stroke="#22d3ee" strokeWidth="1.5" />
+                      <path d="M12 3a9 9 0 0 1 9 9h-9z" fill="#22d3ee" />
+                    </svg>
+                    màu sắc
+                  </button>
+                </div>
               </div>
 
-              <div className="flex min-w-0 flex-1 flex-col rounded-2xl bg-zinc-900 p-4">
+              {/* KHỐI 2/2 tab "hình ảnh" — ô "viết prompt" + icon toolbar, không viền tím (đúng tab
+                  video); nút "Tạo" dính liền cuối khối, có viền tím đậm + nền tím nhạt. */}
+              <div className="flex flex-col gap-3 rounded-[28px] bg-zinc-800 p-4">
                 {promptImages.length > 0 && (
-                  <div className="mb-3 flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2">
                     {promptImages.map((url, i) => (
                       <div key={i} className="group relative h-14 w-14 overflow-hidden rounded-lg border border-zinc-700">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -3141,86 +3188,64 @@ export default function VideoTuYTuongClient({
                   onChange={(e) => setInput(e.target.value)}
                   placeholder="viết prompt"
                   rows={4}
-                  className="w-full flex-1 resize-none bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
+                  className="w-full resize-none bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
                 />
 
-                {/* Thanh icon dưới cùng tab "hình ảnh" — tái dùng ĐÚNG modal camera/màu đã có sẵn (chỉ đổi
-                    nhãn chip cho khớp wireframe), "character" tái dùng picker tham chiếu ở chế độ mention
-                    giống "@" cũ. Model ảnh đọc từ storyImageModels (đã có sẵn, dùng ở luồng Character cũ). */}
-                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-zinc-800 pt-3">
+                <div className="flex flex-wrap items-center gap-2 pt-3">
                   <button
                     type="button"
                     onClick={() => setPickerModal({ defaultTab: "upload", forMention: false })}
-                    className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-base text-zinc-200 hover:bg-zinc-700"
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-700 text-base text-zinc-200 hover:bg-zinc-600"
                     title="Tải ảnh lên"
                   >
                     +
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setPickerModal({ defaultTab: "reference", forMention: true })}
-                    className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-200 hover:bg-zinc-700"
-                    title="Chèn @mention nhân vật từ kho tham chiếu"
-                  >
-                    character
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCameraModalOpen(true)}
-                    className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-200 hover:bg-zinc-700"
-                  >
-                    camera
-                  </button>
 
-                  {storyImageModels.length > 0 ? (
+                  {/* Khung viền bao quanh cụm model/độ phân giải/tỉ lệ — đúng tab "video". */}
+                  <div className="flex items-center gap-2 rounded-full border border-zinc-600 p-1">
+                    {storyImageModels.length > 0 ? (
+                      <select
+                        value={storyImageModelKey ?? ""}
+                        onChange={(e) => setStoryImageModelKey(e.target.value || null)}
+                        className="h-9 rounded-full bg-zinc-700 px-3 text-xs text-zinc-200 outline-none"
+                      >
+                        <option value="">model</option>
+                        {storyImageModels.map((m) => (
+                          <option key={m.key} value={m.key}>
+                            {m.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="flex h-9 items-center rounded-full bg-zinc-700 px-3 text-xs text-zinc-400">model</span>
+                    )}
+
+                    <span className="flex h-9 items-center rounded-full bg-zinc-700 px-3 text-xs text-zinc-400">{storyResolutionKey ?? "1080"}</span>
+
                     <select
-                      value={storyImageModelKey ?? ""}
-                      onChange={(e) => setStoryImageModelKey(e.target.value || null)}
-                      className="h-9 rounded-full bg-zinc-800 px-3 text-xs text-zinc-200 outline-none"
+                      value={storyAspectRatio}
+                      onChange={(e) => setStoryAspectRatio(e.target.value)}
+                      className="h-9 rounded-full bg-zinc-700 px-3 text-xs text-zinc-200 outline-none"
                     >
-                      <option value="">model</option>
-                      {storyImageModels.map((m) => (
-                        <option key={m.key} value={m.key}>
-                          {m.label}
+                      {["16:9", "9:16", "1:1"].map((ratio) => (
+                        <option key={ratio} value={ratio}>
+                          {ratio}
                         </option>
                       ))}
                     </select>
-                  ) : (
-                    <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">model</span>
-                  )}
-
-                  <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">{storyResolutionKey ?? "1080"}</span>
-
-                  <select
-                    value={storyAspectRatio}
-                    onChange={(e) => setStoryAspectRatio(e.target.value)}
-                    className="h-9 rounded-full bg-zinc-800 px-3 text-xs text-zinc-200 outline-none"
-                  >
-                    {["16:9", "9:16", "1:1"].map((ratio) => (
-                      <option key={ratio} value={ratio}>
-                        {ratio}
-                      </option>
-                    ))}
-                  </select>
-
-                  <button
-                    type="button"
-                    onClick={() => setColorModalOpen(true)}
-                    className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-200 hover:bg-zinc-700"
-                  >
-                    màu sắc
-                  </button>
+                  </div>
                 </div>
-              </div>
 
-              <button
-                type="button"
-                onClick={handlePromptImageCreate}
-                disabled={promptImageRunning}
-                className="shrink-0 self-stretch rounded-2xl bg-amber-400 px-6 text-sm font-semibold text-zinc-900 hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {promptImageRunning ? "đang tạo..." : "tạo"}
-              </button>
+                <button
+                  type="button"
+                  onClick={handlePromptImageCreate}
+                  disabled={promptImageRunning}
+                  style={{ boxShadow: "0 0 32px -3px rgba(217,70,239,0.8)" }}
+                  className="w-full rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 py-3.5 text-base font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {promptImageRunning ? "Đang tạo..." : "Tạo"}
+                </button>
+              </div>
             </div>
           )}
 
