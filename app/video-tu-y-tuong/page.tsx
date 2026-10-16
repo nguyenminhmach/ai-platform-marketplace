@@ -2780,7 +2780,7 @@ export default function VideoTuYTuongPage() {
       {/* Sidebar trái — xem video1.jpg. "Hình ảnh tham chiếu" trỏ sang trang quản lý kho tham chiếu đã
           có sẵn (/reference-elements); các mục còn lại chưa có trang đích riêng nên để dạng nút tĩnh
           (chrome bố cục, chưa phải navigation thật — đúng mô tả trong yêu cầu đợt này). */}
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-zinc-900 bg-zinc-800 p-5 lg:flex">
+      <aside className="hidden w-60 shrink-0 flex-col border-r border-zinc-900 bg-zinc-700 p-5 lg:flex">
         {/* Logo "Video từ ý tưởng" — icon tròn thu nhỏ (không chữ, sidebar hẹp 240px), đặt trên cùng
             theo đúng vị trí thương hiệu chuẩn (góc trên-trái sidebar). */}
         <div className="mb-5 flex items-center gap-3">
@@ -2834,7 +2834,7 @@ export default function VideoTuYTuongPage() {
 
       {/* Khối nội dung chính TÁCH RIÊNG khỏi sidebar — sidebar vuông góc, dính sát viền trang; khối
           này mới có bo góc + lề ngoài, nền sáng hơn (zinc-800) các khối con bên trong (zinc-900). */}
-      <main className="m-3 min-w-0 flex-1 overflow-y-auto rounded-[32px] bg-zinc-800">
+      <main className="m-3 min-w-0 flex-1 overflow-y-auto rounded-[32px] bg-zinc-700">
         <div className="mx-auto max-w-5xl px-6 py-8">
           {/* Carousel/slider — placeholder tĩnh, chưa cần logic carousel thật ở đợt này. */}
           <div className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -2866,13 +2866,13 @@ export default function VideoTuYTuongPage() {
                   thiết lập phim tự động) ở DÒNG RIÊNG bên dưới — đúng hướng mũi tên anh vẽ nhiều lần
                   (từ hàng chip chỉ lên khối tab, nghĩa là 2 dòng tách biệt, không chung 1 hàng). */}
               <div
-                className="flex flex-col gap-2 rounded-[40px] border border-fuchsia-500/50 bg-zinc-900 pb-3 pl-1 pr-4 pt-0"
+                className="flex flex-col gap-2 rounded-[40px] border border-fuchsia-500/50 bg-zinc-800 pb-3 pl-1 pr-4 pt-0"
                 style={{ boxShadow: "0 0 45px -4px rgba(217,70,239,0.75), 0 0 4px rgba(217,70,239,0.95)" }}
               >
                 {/* Viền TRÊN của tab toggle phải trùng/sát viền trên của khối lớn — không có khoảng đệm
                     phía trên (pt-0 ở div cha), tab nằm sát ngay mép trong của viền ngoài. */}
                 <div
-                  className="flex w-fit items-center gap-1 rounded-full border border-fuchsia-500/60 bg-zinc-800 p-1"
+                  className="flex w-fit items-center gap-1 rounded-full border border-fuchsia-500/60 bg-zinc-700 p-1"
                   style={{ boxShadow: "0 0 10px -2px rgba(217,70,239,0.6)" }}
                 >
                   <button
@@ -2891,7 +2891,7 @@ export default function VideoTuYTuongPage() {
                 <button
                   type="button"
                   onClick={() => setPickerModal({ defaultTab: "reference", forMention: false })}
-                  className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
+                  className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
                 >
                   tài liệu tham khảo
                 </button>
@@ -2899,7 +2899,7 @@ export default function VideoTuYTuongPage() {
                 <button
                   type="button"
                   onClick={() => setCameraModalOpen(true)}
-                  className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
+                  className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="1.5" className="h-4 w-4 shrink-0">
                     <rect x="3" y="7" width="18" height="13" rx="2" />
@@ -2912,7 +2912,7 @@ export default function VideoTuYTuongPage() {
                 <button
                   type="button"
                   onClick={() => setColorModalOpen(true)}
-                  className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
+                  className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
                 >
                   <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0">
                     <circle cx="12" cy="12" r="9" fill="none" stroke="#22d3ee" strokeWidth="1.5" />
@@ -2924,7 +2924,7 @@ export default function VideoTuYTuongPage() {
                 <button
                   type="button"
                   onClick={() => setLightModalOpen(true)}
-                  className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
+                  className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="1.5" className="h-4 w-4 shrink-0">
                     <circle cx="12" cy="12" r="5" />
@@ -2936,7 +2936,7 @@ export default function VideoTuYTuongPage() {
                 <button
                   type="button"
                   title="Sắp ra mắt"
-                  className="rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
+                  className="rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
                 >
                   thiết lập phim tự động
                 </button>
@@ -2946,7 +2946,7 @@ export default function VideoTuYTuongPage() {
               {/* KHỐI 2/3 — ô "viết prompt" + icon toolbar — khối này KHÔNG viền tím (bình thường), đúng
                   ảnh mẫu: chỉ có khối chip (khối 1) và khối nút "Tạo" (khối 3) mới có viền neon, khối ô
                   prompt này chỉ là box tối thường, không glow. */}
-              <div className="flex flex-col gap-3 rounded-[28px] bg-zinc-900 p-4">
+              <div className="flex flex-col gap-3 rounded-[28px] bg-zinc-800 p-4">
                 {promptImages.length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {promptImages.map((url, i) => (
@@ -2977,11 +2977,11 @@ export default function VideoTuYTuongPage() {
                     Giữ thêm "thời gian" khi model cần chọn độ dài clip (chức năng thật, ảnh mẫu không
                     có vì model mặc định không cần) — "âm thanh" đã xoá hẳn vì vốn chỉ trang trí, không
                     có chức năng gì. */}
-                <div className="flex flex-wrap items-center gap-2 border-t border-zinc-800 pt-3">
+                <div className="flex flex-wrap items-center gap-2 border-t border-zinc-700 pt-3">
                 <button
                   type="button"
                   onClick={() => setPickerModal({ defaultTab: "upload", forMention: false })}
-                  className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-base text-zinc-200 hover:bg-zinc-700"
+                  className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-700 text-base text-zinc-200 hover:bg-zinc-600"
                   title="Tải ảnh lên"
                 >
                   +
@@ -2989,7 +2989,7 @@ export default function VideoTuYTuongPage() {
                 <button
                   type="button"
                   onClick={() => setPickerModal({ defaultTab: "reference", forMention: true })}
-                  className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-base text-zinc-200 hover:bg-zinc-700"
+                  className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-700 text-base text-zinc-200 hover:bg-zinc-600"
                   title="Chèn @mention từ kho tham chiếu"
                 >
                   @
@@ -2997,7 +2997,7 @@ export default function VideoTuYTuongPage() {
                 <button
                   type="button"
                   title="Thiết lập máy quay/ánh sáng — sắp ra mắt cho prompt bar"
-                  className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-base text-zinc-200 hover:bg-zinc-700"
+                  className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-700 text-base text-zinc-200 hover:bg-zinc-600"
                 >
                   🎥
                 </button>
@@ -3006,7 +3006,7 @@ export default function VideoTuYTuongPage() {
                   <select
                     value={storyVideoModelKey ?? ""}
                     onChange={(e) => setStoryVideoModelKey(e.target.value || null)}
-                    className="h-9 rounded-full bg-zinc-800 px-3 text-xs text-zinc-200 outline-none"
+                    className="h-9 rounded-full bg-zinc-700 px-3 text-xs text-zinc-200 outline-none"
                   >
                     <option value="">model</option>
                     {storyVideoModels.map((m) => (
@@ -3017,15 +3017,15 @@ export default function VideoTuYTuongPage() {
                   </select>
                 )}
                 {storyVideoModels.length === 0 && (
-                  <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">model</span>
+                  <span className="flex h-9 items-center rounded-full bg-zinc-700 px-3 text-xs text-zinc-400">model</span>
                 )}
 
-                <span className="flex h-9 items-center rounded-full bg-zinc-800 px-3 text-xs text-zinc-400">{storyResolutionKey ?? "1080"}p</span>
+                <span className="flex h-9 items-center rounded-full bg-zinc-700 px-3 text-xs text-zinc-400">{storyResolutionKey ?? "1080"}p</span>
 
                 <select
                   value={storyAspectRatio}
                   onChange={(e) => setStoryAspectRatio(e.target.value)}
-                  className="h-9 rounded-full bg-zinc-800 px-3 text-xs text-zinc-200 outline-none"
+                  className="h-9 rounded-full bg-zinc-700 px-3 text-xs text-zinc-200 outline-none"
                 >
                   {["16:9", "9:16", "1:1"].map((ratio) => (
                     <option key={ratio} value={ratio}>
@@ -3042,7 +3042,7 @@ export default function VideoTuYTuongPage() {
                   <select
                     value={storyDurationKey ?? ""}
                     onChange={(e) => setStoryDurationKey(e.target.value || null)}
-                    className="h-9 rounded-full bg-zinc-800 px-3 text-xs text-zinc-200 outline-none"
+                    className="h-9 rounded-full bg-zinc-700 px-3 text-xs text-zinc-200 outline-none"
                   >
                     <option value="">thời gian</option>
                     {Object.keys(storyVideoModels.find((m) => m.key === storyVideoModelKey)?.duration_price_vnd ?? {}).map((key) => (
