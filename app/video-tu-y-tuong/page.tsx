@@ -2833,7 +2833,7 @@ export default function VideoTuYTuongPage() {
               Tab "hình ảnh" CHƯA đổi — anh nói sẽ gửi ảnh mẫu riêng cho tab đó sau, nên giữ nguyên
               layout cũ (cột tab riêng bên trái + box riêng + nút "tạo" đứng ngoài) ở nhánh else. */}
           {promptMediaTab === "video" ? (
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-6">
               {/* KHỐI 1/2 — bản thiết kế có 2 khối riêng biệt (khối pill trên + khối box dưới), không
                   phải 1 khối gộp chung như bản trước. Khối này: tab toggle RIÊNG 1 DÒNG trên cùng (sát
                   góc trên-trái của khối), chip preset (tài liệu tham khảo/máy ảnh/bảng màu/ánh sáng/
