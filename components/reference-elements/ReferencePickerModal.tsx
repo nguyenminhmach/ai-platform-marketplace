@@ -143,9 +143,9 @@ export function ReferencePickerModal({
   ];
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="flex h-[min(720px,85vh)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 text-zinc-100 shadow-2xl"
+        className="flex h-[min(720px,85vh)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-800 text-zinc-100 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Tabs header */}
