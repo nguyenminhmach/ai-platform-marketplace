@@ -1037,8 +1037,12 @@ export default function VideoTuYTuongClient({
       if (!ctx) return dataUrl;
       ctx.drawImage(img, 0, 0, width, height);
 
-      const TARGET_BYTES = 900 * 1024; // ~900KB — đủ nét để làm ảnh tham chiếu, nhẹ để tải lên nhanh
-      const qualitySteps = [quality, 0.7, 0.55, 0.4];
+      // SỬA (phản hồi thật user: nén quá tay dễ làm AI nhận diện sai, nhất là ảnh nhân vật cần rõ nét
+      // mặt) — nâng ngưỡng mục tiêu lên 1.5MB (trước 900KB) và sàn chất lượng thấp nhất lên 60% (trước
+      // 40%, mức đó đã thấy rõ vết nén/vỡ khối). Đổi lại ảnh rất nặng sẽ không nén nhanh bằng trước,
+      // nhưng ưu tiên đúng: chất lượng AI nhận diện quan trọng hơn vài giây tải lên.
+      const TARGET_BYTES = 1.5 * 1024 * 1024;
+      const qualitySteps = [quality, 0.75, 0.6];
       let best = canvas.toDataURL("image/jpeg", qualitySteps[0]);
       for (let i = 1; i < qualitySteps.length; i++) {
         // base64 nặng hơn byte gốc ~33% — ước lượng nhanh từ độ dài chuỗi, không cần decode lại.

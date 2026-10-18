@@ -73,8 +73,10 @@ export function compressImageFile(file: File, maxDimension = 1800, quality = 0.8
       if (!ctx) return dataUrl;
       ctx.drawImage(img, 0, 0, width, height);
 
-      const TARGET_BYTES = 900 * 1024;
-      const qualitySteps = [quality, 0.7, 0.55, 0.4];
+      // SỬA (phản hồi thật user: nén quá tay dễ làm AI nhận diện sai) — nâng ngưỡng lên 1.5MB, sàn
+      // chất lượng lên 60% (xem VideoTuYTuongClient.tsx cùng lý do).
+      const TARGET_BYTES = 1.5 * 1024 * 1024;
+      const qualitySteps = [quality, 0.75, 0.6];
       let best = canvas.toDataURL("image/jpeg", qualitySteps[0]);
       for (let i = 1; i < qualitySteps.length; i++) {
         if (best.length * 0.75 <= TARGET_BYTES) break;
