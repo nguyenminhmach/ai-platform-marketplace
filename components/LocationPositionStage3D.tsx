@@ -23,6 +23,12 @@ type Props = {
   // dưới. SỬA (phản hồi thật user lần 2): bỏ hẳn khối hộp vuông vức dựng từ phân vùng (segments) — địa
   // hình tự nhiên lồi lõm hợp lý hơn, và không cần gọi thêm AI phân vùng nữa (chỉ cần ảnh độ sâu đã có).
   depthImageUrl?: string | null;
+  // SỬA lần 3 (phản hồi thật user: "chỗ nào vách đá thì cao, chỗ nào đường mòn thì thấp") — độ sâu một
+  // mình không phân biệt được "mặt đất bằng phẳng" với "vách đá dựng đứng" (đường mòn gần ống kính nhất
+  // lại bị tính thành cao nhất, sai hướng). Mask PNG từ fal-ai/sam-3/image (prompt "ground", alpha>0 =
+  // thuộc vùng mặt đất) — dùng ép vùng này về gần phẳng khi dựng lưới, vùng còn lại giữ nguyên cách tính
+  // cũ. Tuỳ chọn, null thì lưới dựng y như trước (chỉ mất phần phân biệt đất/đá).
+  groundMaskUrl?: string | null;
 };
 
 function loadImageEl(url: string): Promise<HTMLImageElement> {
@@ -94,7 +100,54 @@ function smoothGrid(arr: Float32Array, gridW: number, gridH: number, radius: num
 // khảo đầu — LƯỚI VẪN LÀ 1 TẤM TAM GIÁC LIÊN KẾT (BufferGeometry + indices bên dưới), KHÔNG PHẢI từng
 // khối hộp rời rạc kiểu Minecraft (dù user có tham khảo lời khuyên nói vậy) — bump 128x80 chỉ để mịn
 // hơn nữa, không đổi cách dựng khối.
-async function buildTerrainGeometry(depthUrl: string, gridW = 128, gridH = 80): Promise<THREE.BufferGeometry | null> {
+// Đọc mask "mặt đất" (PNG trong suốt, alpha>0 = thuộc vùng được SAM-3 chọn) tại đúng (u,v) tương ứng
+// trên lưới — trả về "trọng số mặt đất" 0..1 (1 = chắc chắn là đất/đường đi, ép gần phẳng). Ảnh mask có
+// thể khác kích thước/tỉ lệ ảnh độ sâu (SAM-3 tự co giãn theo input) nên tính riêng canvas + toạ độ
+// pixel của chính nó, không dùng chung canvas với ảnh độ sâu.
+async function loadGroundWeightGrid(maskUrl: string, gridW: number, gridH: number): Promise<Float32Array | null> {
+  try {
+    const img = await loadImageEl(maskUrl);
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth || img.width;
+    canvas.height = img.naturalHeight || img.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx || canvas.width === 0 || canvas.height === 0) return null;
+    ctx.drawImage(img, 0, 0);
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    const blurRadius = Math.max(3, Math.round(Math.max(canvas.width, canvas.height) / 64));
+    const weights = new Float32Array(gridW * gridH);
+    for (let iy = 0; iy < gridH; iy++) {
+      for (let ix = 0; ix < gridW; ix++) {
+        const u = ix / (gridW - 1);
+        const v = iy / (gridH - 1);
+        const px = Math.min(canvas.width - 1, Math.floor(u * (canvas.width - 1)));
+        const py = Math.min(canvas.height - 1, Math.floor(v * (canvas.height - 1)));
+        let sum = 0;
+        let count = 0;
+        for (let dy = -blurRadius; dy <= blurRadius; dy++) {
+          for (let dx = -blurRadius; dx <= blurRadius; dx++) {
+            const x = px + dx;
+            const y = py + dy;
+            if (x < 0 || x >= canvas.width || y < 0 || y >= canvas.height) continue;
+            sum += data[(y * canvas.width + x) * 4 + 3]; // kênh alpha
+            count++;
+          }
+        }
+        weights[iy * gridW + ix] = count > 0 ? sum / count / 255 : 0;
+      }
+    }
+    return smoothGrid(weights, gridW, gridH, 2);
+  } catch {
+    return null; // mask lỗi/không tải được — bỏ qua, dựng lưới như không có mask (fallback an toàn)
+  }
+}
+
+async function buildTerrainGeometry(
+  depthUrl: string,
+  groundMaskUrl: string | null | undefined,
+  gridW = 128,
+  gridH = 80
+): Promise<THREE.BufferGeometry | null> {
   try {
     const img = await loadImageEl(depthUrl);
     const canvas = document.createElement("canvas");
@@ -147,7 +200,23 @@ async function buildTerrainGeometry(depthUrl: string, gridW = 128, gridH = 80): 
       const clipped = Math.min(1, Math.max(0, (rawBrightness[i] - lo) / range));
       normalizedGridRaw[i] = Math.pow(clipped, 0.55);
     }
-    const normalizedGrid = smoothGrid(normalizedGridRaw, gridW, gridH, 2);
+    let normalizedGrid = smoothGrid(normalizedGridRaw, gridW, gridH, 2);
+
+    // SỬA lần 3 (phản hồi thật user: "chỗ nào vách đá thì cao, chỗ nào đường mòn thì thấp") — độ sâu
+    // không phân biệt được mặt đất bằng phẳng với vách đá (đường mòn gần ống kính nhất lại thành cao
+    // nhất, sai). Dùng mask "mặt đất" từ SAM-3 (groundWeight 0..1) để ÉP vùng đất về gần phẳng — nhân
+    // normalizedGrid với (1 - groundWeight): groundWeight càng cao (càng chắc là đất) thì độ cao càng
+    // bị kéo về gần 0, vùng không phải đất (đá, cây...) giữ nguyên độ cao tính từ độ sâu như cũ.
+    if (groundMaskUrl) {
+      const groundWeight = await loadGroundWeightGrid(groundMaskUrl, gridW, gridH);
+      if (groundWeight) {
+        const blended = new Float32Array(gridW * gridH);
+        for (let i = 0; i < blended.length; i++) {
+          blended[i] = normalizedGrid[i] * (1 - groundWeight[i]);
+        }
+        normalizedGrid = blended;
+      }
+    }
 
     const positions = new Float32Array(gridW * gridH * 3);
     // Màu theo độ cao — đỉnh (worldY cao, gần) sáng gần trắng kiểu tuyết, chân núi (worldY thấp, xa)
@@ -202,7 +271,7 @@ async function buildTerrainGeometry(depthUrl: string, gridW = 128, gridH = 80): 
 // nữa (bản trước làm vậy, user phản hồi không đúng ý: "đừng cho mô hình phong cảnh quay") — khách chỉ
 // bấm-kéo TRÚNG 1 mannequin mới xoay riêng người đó tại chỗ (raycasting, xem pickMannequinAt), giống
 // đúng cách mannequin đơn cũ hoạt động, áp dụng cho từng người khi có nhiều người.
-export function LocationPositionStage3D({ characters, depthImageUrl }: Props) {
+export function LocationPositionStage3D({ characters, depthImageUrl, groundMaskUrl }: Props) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -330,7 +399,7 @@ export function LocationPositionStage3D({ characters, depthImageUrl }: Props) {
     if (!scene || !depthImageUrl) return;
     let cancelled = false;
     (async () => {
-      const geo = await buildTerrainGeometry(depthImageUrl);
+      const geo = await buildTerrainGeometry(depthImageUrl, groundMaskUrl);
       if (cancelled || !geo) return;
       const sc = sceneRef.current;
       if (!sc) return;
@@ -354,7 +423,7 @@ export function LocationPositionStage3D({ characters, depthImageUrl }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [depthImageUrl]);
+  }, [depthImageUrl, groundMaskUrl]);
 
   // Tìm đúng mannequin bị bấm trúng (nếu có) bằng raycasting — bấm trúng khoảng trống/địa hình thì
   // KHÔNG làm gì cả (địa hình luôn đứng yên, đúng yêu cầu).

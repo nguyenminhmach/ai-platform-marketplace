@@ -2296,7 +2296,10 @@ export default function VideoTuYTuongClient({
   // (cache lại ở đây), KHÔNG tự gọi lúc gắn ảnh — chỉ gọi khi khách chủ động bấm nút "Dựng khối 3D"
   // trong khung chọn vị trí (đã bàn kỹ: gọi sớm quá dễ tốn tiền cho ảnh khách chỉ gắn thử).
   const [locationBlockout, setLocationBlockout] = useState<
-    Record<string, { status: "loading" | "done" | "error"; depthImageUrl?: string | null; error?: string }>
+    Record<
+      string,
+      { status: "loading" | "done" | "error"; depthImageUrl?: string | null; groundMaskUrl?: string | null; error?: string }
+    >
   >({});
 
   async function handleBuildLocationBlockout(imageUrl: string) {
@@ -2310,7 +2313,10 @@ export default function VideoTuYTuongClient({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Lỗi dựng khối 3D");
-      setLocationBlockout((prev) => ({ ...prev, [imageUrl]: { status: "done", depthImageUrl: data.depthImageUrl } }));
+      setLocationBlockout((prev) => ({
+        ...prev,
+        [imageUrl]: { status: "done", depthImageUrl: data.depthImageUrl, groundMaskUrl: data.groundMaskUrl },
+      }));
     } catch (err) {
       setLocationBlockout((prev) => ({
         ...prev,
@@ -3711,6 +3717,7 @@ export default function VideoTuYTuongClient({
                           .filter((c): c is { url: string; name: string; color: string; pos: { x: number; y: number } } => !!c.pos)
                           .map((c) => ({ url: c.url, name: c.name, color: c.color, x: c.pos.x, y: c.pos.y }))}
                         depthImageUrl={locationBlockout[zoomedPromptImage]?.depthImageUrl}
+                        groundMaskUrl={locationBlockout[zoomedPromptImage]?.groundMaskUrl}
                       />
                     </div>
                   )}

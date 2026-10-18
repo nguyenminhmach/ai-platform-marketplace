@@ -1030,20 +1030,35 @@ async function callFalSync(model: string, body: Record<string, unknown>): Promis
 // nhiên (núi/vách đá lồi lõm). User đề xuất (tham khảo từ 1 AI khác): dùng thẳng BẢN ĐỒ ĐỘ SÂU (đã gọi
 // sẵn từ đầu, trước giờ chỉ lưu KHÔNG DÙNG) để dựng "địa hình" (heightmap mesh) lồi lõm thật, thay vì
 // khối hộp — kỹ thuật phổ biến trong đồ hoạ (ảnh độ sâu -> lưới điểm, mỗi điểm đẩy cao/thấp theo độ
-// sáng). Không cần phân vùng nữa (bỏ hẳn fal-ai/sam2/auto-segment — đỡ 1 lần gọi AI, rẻ hơn), code dựng
-// lưới nằm ở components/LocationPositionStage3D.tsx (đọc ảnh độ sâu bằng canvas, không cần thêm AI).
+// sáng).
+// SỬA lần 3 (phản hồi thật user: "chỗ nào có vách đá mình cho cao thấp, chỗ nào đường mòn thì độ cao
+// khác nhau") — độ sâu (gần/xa ống kính) KHÔNG nói lên được "đây là mặt đất bằng phẳng hay vách đá dựng
+// đứng": đường mòn ngay trước ống kính là điểm GẦN NHẤT trong ảnh nên bị tính thành cao nhất (sai), còn
+// vách đá dù cao thật nhưng ở xa hơn lại thành thấp hơn (cũng sai). Gọi THÊM 1 lần fal-ai/sam-3/image
+// (prompt chung "ground", không đoán tên cảnh cụ thể — áp dụng được cho bất kỳ ảnh địa điểm nào) để lấy
+// mặt nạ (mask ảnh PNG, alpha>0 = thuộc vùng mặt đất) của riêng vùng đất/đường đi bằng phẳng, dùng ép
+// vùng đó về gần như phẳng khi dựng lưới (xem components/LocationPositionStage3D.tsx) — vùng còn lại
+// (đá/cây/vật thể khác) vẫn giữ nguyên cách tính độ cao từ ảnh độ sâu như cũ. Nếu SAM-3 không tìm thấy
+// vùng đất nào (ảnh không có mặt đất rõ ràng, hoặc lỗi) thì groundMaskUrl = null, code dựng lưới vẫn
+// chạy bình thường như trước (chỉ mất phần phân biệt đất/đá, không chặn gì cả).
 export type LocationBlockoutResult = {
   depthImageUrl: string | null;
+  groundMaskUrl: string | null;
 };
 
-// Dựng "địa hình 3D thô" cho 1 ảnh bối cảnh — chỉ còn gọi 1 model Fal.ai nhẹ (ước lượng độ sâu), KHÔNG
-// phải model tạo ảnh/video (rẻ hơn rất nhiều, gần như miễn phí — xem phân tích chi phí đã lưu memory).
-// Hàm này chỉ gọi AI lấy số liệu thô, tách riêng để test/gọi lại độc lập không tốn thêm tiền — việc
-// dựng lưới địa hình thật từ ảnh độ sâu này nằm ở LocationPositionStage3D.tsx.
+// Dựng "địa hình 3D thô" cho 1 ảnh bối cảnh — gọi 2 model Fal.ai nhẹ song song (ước lượng độ sâu +
+// phân vùng mặt đất), KHÔNG phải model tạo ảnh/video (rẻ hơn rất nhiều — depth gần như miễn phí,
+// sam-3 khoảng $0.005/ảnh, xem phân tích chi phí đã lưu memory). Hàm này chỉ gọi AI lấy số liệu thô,
+// tách riêng để test/gọi lại độc lập không tốn thêm tiền — việc dựng lưới địa hình thật từ 2 kết quả
+// này nằm ở LocationPositionStage3D.tsx.
 export async function generateLocationBlockout(imageUrl: string): Promise<LocationBlockoutResult> {
-  const depthResult = await callFalSync("fal-ai/imageutils/depth", { image_url: imageUrl }).catch(() => null);
+  const [depthResult, groundResult] = await Promise.all([
+    callFalSync("fal-ai/imageutils/depth", { image_url: imageUrl }).catch(() => null),
+    callFalSync("fal-ai/sam-3/image", { image_url: imageUrl, prompt: "ground", include_mask: true, max_masks: 1 }).catch(() => null),
+  ]);
   const img = depthResult?.image as { url?: string } | undefined;
-  return { depthImageUrl: img?.url ?? null };
+  const masks = groundResult?.masks as { url?: string }[] | undefined;
+  return { depthImageUrl: img?.url ?? null, groundMaskUrl: masks?.[0]?.url ?? null };
 }
 
 export function extractImageUrl(falPayload: Record<string, unknown>): string | undefined {
