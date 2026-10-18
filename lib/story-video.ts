@@ -1006,6 +1006,57 @@ function extractVideoUrl(falPayload: Record<string, unknown>): string | undefine
   );
 }
 
+// Gọi Fal.ai kiểu ĐỒNG BỘ (https://fal.run/..., không phải queue.fal.run + webhook) — dùng cho model
+// nhẹ/nhanh (ước lượng độ sâu, phân vùng ảnh), trả kết quả ngay trong response, không cần chờ webhook
+// như submitFalJob() (dành cho model tạo ảnh/video nặng, chạy lâu). Xem mục 17.4/19 kế hoạch đã lưu
+// memory (project_higgsfield_multi_object_previz_feasibility, project_multi_character_scene_positioning_plan).
+async function callFalSync(model: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const apiKey = process.env.FAL_KEY;
+  if (!apiKey) throw new Error("Chưa cấu hình FAL_KEY trong .env.local");
+  const res = await fetch(`https://fal.run/${model}`, {
+    method: "POST",
+    headers: { Authorization: `Key ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "Unknown Fal.ai error");
+    throw new Error(`Fal.ai lỗi: ${res.status} ${errText}`);
+  }
+  return res.json();
+}
+
+export type LocationBlockoutResult = {
+  depthImageUrl: string | null;
+  segments: { label: string; maskUrl: string | null }[];
+};
+
+// Dựng "khối 3D thô" cho 1 ảnh bối cảnh — gọi 2 model Fal.ai nhẹ (ước lượng độ sâu + phân vùng), KHÔNG
+// phải model tạo ảnh/video (rẻ hơn rất nhiều, xem phân tích chi phí đã lưu memory ~0.005 USD/ảnh).
+// Chưa tự dựng khối hộp 3D ở bước này (đó là bước code tiếp theo, dùng lại đúng kết quả trả về đây) —
+// hàm này chỉ gọi AI lấy số liệu thô, tách riêng để test/gọi lại độc lập không tốn thêm tiền.
+export async function generateLocationBlockout(imageUrl: string): Promise<LocationBlockoutResult> {
+  const [depthResult, segmentResult] = await Promise.allSettled([
+    callFalSync("fal-ai/imageutils/depth", { image_url: imageUrl }),
+    callFalSync("fal-ai/sam-3/image", { image_url: imageUrl, prompts: ["building", "road", "sky"] }),
+  ]);
+
+  let depthImageUrl: string | null = null;
+  if (depthResult.status === "fulfilled") {
+    const img = depthResult.value.image as { url?: string } | undefined;
+    depthImageUrl = img?.url ?? null;
+  }
+
+  const segments: { label: string; maskUrl: string | null }[] = [];
+  if (segmentResult.status === "fulfilled") {
+    const raw = segmentResult.value as { masks?: { label?: string; mask_url?: string; image?: { url?: string } }[] };
+    for (const m of raw.masks ?? []) {
+      segments.push({ label: m.label ?? "unknown", maskUrl: m.mask_url ?? m.image?.url ?? null });
+    }
+  }
+
+  return { depthImageUrl, segments };
+}
+
 export function extractImageUrl(falPayload: Record<string, unknown>): string | undefined {
   const inner = falPayload.payload as Record<string, unknown> | undefined;
   const images = (inner?.images ?? falPayload.images) as { url?: string }[] | undefined;

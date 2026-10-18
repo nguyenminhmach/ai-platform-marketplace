@@ -2279,6 +2279,32 @@ export default function VideoTuYTuongClient({
   // ảnh địa điểm + nhân vật đó được gắn chung vào 1 prompt (xem mục 18-19 kế hoạch đã lưu memory).
   const [locationPositions, setLocationPositions] = useState<Record<string, Record<string, { x: number; y: number }>>>({});
   const [positionEditorActiveChar, setPositionEditorActiveChar] = useState<string | null>(null);
+  // Kết quả gọi Fal.ai (depth + segment) cho từng ảnh địa điểm — keyed theo url, chỉ gọi 1 lần/ảnh
+  // (cache lại ở đây), KHÔNG tự gọi lúc gắn ảnh — chỉ gọi khi khách chủ động bấm nút "Dựng khối 3D"
+  // trong khung chọn vị trí (đã bàn kỹ: gọi sớm quá dễ tốn tiền cho ảnh khách chỉ gắn thử).
+  const [locationBlockout, setLocationBlockout] = useState<
+    Record<string, { status: "loading" | "done" | "error"; depthImageUrl?: string | null; error?: string }>
+  >({});
+
+  async function handleBuildLocationBlockout(imageUrl: string) {
+    if (locationBlockout[imageUrl]?.status === "loading" || locationBlockout[imageUrl]?.status === "done") return;
+    setLocationBlockout((prev) => ({ ...prev, [imageUrl]: { status: "loading" } }));
+    try {
+      const res = await fetch("/api/story-video/location-blockout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageUrl }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Lỗi dựng khối 3D");
+      setLocationBlockout((prev) => ({ ...prev, [imageUrl]: { status: "done", depthImageUrl: data.depthImageUrl } }));
+    } catch (err) {
+      setLocationBlockout((prev) => ({
+        ...prev,
+        [imageUrl]: { status: "error", error: err instanceof Error ? err.message : "Có lỗi xảy ra" },
+      }));
+    }
+  }
   const POSITION_MARKER_COLORS = ["#10b981", "#0ea5e9", "#f59e0b", "#d946ef", "#ef4444"]; // tối đa 5 nhân vật, xem mục 18.4
   const [pickerModal, setPickerModal] = useState<{ defaultTab: "upload" | "reference" | "favorite"; forMention: boolean } | null>(null);
   const [createToast, setCreateToast] = useState<string | null>(null);
@@ -3622,20 +3648,38 @@ export default function VideoTuYTuongClient({
                       );
                     })}
                 </div>
-                {isLocationEditor && (
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setZoomedPromptImage(null)}
-                      className="rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 px-4 py-2 text-sm font-medium text-white"
-                    >
-                      Xác nhận vị trí
-                    </button>
-                    <span className="text-xs text-zinc-400">
-                      Đã đặt {Object.keys(assignments).length}/{characters.length} nhân vật
-                    </span>
-                  </div>
-                )}
+                {isLocationEditor &&
+                  (() => {
+                    const blockout = locationBlockout[zoomedPromptImage];
+                    return (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setZoomedPromptImage(null)}
+                          className="rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 px-4 py-2 text-sm font-medium text-white"
+                        >
+                          Xác nhận vị trí
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleBuildLocationBlockout(zoomedPromptImage)}
+                          disabled={blockout?.status === "loading" || blockout?.status === "done"}
+                          title="Phân tích ảnh để dựng khối 3D (tòa nhà/đường) — chỉ tốn phí nhỏ, gọi 1 lần/ảnh"
+                          className="rounded-full border border-zinc-600 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-700 disabled:cursor-default disabled:opacity-70"
+                        >
+                          {blockout?.status === "loading"
+                            ? "⏳ Đang dựng khối 3D..."
+                            : blockout?.status === "done"
+                              ? "✅ Đã dựng khối 3D"
+                              : "🧱 Dựng khối 3D"}
+                        </button>
+                        <span className="text-xs text-zinc-400">
+                          Đã đặt {Object.keys(assignments).length}/{characters.length} nhân vật
+                        </span>
+                        {blockout?.status === "error" && <span className="text-xs text-red-400">{blockout.error}</span>}
+                      </div>
+                    );
+                  })()}
               </div>
             </div>
           );
