@@ -32,7 +32,11 @@ export function LocationPositionStage3D({ locationUrl, characters }: Props) {
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const dragRef = useRef<{ dragging: boolean; startX: number; startAzimuth: number }>({ dragging: false, startX: 0, startAzimuth: 0 });
-  const azimuthRef = useRef(0.35); // góc orbit ban đầu — hơi chếch, không nhìn thẳng đứng chán mắt
+  // Góc orbit ban đầu = 0 (nhìn THẲNG, không chếch) — BẮT BUỘC để trái/phải trên khung 3D khớp đúng
+  // trái/phải khách đã bấm trên ảnh 2D lúc mới mở (user phản hồi thực tế: chếch sẵn làm 2 bên lệch
+  // nhau rõ). Khách tự kéo xoay thêm sau nếu muốn xem góc khác, chỉ ảnh hưởng lúc ĐANG xoay, không
+  // ảnh hưởng lúc vừa mở.
+  const azimuthRef = useRef(0);
   const [, forceRerender] = useState(0);
 
   useEffect(() => {
