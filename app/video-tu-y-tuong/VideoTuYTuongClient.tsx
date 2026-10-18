@@ -1253,11 +1253,27 @@ export default function VideoTuYTuongClient({
     // nhập) — trước đây dùng user!.id (ép bỏ qua kiểm tra null) nên khách chưa đăng nhập bấm "+" tải
     // ảnh bị crash thẳng "Cannot read properties of null (reading 'id')" thay vì thấy lỗi dễ hiểu.
     if (!user) throw new Error("Vui lòng đăng nhập trước khi tải ảnh lên");
-    const res = await fetch("/api/outfit-swap/upload", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: user.id, dataUrl }),
-    });
+    // SỬA (phản hồi thật user: tải ảnh kẹt "Đang tải..." vô thời hạn, không có lỗi gì hiện ra, dù đã
+    // loại trừ được nguyên nhân mạng/phiên đăng nhập) — thêm giới hạn 25 giây, hết giờ thì chủ động huỷ
+    // request + báo lỗi rõ ràng, thay vì chờ mãi không biết đang xảy ra chuyện gì.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 25000);
+    let res: Response;
+    try {
+      res = await fetch("/api/outfit-swap/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, dataUrl }),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new Error("Tải ảnh quá lâu (quá 25 giây) — thử lại hoặc kiểm tra kết nối mạng");
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+    }
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? "Không tải được ảnh lên");
     return data.url as string;

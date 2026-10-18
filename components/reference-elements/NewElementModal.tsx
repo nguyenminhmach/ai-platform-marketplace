@@ -165,17 +165,30 @@ export function NewElementModal({
       const dataUrl = await compressImageFile(file);
       const entry = { dataUrl, uploading: true };
       setImages((prev) => [...prev, entry]);
+      // SỬA (phản hồi thật user: kẹt "Đang tải..." vô thời hạn, không có lỗi gì hiện ra) — giới hạn 25
+      // giây, hết giờ chủ động huỷ + báo lỗi rõ, thay vì chờ mãi không rõ đang xảy ra chuyện gì.
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 25000);
       try {
         const res = await fetch("/api/reference-elements/upload", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ dataUrl }),
+          signal: controller.signal,
         });
+        clearTimeout(timeout);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "Tải ảnh thất bại");
         setImages((prev) => prev.map((img) => (img.dataUrl === dataUrl ? { ...img, uploading: false, url: data.url } : img)));
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Tải ảnh thất bại");
+        clearTimeout(timeout);
+        const message =
+          err instanceof DOMException && err.name === "AbortError"
+            ? "Tải ảnh quá lâu (quá 25 giây) — thử lại hoặc kiểm tra kết nối mạng"
+            : err instanceof Error
+              ? err.message
+              : "Tải ảnh thất bại";
+        setError(message);
         setImages((prev) => prev.filter((img) => img.dataUrl !== dataUrl));
       }
     }
