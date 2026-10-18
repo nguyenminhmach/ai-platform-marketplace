@@ -42,8 +42,11 @@ export function fileToDataUrl(file: File): Promise<string> {
 
 // Nén/resize ảnh TRƯỚC khi gửi lên server — trước đây modal này gửi thẳng ảnh gốc (fileToDataUrl),
 // nên ảnh chụp từ điện thoại (thường 3000-4000px, vài MB) convert base64 + upload rất lâu, khách thấy
-// kẹt "Đang tải..." lâu. Mirror đúng compressImageFile ở app/video-tu-y-tuong/page.tsx (maxDimension
-// 1800px, quality 0.85) — resize về cỡ vừa đủ dùng làm ảnh tham chiếu, giảm hẳn dung lượng cần upload.
+// kẹt "Đang tải..." lâu. Mirror đúng compressImageFile ở app/video-tu-y-tuong/VideoTuYTuongClient.tsx
+// (maxDimension 1800px) — resize về cỡ vừa đủ dùng làm ảnh tham chiếu, giảm hẳn dung lượng cần upload.
+// SỬA (phản hồi thật user: vẫn chậm/"Failed to fetch" dù mạng/đăng nhập bình thường — nghi ảnh gốc quá
+// nặng, 1 lần nén cố định 85% chưa đủ với ảnh nhiều chi tiết): nén NHIỀU LƯỢT, hạ dần chất lượng tới
+// khi dưới ngưỡng mục tiêu (~900KB) hoặc hết lượt thử.
 export function compressImageFile(file: File, maxDimension = 1800, quality = 0.85): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -69,7 +72,15 @@ export function compressImageFile(file: File, maxDimension = 1800, quality = 0.8
       const ctx = canvas.getContext("2d");
       if (!ctx) return dataUrl;
       ctx.drawImage(img, 0, 0, width, height);
-      return canvas.toDataURL("image/jpeg", quality);
+
+      const TARGET_BYTES = 900 * 1024;
+      const qualitySteps = [quality, 0.7, 0.55, 0.4];
+      let best = canvas.toDataURL("image/jpeg", qualitySteps[0]);
+      for (let i = 1; i < qualitySteps.length; i++) {
+        if (best.length * 0.75 <= TARGET_BYTES) break;
+        best = canvas.toDataURL("image/jpeg", qualitySteps[i]);
+      }
+      return best;
     } catch {
       // Nén lỗi (trình duyệt cũ, ảnh hỏng...) — dùng ảnh gốc, không chặn khách tải lên.
       return dataUrl;

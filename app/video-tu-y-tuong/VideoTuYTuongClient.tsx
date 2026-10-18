@@ -1006,6 +1006,11 @@ export default function VideoTuYTuongClient({
   // Supabase Storage), là nguyên nhân chính khiến tải ảnh chậm. Các model AI tạo ảnh xử lý ảnh tham
   // chiếu ở độ phân giải nội bộ thấp hơn maxDimension này nhiều, nên thu nhỏ không làm giảm chất
   // lượng AI nhận diện nhân vật — chỉ giảm dung lượng file thật sự cần gửi đi.
+  // SỬA (phản hồi thật user: tải ảnh từ máy lên rất chậm/"Failed to fetch" dù mạng/đăng nhập bình
+  // thường — nghi do ảnh gốc nặng, ảnh chụp điện thoại thường 5-15MB, nén 1 lần ở mức cố định (85%)
+  // có thể vẫn ra file khá nặng với ảnh nhiều chi tiết). Giờ nén NHIỀU LƯỢT, hạ dần chất lượng tới khi
+  // dưới ngưỡng mục tiêu (~900KB) hoặc hết lượt thử — giảm hẳn dữ liệu phải gửi lên, đỡ phụ thuộc vào
+  // tốc độ đường truyền tải lên của khách.
   async function compressImageFile(file: File, maxDimension = 1800, quality = 0.85): Promise<string> {
     const dataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
@@ -1031,7 +1036,16 @@ export default function VideoTuYTuongClient({
       const ctx = canvas.getContext("2d");
       if (!ctx) return dataUrl;
       ctx.drawImage(img, 0, 0, width, height);
-      return canvas.toDataURL("image/jpeg", quality);
+
+      const TARGET_BYTES = 900 * 1024; // ~900KB — đủ nét để làm ảnh tham chiếu, nhẹ để tải lên nhanh
+      const qualitySteps = [quality, 0.7, 0.55, 0.4];
+      let best = canvas.toDataURL("image/jpeg", qualitySteps[0]);
+      for (let i = 1; i < qualitySteps.length; i++) {
+        // base64 nặng hơn byte gốc ~33% — ước lượng nhanh từ độ dài chuỗi, không cần decode lại.
+        if (best.length * 0.75 <= TARGET_BYTES) break;
+        best = canvas.toDataURL("image/jpeg", qualitySteps[i]);
+      }
+      return best;
     } catch {
       // Nén lỗi (trình duyệt cũ, ảnh hỏng...) — dùng ảnh gốc, không chặn khách tải lên.
       return dataUrl;
