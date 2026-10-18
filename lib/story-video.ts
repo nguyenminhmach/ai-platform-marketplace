@@ -1025,19 +1025,31 @@ async function callFalSync(model: string, body: Record<string, unknown>): Promis
   return res.json();
 }
 
+// "box" là [cx, cy, w, h] chuẩn hoá 0..1 (tâm + rộng/cao) — đúng định dạng thật Fal trả về (đã test
+// trực tiếp bằng FAL_KEY thật, xem commit sửa lỗi), KHÁC với giả định ban đầu (ảnh mask + tự phân tích
+// pixel bằng canvas — không cần nữa, Fal cho sẵn toạ độ, đỡ 1 lớp xử lý phức tạp + rủi ro sai).
+export type LocationSegmentResult = { label: string; box: [number, number, number, number] | null };
 export type LocationBlockoutResult = {
   depthImageUrl: string | null;
-  segments: { label: string; maskUrl: string | null }[];
+  segments: LocationSegmentResult[];
 };
 
-// Dựng "khối 3D thô" cho 1 ảnh bối cảnh — gọi 2 model Fal.ai nhẹ (ước lượng độ sâu + phân vùng), KHÔNG
-// phải model tạo ảnh/video (rẻ hơn rất nhiều, xem phân tích chi phí đã lưu memory ~0.005 USD/ảnh).
-// Chưa tự dựng khối hộp 3D ở bước này (đó là bước code tiếp theo, dùng lại đúng kết quả trả về đây) —
-// hàm này chỉ gọi AI lấy số liệu thô, tách riêng để test/gọi lại độc lập không tốn thêm tiền.
+// Nhãn mặc định hay gặp trong ảnh bối cảnh ngoài trời/đường phố — có thể mở rộng sau nếu cần nhãn khác
+// (vd "car", "tree"). fal-ai/sam-3/image chỉ nhận ĐÚNG 1 "prompt" (chuỗi) mỗi lần gọi — xem bên dưới,
+// PHẢI gọi riêng từng nhãn, không gộp thành mảng (lỗi ban đầu: field tên "prompts" số nhiều không tồn
+// tại trong API thật, Fal âm thầm bỏ qua, trả masks rỗng chứ không báo lỗi — rất dễ nhầm là code đúng).
+const LOCATION_BLOCKOUT_LABELS = ["building", "road", "sky"];
+
+// Dựng "khối 3D thô" cho 1 ảnh bối cảnh — gọi 2 loại model Fal.ai nhẹ (ước lượng độ sâu + phân vùng
+// theo từng nhãn), KHÔNG phải model tạo ảnh/video (rẻ hơn rất nhiều, xem phân tích chi phí đã lưu
+// memory ~0.005 USD/ảnh). Hàm này chỉ gọi AI lấy số liệu thô, tách riêng để test/gọi lại độc lập không
+// tốn thêm tiền — việc dựng khối 3D thật từ số liệu này nằm ở components/LocationPositionStage3D.tsx.
 export async function generateLocationBlockout(imageUrl: string): Promise<LocationBlockoutResult> {
-  const [depthResult, segmentResult] = await Promise.allSettled([
+  const [depthResult, ...segmentResults] = await Promise.allSettled([
     callFalSync("fal-ai/imageutils/depth", { image_url: imageUrl }),
-    callFalSync("fal-ai/sam-3/image", { image_url: imageUrl, prompts: ["building", "road", "sky"] }),
+    ...LOCATION_BLOCKOUT_LABELS.map((label) =>
+      callFalSync("fal-ai/sam-3/image", { image_url: imageUrl, prompt: label, include_boxes: true, max_masks: 1 })
+    ),
   ]);
 
   let depthImageUrl: string | null = null;
@@ -1046,13 +1058,12 @@ export async function generateLocationBlockout(imageUrl: string): Promise<Locati
     depthImageUrl = img?.url ?? null;
   }
 
-  const segments: { label: string; maskUrl: string | null }[] = [];
-  if (segmentResult.status === "fulfilled") {
-    const raw = segmentResult.value as { masks?: { label?: string; mask_url?: string; image?: { url?: string } }[] };
-    for (const m of raw.masks ?? []) {
-      segments.push({ label: m.label ?? "unknown", maskUrl: m.mask_url ?? m.image?.url ?? null });
-    }
-  }
+  const segments: LocationSegmentResult[] = LOCATION_BLOCKOUT_LABELS.map((label, i) => {
+    const r = segmentResults[i];
+    if (r.status !== "fulfilled") return { label, box: null };
+    const boxes = r.value.boxes as [number, number, number, number][] | undefined;
+    return { label, box: boxes?.[0] ?? null };
+  });
 
   return { depthImageUrl, segments };
 }
