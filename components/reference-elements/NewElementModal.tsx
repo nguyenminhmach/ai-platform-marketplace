@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { uploadImageDirect } from "@/lib/upload-direct";
 
 // Form "Yếu tố mới" — dùng chung cho app/reference-elements/page.tsx (trang quản lý kho tham chiếu)
 // VÀ app/video-tu-y-tuong/page.tsx (mở từ modal "@" ngay trong luồng viết prompt). Tách ra khỏi
@@ -165,29 +166,11 @@ export function NewElementModal({
       const dataUrl = await compressImageFile(file);
       const entry = { dataUrl, uploading: true };
       setImages((prev) => [...prev, entry]);
-      // SỬA (phản hồi thật user: kẹt "Đang tải..." vô thời hạn, không có lỗi gì hiện ra) — giới hạn 25
-      // giây, hết giờ chủ động huỷ + báo lỗi rõ, thay vì chờ mãi không rõ đang xảy ra chuyện gì.
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 25000);
       try {
-        const res = await fetch("/api/reference-elements/upload", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ dataUrl }),
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Tải ảnh thất bại");
-        setImages((prev) => prev.map((img) => (img.dataUrl === dataUrl ? { ...img, uploading: false, url: data.url } : img)));
+        const url = await uploadImageDirect(dataUrl, "/api/reference-elements/upload", "reference-element-uploads");
+        setImages((prev) => prev.map((img) => (img.dataUrl === dataUrl ? { ...img, uploading: false, url } : img)));
       } catch (err) {
-        clearTimeout(timeout);
-        const message =
-          err instanceof DOMException && err.name === "AbortError"
-            ? "Tải ảnh quá lâu (quá 25 giây) — thử lại hoặc kiểm tra kết nối mạng"
-            : err instanceof Error
-              ? err.message
-              : "Tải ảnh thất bại";
+        const message = err instanceof Error ? err.message : "Tải ảnh thất bại";
         setError(message);
         setImages((prev) => prev.filter((img) => img.dataUrl !== dataUrl));
       }

@@ -9,6 +9,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Footer } from "@/components/Footer";
 import { useAuth } from "@/lib/auth-context";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { uploadImageDirect } from "@/lib/upload-direct";
 import { MannequinPreviewCard } from "@/components/MannequinPreviewCard";
 
 // Kling (model tạo video đang dùng) từ chối xử lý (lỗi 422) nếu prompt quá dài — giữ dưới ngưỡng an toàn.
@@ -1571,14 +1572,7 @@ export default function MiniAppDetailPage() {
   }
 
   async function uploadOutfitSwapImage(dataUrl: string): Promise<string> {
-    const res = await fetch("/api/outfit-swap/upload", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: user!.id, dataUrl }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error ?? "Không tải được ảnh lên");
-    return data.url as string;
+    return uploadImageDirect(dataUrl, "/api/outfit-swap/upload", "outfit-swap-uploads");
   }
 
   function handleCharFileChange(e: React.ChangeEvent<HTMLInputElement>, index: number) {
