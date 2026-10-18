@@ -2280,12 +2280,6 @@ export default function VideoTuYTuongClient({
   // ảnh địa điểm + nhân vật đó được gắn chung vào 1 prompt (xem mục 18-19 kế hoạch đã lưu memory).
   const [locationPositions, setLocationPositions] = useState<Record<string, Record<string, { x: number; y: number }>>>({});
   const [positionEditorActiveChar, setPositionEditorActiveChar] = useState<string | null>(null);
-  // Tab 2D/3D trong khung "Chọn vị trí đứng" — xem mục 18.3/19 kế hoạch (Phương án B: 1 khung chuyển
-  // tab, responsive hơn 2 khung song song). Reset về "2d" mỗi lần mở ảnh khác.
-  const [positionEditorView, setPositionEditorView] = useState<"2d" | "3d">("2d");
-  useEffect(() => {
-    setPositionEditorView("2d");
-  }, [zoomedPromptImage]);
   // Kết quả gọi Fal.ai (depth + segment) cho từng ảnh địa điểm — keyed theo url, chỉ gọi 1 lần/ảnh
   // (cache lại ở đây), KHÔNG tự gọi lúc gắn ảnh — chỉ gọi khi khách chủ động bấm nút "Dựng khối 3D"
   // trong khung chọn vị trí (đã bàn kỹ: gọi sớm quá dễ tốn tiền cho ảnh khách chỉ gắn thử).
@@ -3591,8 +3585,8 @@ export default function VideoTuYTuongClient({
               onClick={() => setZoomedPromptImage(null)}
             >
               <div
-                className={`relative flex max-h-full max-w-3xl flex-col gap-3 ${
-                  isLocationEditor ? "rounded-2xl border border-zinc-700 bg-zinc-800 p-4" : ""
+                className={`relative flex max-h-full flex-col gap-3 ${
+                  isLocationEditor ? "w-full max-w-6xl rounded-2xl border border-zinc-700 bg-zinc-800 p-4" : "max-w-3xl"
                 }`}
                 onClick={isLocationEditor ? (e) => e.stopPropagation() : undefined}
               >
@@ -3608,94 +3602,80 @@ export default function VideoTuYTuongClient({
                   ✕
                 </button>
                 {isLocationEditor && (
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm text-zinc-300">Chọn vị trí đứng — bấm chọn nhân vật rồi bấm vào ảnh:</span>
-                      {characters.map((u, i) => {
-                        const color = POSITION_MARKER_COLORS[i % POSITION_MARKER_COLORS.length];
-                        const placed = !!assignments[u];
-                        const active = activeChar === u;
-                        return (
-                          <button
-                            key={u}
-                            type="button"
-                            onClick={() => {
-                              setPositionEditorActiveChar(u);
-                              setPositionEditorView("2d");
-                            }}
-                            className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-sm font-medium"
-                            style={{
-                              borderColor: color,
-                              backgroundColor: active ? `${color}30` : "transparent",
-                              color: active ? color : "#d4d4d8",
-                            }}
-                          >
-                            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
-                            {promptImageMeta[u]?.name || "Nhân vật"}
-                            {placed && " ✓"}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {/* Tab 2D/3D — Phương án B (1 khung chuyển tab) từ kế hoạch đã lưu, xem thêm mannequin
-                        tương ứng từng vị trí vừa chọn ở tab 2D, xoay xem được ở tab 3D. */}
-                    <div className="flex rounded-full border border-zinc-600 bg-zinc-900 p-0.5 text-xs">
-                      <button
-                        type="button"
-                        onClick={() => setPositionEditorView("2d")}
-                        className={`rounded-full px-3 py-1 font-medium ${positionEditorView === "2d" ? "bg-zinc-700 text-white" : "text-zinc-400"}`}
-                      >
-                        2D
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPositionEditorView("3d")}
-                        disabled={Object.keys(assignments).length === 0}
-                        className={`rounded-full px-3 py-1 font-medium disabled:opacity-40 ${
-                          positionEditorView === "3d" ? "bg-zinc-700 text-white" : "text-zinc-400"
-                        }`}
-                      >
-                        3D
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {isLocationEditor && positionEditorView === "3d" ? (
-                  <LocationPositionStage3D
-                    locationUrl={zoomedPromptImage}
-                    characters={characters
-                      .map((u, i) => ({
-                        url: u,
-                        name: promptImageMeta[u]?.name || "Nhân vật",
-                        color: POSITION_MARKER_COLORS[i % POSITION_MARKER_COLORS.length],
-                        pos: assignments[u],
-                      }))
-                      .filter((c): c is { url: string; name: string; color: string; pos: { x: number; y: number } } => !!c.pos)
-                      .map((c) => ({ url: c.url, name: c.name, color: c.color, x: c.pos.x, y: c.pos.y }))}
-                  />
-                ) : (
-                <div
-                  className={`relative overflow-hidden rounded-lg ${isLocationEditor ? "cursor-crosshair" : ""}`}
-                  onClick={isLocationEditor ? handlePlaceMarker : undefined}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={zoomedPromptImage} alt="" className="max-h-[75vh] max-w-full select-none object-contain" draggable={false} />
-                  {isLocationEditor &&
-                    characters.map((u, i) => {
-                      const pos = assignments[u];
-                      if (!pos) return null;
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm text-zinc-300">Chọn vị trí đứng — bấm chọn nhân vật rồi bấm vào ảnh:</span>
+                    {characters.map((u, i) => {
                       const color = POSITION_MARKER_COLORS[i % POSITION_MARKER_COLORS.length];
+                      const placed = !!assignments[u];
+                      const active = activeChar === u;
                       return (
-                        <div
+                        <button
                           key={u}
-                          className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white"
-                          style={{ left: `${pos.x * 100}%`, top: `${pos.y * 100}%`, width: 16, height: 16, backgroundColor: color }}
-                          title={promptImageMeta[u]?.name}
-                        />
+                          type="button"
+                          onClick={() => setPositionEditorActiveChar(u)}
+                          className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-sm font-medium"
+                          style={{
+                            borderColor: color,
+                            backgroundColor: active ? `${color}30` : "transparent",
+                            color: active ? color : "#d4d4d8",
+                          }}
+                        >
+                          <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
+                          {promptImageMeta[u]?.name || "Nhân vật"}
+                          {placed && " ✓"}
+                        </button>
                       );
                     })}
-                </div>
+                  </div>
                 )}
+                {/* Phương án A — 2 khung song song (2D trái, 3D phải), đồng bộ real-time — thay cho bản
+                    tab-chuyển-qua-lại trước đó (user phản hồi không thấy/khó nhận ra). Khung 3D chỉ hiện
+                    khi đã có ít nhất 1 vị trí; trên màn hẹp tự xếp chồng (grid-cols-1) nhờ lg:grid-cols-2. */}
+                <div className={isLocationEditor ? `grid gap-3 ${Object.keys(assignments).length > 0 ? "lg:grid-cols-2" : ""}` : ""}>
+                  <div
+                    className={`relative overflow-hidden rounded-lg ${isLocationEditor ? "cursor-crosshair" : ""}`}
+                    onClick={isLocationEditor ? handlePlaceMarker : undefined}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={zoomedPromptImage}
+                      alt=""
+                      className={isLocationEditor ? "max-h-[65vh] w-full select-none object-contain" : "max-h-[75vh] max-w-full select-none object-contain"}
+                      draggable={false}
+                    />
+                    {isLocationEditor &&
+                      characters.map((u, i) => {
+                        const pos = assignments[u];
+                        if (!pos) return null;
+                        const color = POSITION_MARKER_COLORS[i % POSITION_MARKER_COLORS.length];
+                        return (
+                          <div
+                            key={u}
+                            className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white"
+                            style={{ left: `${pos.x * 100}%`, top: `${pos.y * 100}%`, width: 16, height: 16, backgroundColor: color }}
+                            title={promptImageMeta[u]?.name}
+                          />
+                        );
+                      })}
+                  </div>
+                  {isLocationEditor && Object.keys(assignments).length > 0 && (
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-xs text-zinc-400">Xem 3D — kéo chuột để xoay:</span>
+                      <LocationPositionStage3D
+                        locationUrl={zoomedPromptImage}
+                        characters={characters
+                          .map((u, i) => ({
+                            url: u,
+                            name: promptImageMeta[u]?.name || "Nhân vật",
+                            color: POSITION_MARKER_COLORS[i % POSITION_MARKER_COLORS.length],
+                            pos: assignments[u],
+                          }))
+                          .filter((c): c is { url: string; name: string; color: string; pos: { x: number; y: number } } => !!c.pos)
+                          .map((c) => ({ url: c.url, name: c.name, color: c.color, x: c.pos.x, y: c.pos.y }))}
+                      />
+                    </div>
+                  )}
+                </div>
                 {isLocationEditor &&
                   (() => {
                     const blockout = locationBlockout[zoomedPromptImage];
