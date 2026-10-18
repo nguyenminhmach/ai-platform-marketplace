@@ -40,7 +40,10 @@ function loadImageEl(url: string): Promise<HTMLImageElement> {
 // (0)->phải (1), ĐÚNG công thức world-mapping đã dùng cho nhân vật, để lưới địa hình và nhân vật nằm
 // cùng 1 hệ toạ độ) và chiều cao (world y) tính từ độ sáng tại đúng điểm đó trên ảnh độ sâu — vùng gần
 // (sáng) nhô cao hơn, vùng xa (tối) thấp hơn, cho cảm giác lồi lõm thật thay vì khối hộp phẳng lì.
-async function buildTerrainGeometry(depthUrl: string, gridW = 36, gridH = 22): Promise<THREE.BufferGeometry | null> {
+// SỬA (phản hồi thật user — chỉ muốn nâng lưới địa hình mịn hơn, KHÔNG làm nhân vật photorealistic
+// như ảnh tham khảo thứ 2, việc đó thuộc bước tạo ảnh AI thật, không phải khung xem trước 3D này):
+// tăng mật độ lưới (36x22 -> 64x40) để mặt tam giác nhỏ/mịn hơn, giống đúng kiểu ảnh tham khảo đầu.
+async function buildTerrainGeometry(depthUrl: string, gridW = 64, gridH = 40): Promise<THREE.BufferGeometry | null> {
   try {
     const img = await loadImageEl(depthUrl);
     const canvas = document.createElement("canvas");
@@ -52,6 +55,11 @@ async function buildTerrainGeometry(depthUrl: string, gridW = 36, gridH = 22): P
     const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
 
     const positions = new Float32Array(gridW * gridH * 3);
+    // Màu theo độ cao — đỉnh (worldY cao, gần) sáng gần trắng kiểu tuyết, chân núi (worldY thấp, xa)
+    // xám đậm hơn — đúng dải màu trong ảnh tham khảo, không phải 1 màu xám đều như bản trước.
+    const colors = new Float32Array(gridW * gridH * 3);
+    const PEAK_COLOR = new THREE.Color(0xf1f5f9);
+    const BASE_COLOR = new THREE.Color(0x64748b);
     for (let iy = 0; iy < gridH; iy++) {
       for (let ix = 0; ix < gridW; ix++) {
         const u = ix / (gridW - 1);
@@ -66,6 +74,10 @@ async function buildTerrainGeometry(depthUrl: string, gridW = 36, gridH = 22): P
         positions[vi] = worldX;
         positions[vi + 1] = worldY;
         positions[vi + 2] = worldZ;
+        const c = BASE_COLOR.clone().lerp(PEAK_COLOR, brightness);
+        colors[vi] = c.r;
+        colors[vi + 1] = c.g;
+        colors[vi + 2] = c.b;
       }
     }
     const indices: number[] = [];
@@ -80,6 +92,7 @@ async function buildTerrainGeometry(depthUrl: string, gridW = 36, gridH = 22): P
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     geo.setIndex(indices);
     geo.computeVertexNormals();
     return geo;
@@ -220,7 +233,7 @@ export function LocationPositionStage3D({ characters, depthImageUrl }: Props) {
       // "low-poly" tham khảo (núi xám nhiều mặt, không phải màu mè trong suốt như bản trước).
       const solid = new THREE.Mesh(
         geo,
-        new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.95, metalness: 0, flatShading: true, side: THREE.DoubleSide })
+        new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, flatShading: true, side: THREE.DoubleSide })
       );
       solid.userData.isLocationBlock = true;
       sc.add(solid);
