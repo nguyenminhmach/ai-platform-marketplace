@@ -170,15 +170,23 @@ export function LocationPositionStage3D({ characters, depthImageUrl }: Props) {
     ground.rotation.x = -Math.PI / 2;
     scene.add(ground);
 
-    const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
+    const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
     cameraRef.current = camera;
     sceneRef.current = scene;
 
+    // SỬA (phản hồi thật user: "em vẽ chưa đạt", khối 3D hiện ra như 1 lát mỏng/dẹt thay vì địa hình)
+    // — camera cũ gần như NGANG TẦM với lưới địa hình (chỉ cao 3.4, nhìn thẳng dọc trục Z, đúng trục
+    // chiều sâu của lưới) nên toàn bộ chiều sâu Z (5 đơn vị) bị "ép dẹt" về gần như 1 điểm trên màn
+    // hình theo hướng nhìn — chỉ còn thấy bề rộng X và chiều cao Y mỏng, giống đúng hình lát dẹt user
+    // chụp. Nâng camera cao hẳn lên (góc nhìn chéo từ trên xuống, kiểu bản đồ nổi) + ngắm vào giữa lưới
+    // địa hình (Z=-2.5, không phải mép gần Z=0) để chiều sâu hiện rõ thành khoảng cách trên màn hình
+    // thay vì chồng lên hướng nhìn. KHÔNG đổi azimuth (vẫn 0, cố định) — giữ đúng tương ứng trái/phải
+    // giữa ảnh 2D và khung 3D cho vị trí nhân vật.
     function updateCamera() {
-      const radius = 9;
+      const radius = 7;
       const az = azimuthRef.current;
-      camera.position.set(Math.sin(az) * radius, 3.4, Math.cos(az) * radius);
-      camera.lookAt(0, 1.8, 0);
+      camera.position.set(Math.sin(az) * radius, 6.5, Math.cos(az) * radius);
+      camera.lookAt(0, 0.3, -2.2);
     }
     updateCamera();
 
