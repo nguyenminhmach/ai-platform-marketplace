@@ -63,8 +63,11 @@ function sampleBrightnessAveraged(data: Uint8ClampedArray, canvasW: number, canv
 
 // SỬA (phản hồi thật user — chỉ muốn nâng lưới địa hình mịn hơn, KHÔNG làm nhân vật photorealistic
 // như ảnh tham khảo thứ 2, việc đó thuộc bước tạo ảnh AI thật, không phải khung xem trước 3D này):
-// tăng mật độ lưới (36x22 -> 64x40) để mặt tam giác nhỏ/mịn hơn, giống đúng kiểu ảnh tham khảo đầu.
-async function buildTerrainGeometry(depthUrl: string, gridW = 64, gridH = 40): Promise<THREE.BufferGeometry | null> {
+// tăng mật độ lưới (36x22 -> 64x40 -> 128x80) để mặt tam giác nhỏ/mịn hơn, giống đúng kiểu ảnh tham
+// khảo đầu — LƯỚI VẪN LÀ 1 TẤM TAM GIÁC LIÊN KẾT (BufferGeometry + indices bên dưới), KHÔNG PHẢI từng
+// khối hộp rời rạc kiểu Minecraft (dù user có tham khảo lời khuyên nói vậy) — bump 128x80 chỉ để mịn
+// hơn nữa, không đổi cách dựng khối.
+async function buildTerrainGeometry(depthUrl: string, gridW = 128, gridH = 80): Promise<THREE.BufferGeometry | null> {
   try {
     const img = await loadImageEl(depthUrl);
     const canvas = document.createElement("canvas");
@@ -74,7 +77,12 @@ async function buildTerrainGeometry(depthUrl: string, gridW = 64, gridH = 40): P
     if (!ctx || canvas.width === 0 || canvas.height === 0) return null;
     ctx.drawImage(img, 0, 0);
     const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-    const blurRadius = Math.max(2, Math.round(Math.max(canvas.width, canvas.height) / gridW));
+    // SỬA (thử lưới dày hơn 128x80 ra hình "rừng gai nhọn" nhiễu loạn, quá đà) — blurRadius trước đây tỷ
+    // lệ nghịch với gridW (lưới càng dày, bán kính làm mượt càng nhỏ) nên tăng mật độ lưới vô tình làm
+    // GIẢM độ mượt, để lộ hết nhiễu điểm ảnh của ảnh độ sâu thật thành từng gai nhọn riêng lẻ. Cố định
+    // blurRadius theo 1 mật độ tham chiếu 64 (không đổi theo gridW thật) — tăng độ phân giải lưới vẫn cho
+    // mặt tam giác mịn hơn, nhưng độ làm mượt dữ liệu nguồn không bị giảm theo.
+    const blurRadius = Math.max(3, Math.round(Math.max(canvas.width, canvas.height) / 64));
 
     // SỬA lần 1 (phản hồi thật user: khối vẫn ra gần như tấm phẳng, chỉ hơi vênh 1 góc) — co giãn theo
     // min/max thô vẫn CHƯA đủ: ảnh độ sâu thật của cảnh này phần lớn (bầu trời/biển/vách đá xa) nằm sát
@@ -112,10 +120,14 @@ async function buildTerrainGeometry(depthUrl: string, gridW = 64, gridH = 40): P
         const u = ix / (gridW - 1);
         const v = iy / (gridH - 1);
         const clipped = Math.min(1, Math.max(0, (rawBrightness[iy * gridW + ix] - lo) / range));
-        const normalized = Math.pow(clipped, 0.6);
+        // SỬA (phản hồi thật user: vẫn thấy phẳng dù đã gồ ghề) — nâng mũ gamma (0.6 -> 0.55) và nâng
+        // biên độ cao (1.8 -> 2.2, so với bề ngang lưới 5 đơn vị) để tỉ lệ cao:rộng gần với ảnh núi
+        // low-poly tham khảo hơn — đây là khung xem trước vị trí, không cần đúng tỉ lệ độ sâu thật 1:1,
+        // ưu tiên NHÌN RÕ hình khối lồi lõm hơn độ chính xác tuyệt đối.
+        const normalized = Math.pow(clipped, 0.55);
         const worldX = (u - 0.5) * 5;
         const worldZ = -(1 - v) * 5;
-        const worldY = normalized * 1.8;
+        const worldY = normalized * 2.2;
         const vi = (iy * gridW + ix) * 3;
         positions[vi] = worldX;
         positions[vi + 1] = worldY;
