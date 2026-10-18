@@ -8,6 +8,7 @@ import { BalanceBadge } from "@/components/BalanceBadge";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAuth } from "@/lib/auth-context";
 import { MannequinPreviewCard } from "@/components/MannequinPreviewCard";
+import { LocationPositionStage3D } from "@/components/LocationPositionStage3D";
 import { ReferencePickerModal } from "@/components/reference-elements/ReferencePickerModal";
 import type { ReferenceElement } from "@/components/reference-elements/NewElementModal";
 import { LightSphereModal, nearestLightQuickPosition, type LightSettings } from "@/components/story-video/LightSphereModal";
@@ -2279,6 +2280,12 @@ export default function VideoTuYTuongClient({
   // ảnh địa điểm + nhân vật đó được gắn chung vào 1 prompt (xem mục 18-19 kế hoạch đã lưu memory).
   const [locationPositions, setLocationPositions] = useState<Record<string, Record<string, { x: number; y: number }>>>({});
   const [positionEditorActiveChar, setPositionEditorActiveChar] = useState<string | null>(null);
+  // Tab 2D/3D trong khung "Chọn vị trí đứng" — xem mục 18.3/19 kế hoạch (Phương án B: 1 khung chuyển
+  // tab, responsive hơn 2 khung song song). Reset về "2d" mỗi lần mở ảnh khác.
+  const [positionEditorView, setPositionEditorView] = useState<"2d" | "3d">("2d");
+  useEffect(() => {
+    setPositionEditorView("2d");
+  }, [zoomedPromptImage]);
   // Kết quả gọi Fal.ai (depth + segment) cho từng ảnh địa điểm — keyed theo url, chỉ gọi 1 lần/ảnh
   // (cache lại ở đây), KHÔNG tự gọi lúc gắn ảnh — chỉ gọi khi khách chủ động bấm nút "Dựng khối 3D"
   // trong khung chọn vị trí (đã bàn kỹ: gọi sớm quá dễ tốn tiền cho ảnh khách chỉ gắn thử).
@@ -3601,32 +3608,72 @@ export default function VideoTuYTuongClient({
                   ✕
                 </button>
                 {isLocationEditor && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm text-zinc-300">Chọn vị trí đứng — bấm chọn nhân vật rồi bấm vào ảnh:</span>
-                    {characters.map((u, i) => {
-                      const color = POSITION_MARKER_COLORS[i % POSITION_MARKER_COLORS.length];
-                      const placed = !!assignments[u];
-                      const active = activeChar === u;
-                      return (
-                        <button
-                          key={u}
-                          type="button"
-                          onClick={() => setPositionEditorActiveChar(u)}
-                          className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-sm font-medium"
-                          style={{
-                            borderColor: color,
-                            backgroundColor: active ? `${color}30` : "transparent",
-                            color: active ? color : "#d4d4d8",
-                          }}
-                        >
-                          <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
-                          {promptImageMeta[u]?.name || "Nhân vật"}
-                          {placed && " ✓"}
-                        </button>
-                      );
-                    })}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm text-zinc-300">Chọn vị trí đứng — bấm chọn nhân vật rồi bấm vào ảnh:</span>
+                      {characters.map((u, i) => {
+                        const color = POSITION_MARKER_COLORS[i % POSITION_MARKER_COLORS.length];
+                        const placed = !!assignments[u];
+                        const active = activeChar === u;
+                        return (
+                          <button
+                            key={u}
+                            type="button"
+                            onClick={() => {
+                              setPositionEditorActiveChar(u);
+                              setPositionEditorView("2d");
+                            }}
+                            className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-sm font-medium"
+                            style={{
+                              borderColor: color,
+                              backgroundColor: active ? `${color}30` : "transparent",
+                              color: active ? color : "#d4d4d8",
+                            }}
+                          >
+                            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
+                            {promptImageMeta[u]?.name || "Nhân vật"}
+                            {placed && " ✓"}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {/* Tab 2D/3D — Phương án B (1 khung chuyển tab) từ kế hoạch đã lưu, xem thêm mannequin
+                        tương ứng từng vị trí vừa chọn ở tab 2D, xoay xem được ở tab 3D. */}
+                    <div className="flex rounded-full border border-zinc-600 bg-zinc-900 p-0.5 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setPositionEditorView("2d")}
+                        className={`rounded-full px-3 py-1 font-medium ${positionEditorView === "2d" ? "bg-zinc-700 text-white" : "text-zinc-400"}`}
+                      >
+                        2D
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPositionEditorView("3d")}
+                        disabled={Object.keys(assignments).length === 0}
+                        className={`rounded-full px-3 py-1 font-medium disabled:opacity-40 ${
+                          positionEditorView === "3d" ? "bg-zinc-700 text-white" : "text-zinc-400"
+                        }`}
+                      >
+                        3D
+                      </button>
+                    </div>
                   </div>
                 )}
+                {isLocationEditor && positionEditorView === "3d" ? (
+                  <LocationPositionStage3D
+                    locationUrl={zoomedPromptImage}
+                    characters={characters
+                      .map((u, i) => ({
+                        url: u,
+                        name: promptImageMeta[u]?.name || "Nhân vật",
+                        color: POSITION_MARKER_COLORS[i % POSITION_MARKER_COLORS.length],
+                        pos: assignments[u],
+                      }))
+                      .filter((c): c is { url: string; name: string; color: string; pos: { x: number; y: number } } => !!c.pos)
+                      .map((c) => ({ url: c.url, name: c.name, color: c.color, x: c.pos.x, y: c.pos.y }))}
+                  />
+                ) : (
                 <div
                   className={`relative overflow-hidden rounded-lg ${isLocationEditor ? "cursor-crosshair" : ""}`}
                   onClick={isLocationEditor ? handlePlaceMarker : undefined}
@@ -3648,6 +3695,7 @@ export default function VideoTuYTuongClient({
                       );
                     })}
                 </div>
+                )}
                 {isLocationEditor &&
                   (() => {
                     const blockout = locationBlockout[zoomedPromptImage];
