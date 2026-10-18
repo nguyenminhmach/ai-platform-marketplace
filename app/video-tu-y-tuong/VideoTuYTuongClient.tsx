@@ -3712,6 +3712,14 @@ export default function VideoTuYTuongClient({
                           Đã đặt {Object.keys(assignments).length}/{characters.length} nhân vật
                         </span>
                         {blockout?.status === "error" && <span className="text-xs text-red-400">{blockout.error}</span>}
+                        {/* Debug tạm — xem Fal có nhận diện được vùng nào trong đúng ảnh này không, để
+                            phân biệt "ảnh không có vật đó thật" (Fal trả null, đúng) với "có bug khi vẽ"
+                            (Fal trả toạ độ nhưng không hiện khối) — xoá dòng này sau khi xác nhận ổn. */}
+                        {blockout?.status === "done" && blockout.segments && (
+                          <span className="text-xs text-zinc-500">
+                            [debug] {blockout.segments.map((s) => `${s.label}:${s.box ? "✓" : "✗"}`).join(" ")}
+                          </span>
+                        )}
                       </div>
                     );
                   })()}
