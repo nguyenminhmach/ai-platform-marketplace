@@ -40,6 +40,27 @@ function loadImageEl(url: string): Promise<HTMLImageElement> {
 // (0)->phải (1), ĐÚNG công thức world-mapping đã dùng cho nhân vật, để lưới địa hình và nhân vật nằm
 // cùng 1 hệ toạ độ) và chiều cao (world y) tính từ độ sáng tại đúng điểm đó trên ảnh độ sâu — vùng gần
 // (sáng) nhô cao hơn, vùng xa (tối) thấp hơn, cho cảm giác lồi lõm thật thay vì khối hộp phẳng lì.
+// Lấy độ sáng trung bình 1 vùng nhỏ quanh (px, py) thay vì đúng 1 điểm ảnh — SỬA (phản hồi thật user:
+// lưới ra hình "tường dựng đứng có vằn dọc", không mịn như ảnh tham khảo). Nguyên nhân: ảnh gốc có
+// nhiều cây thưa trong sương mù, AI đo độ sâu ra kết quả rất nhiễu theo từng thân cây — lấy đúng 1 pixel
+// mỗi điểm lưới giữ nguyên hết nhiễu đó. Lấy trung bình 1 ô vuông nhỏ quanh mỗi điểm làm mượt bớt nhiễu,
+// cho địa hình trông liền mạch hơn (giống san phẳng các gai nhọn lẻ tẻ) mà vẫn giữ được hình dạng tổng
+// thể (núi cao/thấp chỗ nào vẫn đúng, chỉ bớt lởm chởm chi tiết vụn).
+function sampleBrightnessAveraged(data: Uint8ClampedArray, canvasW: number, canvasH: number, px: number, py: number, radius: number): number {
+  let sum = 0;
+  let count = 0;
+  for (let dy = -radius; dy <= radius; dy++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      const x = px + dx;
+      const y = py + dy;
+      if (x < 0 || x >= canvasW || y < 0 || y >= canvasH) continue;
+      sum += data[(y * canvasW + x) * 4];
+      count++;
+    }
+  }
+  return count > 0 ? sum / count / 255 : 0;
+}
+
 // SỬA (phản hồi thật user — chỉ muốn nâng lưới địa hình mịn hơn, KHÔNG làm nhân vật photorealistic
 // như ảnh tham khảo thứ 2, việc đó thuộc bước tạo ảnh AI thật, không phải khung xem trước 3D này):
 // tăng mật độ lưới (36x22 -> 64x40) để mặt tam giác nhỏ/mịn hơn, giống đúng kiểu ảnh tham khảo đầu.
@@ -53,6 +74,7 @@ async function buildTerrainGeometry(depthUrl: string, gridW = 64, gridH = 40): P
     if (!ctx || canvas.width === 0 || canvas.height === 0) return null;
     ctx.drawImage(img, 0, 0);
     const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    const blurRadius = Math.max(2, Math.round(Math.max(canvas.width, canvas.height) / gridW));
 
     const positions = new Float32Array(gridW * gridH * 3);
     // Màu theo độ cao — đỉnh (worldY cao, gần) sáng gần trắng kiểu tuyết, chân núi (worldY thấp, xa)
@@ -66,10 +88,10 @@ async function buildTerrainGeometry(depthUrl: string, gridW = 64, gridH = 40): P
         const v = iy / (gridH - 1);
         const px = Math.min(canvas.width - 1, Math.floor(u * (canvas.width - 1)));
         const py = Math.min(canvas.height - 1, Math.floor(v * (canvas.height - 1)));
-        const brightness = data[(py * canvas.width + px) * 4] / 255;
+        const brightness = sampleBrightnessAveraged(data, canvas.width, canvas.height, px, py, blurRadius);
         const worldX = (u - 0.5) * 5;
         const worldZ = -(1 - v) * 5;
-        const worldY = brightness * 2.4;
+        const worldY = brightness * 1.4; // hạ bớt độ cao (trước 2.4) — bản cũ dựng đứng quá, giống vách tường
         const vi = (iy * gridW + ix) * 3;
         positions[vi] = worldX;
         positions[vi + 1] = worldY;
