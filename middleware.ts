@@ -42,8 +42,22 @@ export async function middleware(request: NextRequest) {
   return response;
 }
 
-// Chạy trên MỌI route (kể cả /api/*) trừ file tĩnh — route admin (/admin/*) không bị ảnh hưởng vì chỉ
-// dùng cookie mật khẩu riêng (lib/admin-auth.ts), proxy này chỉ đụng tới cookie Supabase.
+// SỬA (phản hồi thật user + tự tay đo được): tải ảnh base64 ~800KB lên /api/outfit-swap/upload (gọi
+// TRỰC TIẾP, không qua trình duyệt, KHÔNG đăng nhập) bị treo đúng 30 giây rồi timeout — còn ảnh test
+// vài chục byte thì phản hồi 1.5 giây. Đổi 1 biến số duy nhất (dung lượng body) là tái hiện được lỗi
+// ngay, loại hẳn khả năng mạng/phiên đăng nhập/tiện ích mở rộng (đã loại từng cái một với user trước
+// đó). Route handler tự nó phản hồi nhanh khi gọi thẳng — nên nghi ngờ đổ vào đúng middleware này: chạy
+// TRƯỚC route handler, matcher cũ áp dụng cho CẢ /api/* nên mọi request upload base64 lớn đều phải qua
+// đây trước, dù middleware không đọc body (chỉ đụng cookie) vẫn có thể bị Next.js buffer/forward body
+// kém hiệu quả qua lớp middleware khi body lớn (hành vi runtime, không thấy được từ đọc code).
+//
+// Loại hẳn /api/* khỏi middleware — mỗi route /api/* đã tự gọi getAuthenticatedUserId() (đọc cookie +
+// getUser() riêng) độc lập, không phụ thuộc vào việc middleware này có refresh token hộ trước hay
+// không; trường hợp xấu nhất (token vừa hết hạn, chưa kịp middleware làm mới) là route trả 401 "Chưa
+// đăng nhập" — lỗi NHÌN THẤY ĐƯỢC, khách tải lại trang là hết, tốt hơn nhiều so với treo im lặng 30
+// giây cho MỌI lần tải ảnh. Middleware vẫn giữ nguyên cho các trang thường (page routes) — mục đích
+// gốc (làm mới token để khách không bị "biến mất" job khi quay lại sau khi đóng tab lâu) vẫn áp dụng
+// đúng ở đó, chỉ bỏ áp dụng cho /api/*.
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/).*)"],
 };
