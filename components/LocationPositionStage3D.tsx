@@ -61,6 +61,33 @@ function sampleBrightnessAveraged(data: Uint8ClampedArray, canvasW: number, canv
   return count > 0 ? sum / count / 255 : 0;
 }
 
+// Làm mượt TRỰC TIẾP trên lưới đã chuẩn hoá (không phải pixel ảnh gốc nữa) — SỬA (phản hồi thật user:
+// đẩy biên độ cao lên 3.6 làm lộ lại nhiễu thành "rừng gai nhọn", y hệt lỗi trước đó dù đã làm mượt ảnh
+// gốc). Nguyên nhân: làm mượt pixel ảnh gốc và biên độ cao nhân VÀO SAU — nhiễu còn sót lại bị khuếch
+// đại tỉ lệ thuận với biên độ, biên độ càng cao nhiễu càng lộ rõ. San phẳng thêm 1 lượt NGAY TRÊN lưới
+// đã chuẩn hoá (trung bình các ô lân cận) loại bỏ nhiễu tần số cao còn sót, độc lập với biên độ cao áp
+// dụng sau đó — tăng biên độ bao nhiêu cũng không kéo nhiễu trở lại.
+function smoothGrid(arr: Float32Array, gridW: number, gridH: number, radius: number): Float32Array {
+  const out = new Float32Array(arr.length);
+  for (let iy = 0; iy < gridH; iy++) {
+    for (let ix = 0; ix < gridW; ix++) {
+      let sum = 0;
+      let count = 0;
+      for (let dy = -radius; dy <= radius; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          const x = ix + dx;
+          const y = iy + dy;
+          if (x < 0 || x >= gridW || y < 0 || y >= gridH) continue;
+          sum += arr[y * gridW + x];
+          count++;
+        }
+      }
+      out[iy * gridW + ix] = sum / count;
+    }
+  }
+  return out;
+}
+
 // SỬA (phản hồi thật user — chỉ muốn nâng lưới địa hình mịn hơn, KHÔNG làm nhân vật photorealistic
 // như ảnh tham khảo thứ 2, việc đó thuộc bước tạo ảnh AI thật, không phải khung xem trước 3D này):
 // tăng mật độ lưới (36x22 -> 64x40 -> 128x80) để mặt tam giác nhỏ/mịn hơn, giống đúng kiểu ảnh tham
@@ -109,6 +136,19 @@ async function buildTerrainGeometry(depthUrl: string, gridW = 128, gridH = 80): 
     const hi = percentile(0.95);
     const range = hi - lo || 1;
 
+    // SỬA (xác nhận user: hết cache cũ, lưới đã mịn đúng code mới, NHƯNG độ cao vẫn thấp/phẳng so với
+    // ảnh núi tham khảo — cảnh vách đá tầm xa này vốn có độ chênh lệch khoảng cách thật không lớn,
+    // không phải canyon cận cảnh). User đồng ý đánh đổi: đẩy mạnh biên độ cao (2.2 -> 3.6) để trông ấn
+    // tượng/rõ khối hơn, CHẤP NHẬN không còn đúng tỉ lệ độ sâu thật 1:1. Nâng biên độ làm lộ lại nhiễu
+    // (y hệt lỗi "rừng gai nhọn" trước) nên làm mượt THÊM 1 lượt ngay trên lưới đã chuẩn hoá (smoothGrid)
+    // trước khi nhân biên độ — tách hẳn việc khử nhiễu khỏi mức biên độ áp dụng sau đó.
+    const normalizedGridRaw = new Float32Array(gridW * gridH);
+    for (let i = 0; i < rawBrightness.length; i++) {
+      const clipped = Math.min(1, Math.max(0, (rawBrightness[i] - lo) / range));
+      normalizedGridRaw[i] = Math.pow(clipped, 0.55);
+    }
+    const normalizedGrid = smoothGrid(normalizedGridRaw, gridW, gridH, 2);
+
     const positions = new Float32Array(gridW * gridH * 3);
     // Màu theo độ cao — đỉnh (worldY cao, gần) sáng gần trắng kiểu tuyết, chân núi (worldY thấp, xa)
     // xám đậm hơn — đúng dải màu trong ảnh tham khảo, không phải 1 màu xám đều như bản trước.
@@ -119,15 +159,10 @@ async function buildTerrainGeometry(depthUrl: string, gridW = 128, gridH = 80): 
       for (let ix = 0; ix < gridW; ix++) {
         const u = ix / (gridW - 1);
         const v = iy / (gridH - 1);
-        const clipped = Math.min(1, Math.max(0, (rawBrightness[iy * gridW + ix] - lo) / range));
-        // SỬA (phản hồi thật user: vẫn thấy phẳng dù đã gồ ghề) — nâng mũ gamma (0.6 -> 0.55) và nâng
-        // biên độ cao (1.8 -> 2.2, so với bề ngang lưới 5 đơn vị) để tỉ lệ cao:rộng gần với ảnh núi
-        // low-poly tham khảo hơn — đây là khung xem trước vị trí, không cần đúng tỉ lệ độ sâu thật 1:1,
-        // ưu tiên NHÌN RÕ hình khối lồi lõm hơn độ chính xác tuyệt đối.
-        const normalized = Math.pow(clipped, 0.55);
+        const normalized = normalizedGrid[iy * gridW + ix];
         const worldX = (u - 0.5) * 5;
         const worldZ = -(1 - v) * 5;
-        const worldY = normalized * 2.2;
+        const worldY = normalized * 3.6;
         const vi = (iy * gridW + ix) * 3;
         positions[vi] = worldX;
         positions[vi + 1] = worldY;
@@ -218,11 +253,13 @@ export function LocationPositionStage3D({ characters, depthImageUrl }: Props) {
     // địa hình (Z=-2.5, không phải mép gần Z=0) để chiều sâu hiện rõ thành khoảng cách trên màn hình
     // thay vì chồng lên hướng nhìn. KHÔNG đổi azimuth (vẫn 0, cố định) — giữ đúng tương ứng trái/phải
     // giữa ảnh 2D và khung 3D cho vị trí nhân vật.
+    // SỬA (biên độ cao tăng 2.2 -> 3.6, đỉnh cao hơn trước) — nâng camera + điểm ngắm lên chút để đỉnh
+    // cao nhất không bị khung hình cắt mất, vẫn giữ nguyên azimuth=0 (tương ứng trái/phải với ảnh 2D).
     function updateCamera() {
-      const radius = 7;
+      const radius = 7.5;
       const az = azimuthRef.current;
-      camera.position.set(Math.sin(az) * radius, 6.5, Math.cos(az) * radius);
-      camera.lookAt(0, 0.3, -2.2);
+      camera.position.set(Math.sin(az) * radius, 7.5, Math.cos(az) * radius);
+      camera.lookAt(0, 0.6, -2.2);
     }
     updateCamera();
 
