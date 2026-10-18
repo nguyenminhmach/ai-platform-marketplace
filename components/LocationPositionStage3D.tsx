@@ -213,23 +213,28 @@ export function LocationPositionStage3D({ locationUrl, characters, segments }: P
         const worldZ = -(1 - cy) * 5;
         const isGroundLike = widthFrac > 0.4 && heightFrac < 0.25 && bbox.maxY > 0.55;
         if (isGroundLike) {
-          const plane = new THREE.Mesh(
-            new THREE.PlaneGeometry(Math.max(0.5, widthFrac * 6), Math.max(0.5, heightFrac * 6)),
-            new THREE.MeshStandardMaterial({ color: 0x4b5563, roughness: 1, transparent: true, opacity: 0.4 })
-          );
+          const geo = new THREE.PlaneGeometry(Math.max(0.5, widthFrac * 6), Math.max(0.5, heightFrac * 6));
+          const plane = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x22d3ee, roughness: 0.7, transparent: true, opacity: 0.78 }));
           plane.rotation.x = -Math.PI / 2;
           plane.position.set(worldX, 0.02, worldZ);
           plane.userData.isLocationBlock = true;
           sc.add(plane);
+          const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: 0x22d3ee }));
+          edges.rotation.copy(plane.rotation);
+          edges.position.copy(plane.position);
+          edges.userData.isLocationBlock = true;
+          sc.add(edges);
         } else {
           const height = Math.max(1, heightFrac * 6);
-          const mesh = new THREE.Mesh(
-            new THREE.BoxGeometry(Math.max(0.3, widthFrac * 5), height, 0.8),
-            new THREE.MeshStandardMaterial({ color: 0x6b7280, roughness: 0.9, transparent: true, opacity: 0.55 })
-          );
+          const geo = new THREE.BoxGeometry(Math.max(0.3, widthFrac * 5), height, 0.8);
+          const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x22d3ee, roughness: 0.6, transparent: true, opacity: 0.78 }));
           mesh.position.set(worldX, height / 2, worldZ);
           mesh.userData.isLocationBlock = true;
           sc.add(mesh);
+          const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: 0x22d3ee }));
+          edges.position.copy(mesh.position);
+          edges.userData.isLocationBlock = true;
+          sc.add(edges);
         }
       }
       forceRerender((n) => n + 1);
