@@ -14,20 +14,65 @@ export type PositionedCharacter = {
   y: number;
 };
 
-// "box" là [cx, cy, w, h] chuẩn hoá 0..1, ĐÚNG định dạng thật fal-ai/sam-3/image trả về (đã test trực
-// tiếp bằng FAL_KEY thật) — không cần tự tải/phân tích ảnh mask bằng canvas nữa như bản đầu (Fal cho
-// sẵn toạ độ, đỡ hẳn 1 lớp xử lý phức tạp + rủi ro sai định dạng ảnh/CORS).
-export type LocationSegment = { label: string; box: [number, number, number, number] | null };
+// SỬA (phản hồi thật của user): bỏ hẳn khái niệm "label" cố định (building/road/sky) — ảnh bối cảnh
+// thật có thể là bất kỳ thứ gì, không nên đoán trước tên. Đổi sang fal-ai/sam2/auto-segment (tự động
+// phân vùng toàn ảnh, không cần đoán tên) — đổi lại endpoint này KHÔNG trả sẵn toạ độ, chỉ trả ảnh
+// mask từng vùng, nên phải tự đọc canvas để tính vị trí/kích thước — xem computeMaskBBox bên dưới.
+export type LocationSegment = { maskUrl: string };
 
 type Props = {
   locationUrl: string;
   characters: PositionedCharacter[];
   // Kết quả Fal.ai (ước lượng độ sâu + phân vùng, xem nút "Dựng khối 3D" ở VideoTuYTuongClient.tsx) —
   // tuỳ chọn, nếu chưa gọi hoặc chưa xong thì khung 3D vẫn hiển thị bình thường (chỉ mannequin + phông
-  // ảnh phẳng), không chặn gì cả. Khi có, mỗi vùng (trừ "sky") được dựng thành 1 khối hộp/mặt phẳng
-  // thô — xem mục 17.2/19 kế hoạch đã lưu memory.
+  // ảnh phẳng), không chặn gì cả. Khi có, mỗi vùng dựng thành 1 khối hộp/mặt phẳng thô, không phân biệt
+  // "đây là gì" — xem mục 17.2/19 kế hoạch đã lưu memory.
   segments?: LocationSegment[];
 };
+
+function loadImageEl(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("load fail"));
+    img.src = url;
+  });
+}
+
+// Đọc ảnh mask (trắng = thuộc vùng, đen = không) bằng canvas, trả về khung bao (bounding box) chuẩn
+// hoá 0..1 — không cần hiểu hình dạng chính xác, chỉ cần biết vùng đó nằm ở đâu/rộng bao nhiêu để dựng
+// 1 khối hộp XẤP XỈ. Lấy mẫu thưa (step) cho nhanh, đủ dùng cho mục đích ước lượng thô.
+async function computeMaskBBox(maskUrl: string): Promise<{ minX: number; maxX: number; minY: number; maxY: number } | null> {
+  try {
+    const img = await loadImageEl(maskUrl);
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth || img.width;
+    canvas.height = img.naturalHeight || img.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx || canvas.width === 0 || canvas.height === 0) return null;
+    ctx.drawImage(img, 0, 0);
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    let minX = canvas.width, maxX = 0, minY = canvas.height, maxY = 0, found = false;
+    const step = Math.max(1, Math.floor(Math.max(canvas.width, canvas.height) / 200));
+    for (let y = 0; y < canvas.height; y += step) {
+      for (let x = 0; x < canvas.width; x += step) {
+        const idx = (y * canvas.width + x) * 4;
+        if (data[idx] > 128) {
+          found = true;
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (!found) return null;
+    return { minX: minX / canvas.width, maxX: maxX / canvas.width, minY: minY / canvas.height, maxY: maxY / canvas.height };
+  } catch {
+    return null; // ảnh mask lỗi/không tải được (CORS, 404...) — bỏ qua vùng đó, không chặn cả khung 3D
+  }
+}
 
 // Xem trước 3D NHIỀU nhân vật cùng lúc, đặt đúng vị trí tương đối đã chọn trên ảnh bối cảnh 2D — mở
 // rộng từ components/MannequinPreviewCard.tsx (vốn chỉ có 1 mannequin xoay tại chỗ). Khác biệt chính:
@@ -142,41 +187,56 @@ export function LocationPositionStage3D({ locationUrl, characters, segments }: P
     forceRerender((n) => n + 1);
   }, [characters]);
 
-  // Dựng khối hộp (toà nhà) / mặt phẳng (đường) thô từ kết quả Fal — box = [cx, cy, w, h] chuẩn hoá
-  // 0..1, lấy thẳng từ response, không cần tải/phân tích ảnh gì thêm nên chạy đồng bộ ngay. "sky" bỏ
-  // qua (không phải vật thể chiếm chỗ thật).
+  // Dựng khối thô cho MỖI vùng Fal phát hiện được — không biết/không cần biết "đây là cái gì" (không
+  // còn building/road cố định), chỉ xét HÌNH DẠNG của khung bao để quyết định vẽ mặt phẳng (vùng rộng,
+  // dẹt, nằm thấp trong khung — kiểu mặt đất/lối đi) hay khối hộp đứng (còn lại — kiểu vật thể đứng).
+  // Bỏ qua vùng gần phủ kín cả khung (>85% rộng VÀ >85% cao) — thường là nền/bầu trời gộp chung, không
+  // phải 1 vật thể rời rạc đáng dựng riêng.
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene || !segments || segments.length === 0) return;
-    scene.children.filter((c) => c.userData.isLocationBlock).forEach((c) => scene.remove(c));
-    for (const { label, box } of segments) {
-      if (!box || label === "sky") continue;
-      const [cx, cy, w, h] = box;
-      const widthFrac = Math.max(0.05, w);
-      const worldX = (cx - 0.5) * 5;
-      const worldZ = -(1 - cy) * 5;
-      if (label === "road") {
-        const plane = new THREE.Mesh(
-          new THREE.PlaneGeometry(widthFrac * 6, Math.max(1, h * 5)),
-          new THREE.MeshStandardMaterial({ color: 0x4b5563, roughness: 1, transparent: true, opacity: 0.4 })
-        );
-        plane.rotation.x = -Math.PI / 2;
-        plane.position.set(worldX, 0.02, worldZ);
-        plane.userData.isLocationBlock = true;
-        scene.add(plane);
-      } else {
-        // "building" hoặc nhãn khác chưa biết trước -> mặc định vẽ thành khối hộp đứng (toà nhà).
-        const height = 3 + (1 - cy) * 3; // xa hơn (cy nhỏ) -> khối cao hơn, ước lượng thô
-        const mesh = new THREE.Mesh(
-          new THREE.BoxGeometry(widthFrac * 5, height, 0.8),
-          new THREE.MeshStandardMaterial({ color: 0x6b7280, roughness: 0.9, transparent: true, opacity: 0.55 })
-        );
-        mesh.position.set(worldX, height / 2, worldZ);
-        mesh.userData.isLocationBlock = true;
-        scene.add(mesh);
+    let cancelled = false;
+    (async () => {
+      const bboxes = await Promise.all(segments.map((s) => computeMaskBBox(s.maskUrl)));
+      if (cancelled) return;
+      const sc = sceneRef.current;
+      if (!sc) return;
+      sc.children.filter((c) => c.userData.isLocationBlock).forEach((c) => sc.remove(c));
+      for (const bbox of bboxes) {
+        if (!bbox) continue;
+        const widthFrac = bbox.maxX - bbox.minX;
+        const heightFrac = bbox.maxY - bbox.minY;
+        if (widthFrac > 0.85 && heightFrac > 0.85) continue; // gần phủ kín khung -> bỏ qua
+        const cx = (bbox.minX + bbox.maxX) / 2;
+        const cy = (bbox.minY + bbox.maxY) / 2;
+        const worldX = (cx - 0.5) * 5;
+        const worldZ = -(1 - cy) * 5;
+        const isGroundLike = widthFrac > 0.4 && heightFrac < 0.25 && bbox.maxY > 0.55;
+        if (isGroundLike) {
+          const plane = new THREE.Mesh(
+            new THREE.PlaneGeometry(Math.max(0.5, widthFrac * 6), Math.max(0.5, heightFrac * 6)),
+            new THREE.MeshStandardMaterial({ color: 0x4b5563, roughness: 1, transparent: true, opacity: 0.4 })
+          );
+          plane.rotation.x = -Math.PI / 2;
+          plane.position.set(worldX, 0.02, worldZ);
+          plane.userData.isLocationBlock = true;
+          sc.add(plane);
+        } else {
+          const height = Math.max(1, heightFrac * 6);
+          const mesh = new THREE.Mesh(
+            new THREE.BoxGeometry(Math.max(0.3, widthFrac * 5), height, 0.8),
+            new THREE.MeshStandardMaterial({ color: 0x6b7280, roughness: 0.9, transparent: true, opacity: 0.55 })
+          );
+          mesh.position.set(worldX, height / 2, worldZ);
+          mesh.userData.isLocationBlock = true;
+          sc.add(mesh);
+        }
       }
-    }
-    forceRerender((n) => n + 1);
+      forceRerender((n) => n + 1);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [segments]);
 
   function handlePointerDown(e: React.PointerEvent) {

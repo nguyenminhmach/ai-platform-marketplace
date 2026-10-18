@@ -3699,7 +3699,7 @@ export default function VideoTuYTuongClient({
                           type="button"
                           onClick={() => handleBuildLocationBlockout(zoomedPromptImage)}
                           disabled={blockout?.status === "loading" || blockout?.status === "done"}
-                          title="Phân tích ảnh để dựng khối 3D (tòa nhà/đường) — chỉ tốn phí nhỏ, gọi 1 lần/ảnh"
+                          title="Phân tích ảnh để dựng khối 3D theo đúng những gì có trong ảnh — chỉ tốn phí nhỏ, gọi 1 lần/ảnh"
                           className="rounded-full border border-zinc-600 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-700 disabled:cursor-default disabled:opacity-70"
                         >
                           {blockout?.status === "loading"
@@ -3712,13 +3712,8 @@ export default function VideoTuYTuongClient({
                           Đã đặt {Object.keys(assignments).length}/{characters.length} nhân vật
                         </span>
                         {blockout?.status === "error" && <span className="text-xs text-red-400">{blockout.error}</span>}
-                        {/* Debug tạm — xem Fal có nhận diện được vùng nào trong đúng ảnh này không, để
-                            phân biệt "ảnh không có vật đó thật" (Fal trả null, đúng) với "có bug khi vẽ"
-                            (Fal trả toạ độ nhưng không hiện khối) — xoá dòng này sau khi xác nhận ổn. */}
                         {blockout?.status === "done" && blockout.segments && (
-                          <span className="text-xs text-zinc-500">
-                            [debug] {blockout.segments.map((s) => `${s.label}:${s.box ? "✓" : "✗"}`).join(" ")}
-                          </span>
+                          <span className="text-xs text-zinc-500">{blockout.segments.length} vùng phát hiện được</span>
                         )}
                       </div>
                     );

@@ -1025,31 +1025,37 @@ async function callFalSync(model: string, body: Record<string, unknown>): Promis
   return res.json();
 }
 
-// "box" là [cx, cy, w, h] chuẩn hoá 0..1 (tâm + rộng/cao) — đúng định dạng thật Fal trả về (đã test
-// trực tiếp bằng FAL_KEY thật, xem commit sửa lỗi), KHÁC với giả định ban đầu (ảnh mask + tự phân tích
-// pixel bằng canvas — không cần nữa, Fal cho sẵn toạ độ, đỡ 1 lớp xử lý phức tạp + rủi ro sai).
-export type LocationSegmentResult = { label: string; box: [number, number, number, number] | null };
+// SỬA (phản hồi thật của user): bản trước gọi fal-ai/sam-3/image với 3 nhãn CỐ ĐỊNH
+// (building/road/sky) — sai hướng, vì khách chỉ ra đó chỉ là VÍ DỤ minh hoạ lúc bàn ý tưởng, không phải
+// luật cố định. Ảnh bối cảnh thật có thể là bất kỳ thứ gì (vách đá, rừng, trong nhà...), đoán trước 1 bộ
+// nhãn cố định sẽ sai với phần lớn ảnh không phải đô thị (đã xác nhận qua debug: ảnh vách đá/đường mòn
+// trả building:✗ road:✗ — không phải lỗi, chỉ là ảnh không có 2 thứ đó thật).
+//
+// Đổi sang fal-ai/sam2/auto-segment — tự động phân vùng TOÀN BỘ ảnh thành nhiều mask RIÊNG BIỆT, KHÔNG
+// cần đoán tên trước (đã test trực tiếp bằng FAL_KEY thật, xác nhận endpoint có thật, trả về
+// individual_masks: ảnh mask[]). Đổi lại: endpoint này KHÔNG trả sẵn toạ độ khung bao như sam-3/image —
+// phải tự đọc từng ảnh mask bằng canvas để tính vị trí (xem computeMaskBBox trong
+// components/LocationPositionStage3D.tsx — đã viết rồi xoá ở bản SAM-3 vì khi đó tưởng không cần nữa,
+// giờ quay lại dùng đúng chỗ phù hợp).
+export type LocationSegmentResult = { maskUrl: string };
 export type LocationBlockoutResult = {
   depthImageUrl: string | null;
   segments: LocationSegmentResult[];
 };
 
-// Nhãn mặc định hay gặp trong ảnh bối cảnh ngoài trời/đường phố — có thể mở rộng sau nếu cần nhãn khác
-// (vd "car", "tree"). fal-ai/sam-3/image chỉ nhận ĐÚNG 1 "prompt" (chuỗi) mỗi lần gọi — xem bên dưới,
-// PHẢI gọi riêng từng nhãn, không gộp thành mảng (lỗi ban đầu: field tên "prompts" số nhiều không tồn
-// tại trong API thật, Fal âm thầm bỏ qua, trả masks rỗng chứ không báo lỗi — rất dễ nhầm là code đúng).
-const LOCATION_BLOCKOUT_LABELS = ["building", "road", "sky"];
+// Giới hạn số vùng lấy về — ảnh phức tạp có thể ra hàng chục mask nhỏ vụn, chỉ lấy VÀI vùng lớn nhất
+// có ý nghĩa (ước lượng bằng diện tích ảnh mask trả về theo thứ tự Fal xếp, thường đã ưu tiên vùng lớn
+// trước) để tránh khung 3D rối mắt + đỡ tốn công đọc canvas nhiều ảnh.
+const LOCATION_BLOCKOUT_MAX_SEGMENTS = 6;
 
-// Dựng "khối 3D thô" cho 1 ảnh bối cảnh — gọi 2 loại model Fal.ai nhẹ (ước lượng độ sâu + phân vùng
-// theo từng nhãn), KHÔNG phải model tạo ảnh/video (rẻ hơn rất nhiều, xem phân tích chi phí đã lưu
-// memory ~0.005 USD/ảnh). Hàm này chỉ gọi AI lấy số liệu thô, tách riêng để test/gọi lại độc lập không
-// tốn thêm tiền — việc dựng khối 3D thật từ số liệu này nằm ở components/LocationPositionStage3D.tsx.
+// Dựng "khối 3D thô" cho 1 ảnh bối cảnh — gọi 2 model Fal.ai nhẹ (ước lượng độ sâu + phân vùng TOÀN
+// BỘ ảnh, không đoán tên trước), KHÔNG phải model tạo ảnh/video (rẻ hơn rất nhiều, xem phân tích chi
+// phí đã lưu memory ~0.005 USD/ảnh). Hàm này chỉ gọi AI lấy số liệu thô, tách riêng để test/gọi lại độc
+// lập không tốn thêm tiền — việc dựng khối 3D thật từ số liệu này nằm ở LocationPositionStage3D.tsx.
 export async function generateLocationBlockout(imageUrl: string): Promise<LocationBlockoutResult> {
-  const [depthResult, ...segmentResults] = await Promise.allSettled([
+  const [depthResult, segmentResult] = await Promise.allSettled([
     callFalSync("fal-ai/imageutils/depth", { image_url: imageUrl }),
-    ...LOCATION_BLOCKOUT_LABELS.map((label) =>
-      callFalSync("fal-ai/sam-3/image", { image_url: imageUrl, prompt: label, include_boxes: true, max_masks: 1 })
-    ),
+    callFalSync("fal-ai/sam2/auto-segment", { image_url: imageUrl }),
   ]);
 
   let depthImageUrl: string | null = null;
@@ -1058,12 +1064,14 @@ export async function generateLocationBlockout(imageUrl: string): Promise<Locati
     depthImageUrl = img?.url ?? null;
   }
 
-  const segments: LocationSegmentResult[] = LOCATION_BLOCKOUT_LABELS.map((label, i) => {
-    const r = segmentResults[i];
-    if (r.status !== "fulfilled") return { label, box: null };
-    const boxes = r.value.boxes as [number, number, number, number][] | undefined;
-    return { label, box: boxes?.[0] ?? null };
-  });
+  let segments: LocationSegmentResult[] = [];
+  if (segmentResult.status === "fulfilled") {
+    const masks = segmentResult.value.individual_masks as { url?: string }[] | undefined;
+    segments = (masks ?? [])
+      .filter((m): m is { url: string } => !!m.url)
+      .slice(0, LOCATION_BLOCKOUT_MAX_SEGMENTS)
+      .map((m) => ({ maskUrl: m.url }));
+  }
 
   return { depthImageUrl, segments };
 }
