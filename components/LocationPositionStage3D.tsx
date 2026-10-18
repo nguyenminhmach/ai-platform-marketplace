@@ -126,21 +126,25 @@ async function buildTerrainGeometry(depthUrl: string, gridW = 64, gridH = 40): P
 // Xem trước 3D NHIỀU nhân vật cùng lúc, đặt đúng vị trí tương đối đã chọn trên ảnh bối cảnh 2D — mở
 // rộng từ components/MannequinPreviewCard.tsx (vốn chỉ có 1 mannequin xoay tại chỗ). Khác biệt chính:
 // (1) nhiều mannequin, mỗi cái nhân bản từ CÙNG 1 hình buildMannequin() (xem mục 18.3 kế hoạch đã lưu
-// memory — không cần tạo model mới cho từng người), đặt vào world-position tính từ x/y; (2) khách kéo
-// xoay CAMERA quanh cả cảnh (orbit) thay vì xoay từng mannequin riêng — vì giờ có nhiều vật thể, xoay
-// riêng từng cái sẽ rối; (3) ảnh bối cảnh vẫn chỉ là phông CSS phẳng phía sau (chưa dùng khối 3D thật
-// từ Fal depth/segment — đó là lớp nâng cấp sau, xem nút "Dựng khối 3D" đã gọi nhưng chưa render).
+// memory — không cần tạo model mới cho từng người), đặt vào world-position tính từ x/y; (2) địa hình
+// (dựng từ Fal depth, xem buildTerrainGeometry) LUÔN ĐỨNG YÊN — camera cố định, không orbit cả cảnh
+// nữa (bản trước làm vậy, user phản hồi không đúng ý: "đừng cho mô hình phong cảnh quay") — khách chỉ
+// bấm-kéo TRÚNG 1 mannequin mới xoay riêng người đó tại chỗ (raycasting, xem pickMannequinAt), giống
+// đúng cách mannequin đơn cũ hoạt động, áp dụng cho từng người khi có nhiều người.
 export function LocationPositionStage3D({ characters, depthImageUrl }: Props) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const dragRef = useRef<{ dragging: boolean; startX: number; startAzimuth: number }>({ dragging: false, startX: 0, startAzimuth: 0 });
-  // Góc orbit ban đầu = 0 (nhìn THẲNG, không chếch) — BẮT BUỘC để trái/phải trên khung 3D khớp đúng
-  // trái/phải khách đã bấm trên ảnh 2D lúc mới mở (user phản hồi thực tế: chếch sẵn làm 2 bên lệch
-  // nhau rõ). Khách tự kéo xoay thêm sau nếu muốn xem góc khác, chỉ ảnh hưởng lúc ĐANG xoay, không
-  // ảnh hưởng lúc vừa mở.
+  // Góc camera CỐ ĐỊNH, không đổi — SỬA (phản hồi thật user: "đừng cho mô hình phong cảnh quay, chỉ
+  // cho nhân vật và đạo cụ di chuyển và xoay thôi"). Trước đây kéo chuột xoay CẢ CẢNH (orbit camera
+  // quanh toàn bộ, kể cả địa hình) — giờ địa hình đứng yên tuyệt đối, chỉ đúng mannequin bị bấm trúng
+  // mới xoay tại chỗ (xem raycastRef/draggedMannequinRef bên dưới), giống hệt cách mannequin đơn cũ
+  // (components/MannequinPreviewCard.tsx) hoạt động, áp dụng cho từng người riêng khi có nhiều người.
   const azimuthRef = useRef(0);
+  const raycasterRef = useRef(new THREE.Raycaster());
+  const draggedMannequinRef = useRef<THREE.Group | null>(null);
+  const dragRef = useRef<{ dragging: boolean; startX: number; startRotationY: number }>({ dragging: false, startX: 0, startRotationY: 0 });
   const [, forceRerender] = useState(0);
 
   useEffect(() => {
@@ -271,30 +275,53 @@ export function LocationPositionStage3D({ characters, depthImageUrl }: Props) {
     };
   }, [depthImageUrl]);
 
+  // Tìm đúng mannequin bị bấm trúng (nếu có) bằng raycasting — bấm trúng khoảng trống/địa hình thì
+  // KHÔNG làm gì cả (địa hình luôn đứng yên, đúng yêu cầu).
+  function pickMannequinAt(clientX: number, clientY: number): THREE.Group | null {
+    const mount = mountRef.current;
+    const camera = cameraRef.current;
+    const scene = sceneRef.current;
+    if (!mount || !camera || !scene) return null;
+    const rect = mount.getBoundingClientRect();
+    const mouse = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    raycasterRef.current.setFromCamera(mouse, camera);
+    const mannequins = scene.children.filter((c): c is THREE.Group => c.userData.isCharacterMannequin);
+    const hits = raycasterRef.current.intersectObjects(mannequins, true);
+    if (hits.length === 0) return null;
+    let obj: THREE.Object3D | null = hits[0].object;
+    while (obj && !obj.userData.isCharacterMannequin) obj = obj.parent;
+    return (obj as THREE.Group) ?? null;
+  }
+
   function handlePointerDown(e: React.PointerEvent) {
+    const hit = pickMannequinAt(e.clientX, e.clientY);
+    if (!hit) return; // bấm trúng địa hình/khoảng trống -> không xoay gì cả
     (e.target as Element).setPointerCapture(e.pointerId);
-    dragRef.current = { dragging: true, startX: e.clientX, startAzimuth: azimuthRef.current };
+    draggedMannequinRef.current = hit;
+    dragRef.current = { dragging: true, startX: e.clientX, startRotationY: hit.rotation.y };
   }
   function handlePointerMove(e: React.PointerEvent) {
-    if (!dragRef.current.dragging) return;
+    if (!dragRef.current.dragging || !draggedMannequinRef.current) return;
     const dx = e.clientX - dragRef.current.startX;
-    azimuthRef.current = dragRef.current.startAzimuth + dx * 0.012;
+    draggedMannequinRef.current.rotation.y = dragRef.current.startRotationY + dx * 0.012;
   }
   function handlePointerUp() {
     dragRef.current.dragging = false;
+    draggedMannequinRef.current = null;
   }
 
   return (
     <div
       className="relative aspect-video w-full touch-none overflow-hidden rounded-lg bg-zinc-900"
-      style={{ cursor: "grab" }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerLeave={handlePointerUp}
     >
       <div ref={mountRef} className="absolute inset-0" />
-      <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/50 px-2 py-0.5 text-[10px] text-white">🔄 Kéo để xoay xem</span>
+      <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/50 px-2 py-0.5 text-[10px] text-white">
+        🔄 Kéo vào nhân vật để xoay riêng người đó
+      </span>
     </div>
   );
 }
