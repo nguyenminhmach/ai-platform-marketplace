@@ -76,28 +76,30 @@ async function buildTerrainGeometry(depthUrl: string, gridW = 64, gridH = 40): P
     const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
     const blurRadius = Math.max(2, Math.round(Math.max(canvas.width, canvas.height) / gridW));
 
-    // SỬA (phản hồi thật user: khối vẫn ra gần như tấm phẳng, chỉ hơi vênh 1 góc) — ảnh độ sâu thật từ
-    // Fal không phải lúc nào cũng trải hết dải sáng/tối 0..255 (ảnh sương mù/tương phản thấp như ảnh
-    // vách đá này có thể chỉ dao động trong 1 khoảng hẹp, vd 90-150), nên lấy brightness/255 trực tiếp
-    // làm độ cao ra chênh lệch quá nhỏ, nhìn gần như phẳng lì. Quét 1 lượt lấy brightness NHỎ NHẤT/LỚN
-    // NHẤT thực tế có trong ảnh trước, rồi co giãn (normalize) về đúng khoảng 0..1 đó — đảm bảo lưới địa
-    // hình LUÔN dùng hết biên độ cao cho phép, bất kể ảnh gốc tương phản mạnh hay yếu.
+    // SỬA lần 1 (phản hồi thật user: khối vẫn ra gần như tấm phẳng, chỉ hơi vênh 1 góc) — co giãn theo
+    // min/max thô vẫn CHƯA đủ: ảnh độ sâu thật của cảnh này phần lớn (bầu trời/biển/vách đá xa) nằm sát
+    // nhau trong 1 khoảng hẹp, chỉ riêng lối mòn đất ở tiền cảnh (rất gần máy ảnh) sáng vọt hẳn lên —
+    // dùng ĐÚNG min/max tuyệt đối làm 2 đầu dải thì 1 điểm sáng bất thường đó kéo giãn cả thang đo, dồn
+    // toàn bộ phần còn lại (chiếm đa số lưới) về sát 0 — đúng hình "phẳng + 1 góc vênh" user chụp lại.
+    // SỬA lần 2: (1) cắt theo PERCENTILE 5%-95% thay vì min/max tuyệt đối — bỏ qua các điểm sáng/tối bất
+    // thường ở 2 đầu, không để chúng kéo giãn cả thang đo; (2) áp thêm đường cong gamma (mũ 0.6) sau khi
+    // co giãn — kéo các vùng tối/trung bình (đa số lưới) sáng lên tương đối, cho cảm giác gồ ghề rõ hơn
+    // trên toàn bộ lưới thay vì chỉ 1 vùng nhỏ nổi bật còn lại phẳng lì.
     const rawBrightness = new Float32Array(gridW * gridH);
-    let minB = Infinity;
-    let maxB = -Infinity;
     for (let iy = 0; iy < gridH; iy++) {
       for (let ix = 0; ix < gridW; ix++) {
         const u = ix / (gridW - 1);
         const v = iy / (gridH - 1);
         const px = Math.min(canvas.width - 1, Math.floor(u * (canvas.width - 1)));
         const py = Math.min(canvas.height - 1, Math.floor(v * (canvas.height - 1)));
-        const b = sampleBrightnessAveraged(data, canvas.width, canvas.height, px, py, blurRadius);
-        rawBrightness[iy * gridW + ix] = b;
-        if (b < minB) minB = b;
-        if (b > maxB) maxB = b;
+        rawBrightness[iy * gridW + ix] = sampleBrightnessAveraged(data, canvas.width, canvas.height, px, py, blurRadius);
       }
     }
-    const range = maxB - minB || 1;
+    const sorted = Array.from(rawBrightness).sort((a, b) => a - b);
+    const percentile = (p: number) => sorted[Math.min(sorted.length - 1, Math.max(0, Math.floor(p * (sorted.length - 1))))];
+    const lo = percentile(0.05);
+    const hi = percentile(0.95);
+    const range = hi - lo || 1;
 
     const positions = new Float32Array(gridW * gridH * 3);
     // Màu theo độ cao — đỉnh (worldY cao, gần) sáng gần trắng kiểu tuyết, chân núi (worldY thấp, xa)
@@ -109,7 +111,8 @@ async function buildTerrainGeometry(depthUrl: string, gridW = 64, gridH = 40): P
       for (let ix = 0; ix < gridW; ix++) {
         const u = ix / (gridW - 1);
         const v = iy / (gridH - 1);
-        const normalized = (rawBrightness[iy * gridW + ix] - minB) / range;
+        const clipped = Math.min(1, Math.max(0, (rawBrightness[iy * gridW + ix] - lo) / range));
+        const normalized = Math.pow(clipped, 0.6);
         const worldX = (u - 0.5) * 5;
         const worldZ = -(1 - v) * 5;
         const worldY = normalized * 1.8;
