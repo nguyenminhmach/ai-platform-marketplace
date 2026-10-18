@@ -76,6 +76,29 @@ async function buildTerrainGeometry(depthUrl: string, gridW = 64, gridH = 40): P
     const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
     const blurRadius = Math.max(2, Math.round(Math.max(canvas.width, canvas.height) / gridW));
 
+    // SỬA (phản hồi thật user: khối vẫn ra gần như tấm phẳng, chỉ hơi vênh 1 góc) — ảnh độ sâu thật từ
+    // Fal không phải lúc nào cũng trải hết dải sáng/tối 0..255 (ảnh sương mù/tương phản thấp như ảnh
+    // vách đá này có thể chỉ dao động trong 1 khoảng hẹp, vd 90-150), nên lấy brightness/255 trực tiếp
+    // làm độ cao ra chênh lệch quá nhỏ, nhìn gần như phẳng lì. Quét 1 lượt lấy brightness NHỎ NHẤT/LỚN
+    // NHẤT thực tế có trong ảnh trước, rồi co giãn (normalize) về đúng khoảng 0..1 đó — đảm bảo lưới địa
+    // hình LUÔN dùng hết biên độ cao cho phép, bất kể ảnh gốc tương phản mạnh hay yếu.
+    const rawBrightness = new Float32Array(gridW * gridH);
+    let minB = Infinity;
+    let maxB = -Infinity;
+    for (let iy = 0; iy < gridH; iy++) {
+      for (let ix = 0; ix < gridW; ix++) {
+        const u = ix / (gridW - 1);
+        const v = iy / (gridH - 1);
+        const px = Math.min(canvas.width - 1, Math.floor(u * (canvas.width - 1)));
+        const py = Math.min(canvas.height - 1, Math.floor(v * (canvas.height - 1)));
+        const b = sampleBrightnessAveraged(data, canvas.width, canvas.height, px, py, blurRadius);
+        rawBrightness[iy * gridW + ix] = b;
+        if (b < minB) minB = b;
+        if (b > maxB) maxB = b;
+      }
+    }
+    const range = maxB - minB || 1;
+
     const positions = new Float32Array(gridW * gridH * 3);
     // Màu theo độ cao — đỉnh (worldY cao, gần) sáng gần trắng kiểu tuyết, chân núi (worldY thấp, xa)
     // xám đậm hơn — đúng dải màu trong ảnh tham khảo, không phải 1 màu xám đều như bản trước.
@@ -86,17 +109,15 @@ async function buildTerrainGeometry(depthUrl: string, gridW = 64, gridH = 40): P
       for (let ix = 0; ix < gridW; ix++) {
         const u = ix / (gridW - 1);
         const v = iy / (gridH - 1);
-        const px = Math.min(canvas.width - 1, Math.floor(u * (canvas.width - 1)));
-        const py = Math.min(canvas.height - 1, Math.floor(v * (canvas.height - 1)));
-        const brightness = sampleBrightnessAveraged(data, canvas.width, canvas.height, px, py, blurRadius);
+        const normalized = (rawBrightness[iy * gridW + ix] - minB) / range;
         const worldX = (u - 0.5) * 5;
         const worldZ = -(1 - v) * 5;
-        const worldY = brightness * 1.4; // hạ bớt độ cao (trước 2.4) — bản cũ dựng đứng quá, giống vách tường
+        const worldY = normalized * 1.8;
         const vi = (iy * gridW + ix) * 3;
         positions[vi] = worldX;
         positions[vi + 1] = worldY;
         positions[vi + 2] = worldZ;
-        const c = BASE_COLOR.clone().lerp(PEAK_COLOR, brightness);
+        const c = BASE_COLOR.clone().lerp(PEAK_COLOR, normalized);
         colors[vi] = c.r;
         colors[vi + 1] = c.g;
         colors[vi + 2] = c.b;
