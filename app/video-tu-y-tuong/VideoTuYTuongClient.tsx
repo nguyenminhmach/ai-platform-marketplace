@@ -2269,7 +2269,17 @@ export default function VideoTuYTuongClient({
   // hình ảnh/video, và modal chọn ảnh kiểu Higgsfield (xem components/reference-elements/ReferencePickerModal).
   const [promptMediaTab, setPromptMediaTab] = useState<"hinh-anh" | "video">("video");
   const [promptImages, setPromptImages] = useState<string[]>([]);
+  // Loại + tên của ảnh gắn vào prompt khi ảnh đó đến từ kho tham chiếu (keyed theo url) — ảnh tải thô
+  // ở tab "Tải lên" không có mặt trong map này (coi như không rõ loại). Dùng để biết ảnh nào là "địa
+  // điểm" khi khách bấm phóng to, mở thêm khung "Chọn vị trí đứng" cho các nhân vật cũng đang gắn sẵn.
+  const [promptImageMeta, setPromptImageMeta] = useState<Record<string, { type: "character" | "location" | "prop"; name: string }>>({});
   const [zoomedPromptImage, setZoomedPromptImage] = useState<string | null>(null);
+  // Vị trí đứng của từng nhân vật trên 1 ảnh địa điểm cụ thể — keyed theo [locationUrl][characterUrl],
+  // toạ độ chuẩn hoá 0..1 (x/y tính từ góc trên-trái ảnh). Cài 1 lần, dùng lại mọi lần sau khi cùng
+  // ảnh địa điểm + nhân vật đó được gắn chung vào 1 prompt (xem mục 18-19 kế hoạch đã lưu memory).
+  const [locationPositions, setLocationPositions] = useState<Record<string, Record<string, { x: number; y: number }>>>({});
+  const [positionEditorActiveChar, setPositionEditorActiveChar] = useState<string | null>(null);
+  const POSITION_MARKER_COLORS = ["#10b981", "#0ea5e9", "#f59e0b", "#d946ef", "#ef4444"]; // tối đa 5 nhân vật, xem mục 18.4
   const [pickerModal, setPickerModal] = useState<{ defaultTab: "upload" | "reference" | "favorite"; forMention: boolean } | null>(null);
   const [createToast, setCreateToast] = useState<string | null>(null);
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -3358,6 +3368,13 @@ export default function VideoTuYTuongClient({
           compressImageFile={compressImageFile}
           uploadImage={uploadOutfitSwapImage}
           onAddImages={(urls) => setPromptImages((prev) => [...prev, ...urls])}
+          onAddElementMeta={(items) =>
+            setPromptImageMeta((prev) => {
+              const next = { ...prev };
+              for (const it of items) next[it.url] = { type: it.type, name: it.name };
+              return next;
+            })
+          }
           onInsertMention={pickerModal.forMention ? insertMentionAtCursor : undefined}
           selectedUrls={promptImages}
         />
@@ -3514,15 +3531,99 @@ export default function VideoTuYTuongClient({
         <LightSphereModal initial={promptLights} onClose={() => setLightModalOpen(false)} onApply={(settings) => setPromptLights(settings)} />
       )}
 
-      {zoomedPromptImage && (
-        <div
-          className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/90 p-6"
-          onClick={() => setZoomedPromptImage(null)}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={zoomedPromptImage} alt="" className="max-h-full max-w-full rounded-lg object-contain" />
-        </div>
-      )}
+      {zoomedPromptImage &&
+        (() => {
+          const meta = promptImageMeta[zoomedPromptImage];
+          const characters = promptImages
+            .filter((u) => u !== zoomedPromptImage && promptImageMeta[u]?.type === "character")
+            .slice(0, 5); // giới hạn 5 nhân vật — xem mục 18.4 kế hoạch đã lưu
+          const isLocationEditor = meta?.type === "location" && characters.length > 0;
+          const assignments = locationPositions[zoomedPromptImage] ?? {};
+          const activeChar = positionEditorActiveChar && characters.includes(positionEditorActiveChar) ? positionEditorActiveChar : characters[0];
+
+          function handlePlaceMarker(e: React.MouseEvent<HTMLDivElement>) {
+            if (!isLocationEditor || !activeChar) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const x = (e.clientX - rect.left) / rect.width;
+            const y = (e.clientY - rect.top) / rect.height;
+            setLocationPositions((prev) => ({
+              ...prev,
+              [zoomedPromptImage as string]: { ...(prev[zoomedPromptImage as string] ?? {}), [activeChar]: { x, y } },
+            }));
+          }
+
+          return (
+            <div
+              className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/90 p-6"
+              onClick={() => setZoomedPromptImage(null)}
+            >
+              <div className="flex max-h-full max-w-3xl flex-col gap-3" onClick={(e) => e.stopPropagation()}>
+                {isLocationEditor && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm text-zinc-300">Chọn vị trí đứng — bấm chọn nhân vật rồi bấm vào ảnh:</span>
+                    {characters.map((u, i) => {
+                      const color = POSITION_MARKER_COLORS[i % POSITION_MARKER_COLORS.length];
+                      const placed = !!assignments[u];
+                      const active = activeChar === u;
+                      return (
+                        <button
+                          key={u}
+                          type="button"
+                          onClick={() => setPositionEditorActiveChar(u)}
+                          className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-sm font-medium"
+                          style={{
+                            borderColor: color,
+                            backgroundColor: active ? `${color}30` : "transparent",
+                            color: active ? color : "#d4d4d8",
+                          }}
+                        >
+                          <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
+                          {promptImageMeta[u]?.name || "Nhân vật"}
+                          {placed && " ✓"}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                <div
+                  className={`relative overflow-hidden rounded-lg ${isLocationEditor ? "cursor-crosshair" : ""}`}
+                  onClick={isLocationEditor ? handlePlaceMarker : undefined}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={zoomedPromptImage} alt="" className="max-h-[75vh] max-w-full select-none object-contain" draggable={false} />
+                  {isLocationEditor &&
+                    characters.map((u, i) => {
+                      const pos = assignments[u];
+                      if (!pos) return null;
+                      const color = POSITION_MARKER_COLORS[i % POSITION_MARKER_COLORS.length];
+                      return (
+                        <div
+                          key={u}
+                          className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white"
+                          style={{ left: `${pos.x * 100}%`, top: `${pos.y * 100}%`, width: 16, height: 16, backgroundColor: color }}
+                          title={promptImageMeta[u]?.name}
+                        />
+                      );
+                    })}
+                </div>
+                {isLocationEditor && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setZoomedPromptImage(null)}
+                      className="rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 px-4 py-2 text-sm font-medium text-white"
+                    >
+                      Xác nhận vị trí
+                    </button>
+                    <span className="text-xs text-zinc-400">
+                      Đã đặt {Object.keys(assignments).length}/{characters.length} nhân vật
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
     </div>
   );
 }
