@@ -95,7 +95,7 @@ async function buildTerrainGeometry(depthUrl: string, gridW = 36, gridH = 22): P
 // xoay CAMERA quanh cả cảnh (orbit) thay vì xoay từng mannequin riêng — vì giờ có nhiều vật thể, xoay
 // riêng từng cái sẽ rối; (3) ảnh bối cảnh vẫn chỉ là phông CSS phẳng phía sau (chưa dùng khối 3D thật
 // từ Fal depth/segment — đó là lớp nâng cấp sau, xem nút "Dựng khối 3D" đã gọi nhưng chưa render).
-export function LocationPositionStage3D({ locationUrl, characters, depthImageUrl }: Props) {
+export function LocationPositionStage3D({ characters, depthImageUrl }: Props) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -250,13 +250,12 @@ export function LocationPositionStage3D({ locationUrl, characters, depthImageUrl
   return (
     <div
       className="relative aspect-video w-full touch-none overflow-hidden rounded-lg bg-zinc-900"
-      style={{ backgroundImage: `url(${locationUrl})`, backgroundSize: "cover", backgroundPosition: "center", cursor: "grab" }}
+      style={{ cursor: "grab" }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerLeave={handlePointerUp}
     >
-      <div className="absolute inset-0 bg-black/10" />
       <div ref={mountRef} className="absolute inset-0" />
       <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/50 px-2 py-0.5 text-[10px] text-white">🔄 Kéo để xoay xem</span>
     </div>
