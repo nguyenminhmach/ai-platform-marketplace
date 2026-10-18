@@ -58,7 +58,7 @@ export default function VideoTuYTuongClient({
   initialEnableSpeedSlider,
 }: VideoTuYTuongClientProps) {
   const app = MINI_APPS.find((item) => item.id === MINI_APP_ID);
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const router = useRouter();
 
   const [input, setInput] = useState("");
@@ -2892,7 +2892,22 @@ export default function VideoTuYTuongClient({
         </nav>
         <div className="mt-auto flex items-center justify-between pt-4">
           <ThemeToggle />
-          <BalanceBadge />
+          <div className="flex items-center gap-2">
+            {/* Thêm nút đăng xuất — trước đây app không có cách nào đăng xuất từ giao diện (user phản
+                hồi thật: không có nút đăng xuất), phải xoá cookie bằng tay/mở ẩn danh mới làm mới được
+                phiên đăng nhập. signOut() đã có sẵn trong AuthProvider (lib/auth-context.tsx), chỉ
+                thiếu chỗ gọi — xem app/wallet/page.tsx đã dùng y hệt. */}
+            {user && (
+              <button
+                type="button"
+                onClick={() => signOut()}
+                className="rounded-full border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
+              >
+                Đăng xuất
+              </button>
+            )}
+            <BalanceBadge />
+          </div>
         </div>
       </aside>
 
