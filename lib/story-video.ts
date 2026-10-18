@@ -1025,55 +1025,25 @@ async function callFalSync(model: string, body: Record<string, unknown>): Promis
   return res.json();
 }
 
-// SỬA (phản hồi thật của user): bản trước gọi fal-ai/sam-3/image với 3 nhãn CỐ ĐỊNH
-// (building/road/sky) — sai hướng, vì khách chỉ ra đó chỉ là VÍ DỤ minh hoạ lúc bàn ý tưởng, không phải
-// luật cố định. Ảnh bối cảnh thật có thể là bất kỳ thứ gì (vách đá, rừng, trong nhà...), đoán trước 1 bộ
-// nhãn cố định sẽ sai với phần lớn ảnh không phải đô thị (đã xác nhận qua debug: ảnh vách đá/đường mòn
-// trả building:✗ road:✗ — không phải lỗi, chỉ là ảnh không có 2 thứ đó thật).
-//
-// Đổi sang fal-ai/sam2/auto-segment — tự động phân vùng TOÀN BỘ ảnh thành nhiều mask RIÊNG BIỆT, KHÔNG
-// cần đoán tên trước (đã test trực tiếp bằng FAL_KEY thật, xác nhận endpoint có thật, trả về
-// individual_masks: ảnh mask[]). Đổi lại: endpoint này KHÔNG trả sẵn toạ độ khung bao như sam-3/image —
-// phải tự đọc từng ảnh mask bằng canvas để tính vị trí (xem computeMaskBBox trong
-// components/LocationPositionStage3D.tsx — đã viết rồi xoá ở bản SAM-3 vì khi đó tưởng không cần nữa,
-// giờ quay lại dùng đúng chỗ phù hợp).
-export type LocationSegmentResult = { maskUrl: string };
+// SỬA (phản hồi thật của user, lần 2): bản trước dùng fal-ai/sam2/auto-segment dựng khối hộp theo
+// từng vùng — đúng hướng "không đoán tên trước" nhưng khối hộp vuông vức vẫn không hợp với địa hình tự
+// nhiên (núi/vách đá lồi lõm). User đề xuất (tham khảo từ 1 AI khác): dùng thẳng BẢN ĐỒ ĐỘ SÂU (đã gọi
+// sẵn từ đầu, trước giờ chỉ lưu KHÔNG DÙNG) để dựng "địa hình" (heightmap mesh) lồi lõm thật, thay vì
+// khối hộp — kỹ thuật phổ biến trong đồ hoạ (ảnh độ sâu -> lưới điểm, mỗi điểm đẩy cao/thấp theo độ
+// sáng). Không cần phân vùng nữa (bỏ hẳn fal-ai/sam2/auto-segment — đỡ 1 lần gọi AI, rẻ hơn), code dựng
+// lưới nằm ở components/LocationPositionStage3D.tsx (đọc ảnh độ sâu bằng canvas, không cần thêm AI).
 export type LocationBlockoutResult = {
   depthImageUrl: string | null;
-  segments: LocationSegmentResult[];
 };
 
-// Giới hạn số vùng lấy về — ảnh phức tạp có thể ra hàng chục mask nhỏ vụn, chỉ lấy VÀI vùng lớn nhất
-// có ý nghĩa (ước lượng bằng diện tích ảnh mask trả về theo thứ tự Fal xếp, thường đã ưu tiên vùng lớn
-// trước) để tránh khung 3D rối mắt + đỡ tốn công đọc canvas nhiều ảnh.
-const LOCATION_BLOCKOUT_MAX_SEGMENTS = 6;
-
-// Dựng "khối 3D thô" cho 1 ảnh bối cảnh — gọi 2 model Fal.ai nhẹ (ước lượng độ sâu + phân vùng TOÀN
-// BỘ ảnh, không đoán tên trước), KHÔNG phải model tạo ảnh/video (rẻ hơn rất nhiều, xem phân tích chi
-// phí đã lưu memory ~0.005 USD/ảnh). Hàm này chỉ gọi AI lấy số liệu thô, tách riêng để test/gọi lại độc
-// lập không tốn thêm tiền — việc dựng khối 3D thật từ số liệu này nằm ở LocationPositionStage3D.tsx.
+// Dựng "địa hình 3D thô" cho 1 ảnh bối cảnh — chỉ còn gọi 1 model Fal.ai nhẹ (ước lượng độ sâu), KHÔNG
+// phải model tạo ảnh/video (rẻ hơn rất nhiều, gần như miễn phí — xem phân tích chi phí đã lưu memory).
+// Hàm này chỉ gọi AI lấy số liệu thô, tách riêng để test/gọi lại độc lập không tốn thêm tiền — việc
+// dựng lưới địa hình thật từ ảnh độ sâu này nằm ở LocationPositionStage3D.tsx.
 export async function generateLocationBlockout(imageUrl: string): Promise<LocationBlockoutResult> {
-  const [depthResult, segmentResult] = await Promise.allSettled([
-    callFalSync("fal-ai/imageutils/depth", { image_url: imageUrl }),
-    callFalSync("fal-ai/sam2/auto-segment", { image_url: imageUrl }),
-  ]);
-
-  let depthImageUrl: string | null = null;
-  if (depthResult.status === "fulfilled") {
-    const img = depthResult.value.image as { url?: string } | undefined;
-    depthImageUrl = img?.url ?? null;
-  }
-
-  let segments: LocationSegmentResult[] = [];
-  if (segmentResult.status === "fulfilled") {
-    const masks = segmentResult.value.individual_masks as { url?: string }[] | undefined;
-    segments = (masks ?? [])
-      .filter((m): m is { url: string } => !!m.url)
-      .slice(0, LOCATION_BLOCKOUT_MAX_SEGMENTS)
-      .map((m) => ({ maskUrl: m.url }));
-  }
-
-  return { depthImageUrl, segments };
+  const depthResult = await callFalSync("fal-ai/imageutils/depth", { image_url: imageUrl }).catch(() => null);
+  const img = depthResult?.image as { url?: string } | undefined;
+  return { depthImageUrl: img?.url ?? null };
 }
 
 export function extractImageUrl(falPayload: Record<string, unknown>): string | undefined {

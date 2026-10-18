@@ -14,20 +14,15 @@ export type PositionedCharacter = {
   y: number;
 };
 
-// SỬA (phản hồi thật của user): bỏ hẳn khái niệm "label" cố định (building/road/sky) — ảnh bối cảnh
-// thật có thể là bất kỳ thứ gì, không nên đoán trước tên. Đổi sang fal-ai/sam2/auto-segment (tự động
-// phân vùng toàn ảnh, không cần đoán tên) — đổi lại endpoint này KHÔNG trả sẵn toạ độ, chỉ trả ảnh
-// mask từng vùng, nên phải tự đọc canvas để tính vị trí/kích thước — xem computeMaskBBox bên dưới.
-export type LocationSegment = { maskUrl: string };
-
 type Props = {
   locationUrl: string;
   characters: PositionedCharacter[];
-  // Kết quả Fal.ai (ước lượng độ sâu + phân vùng, xem nút "Dựng khối 3D" ở VideoTuYTuongClient.tsx) —
-  // tuỳ chọn, nếu chưa gọi hoặc chưa xong thì khung 3D vẫn hiển thị bình thường (chỉ mannequin + phông
-  // ảnh phẳng), không chặn gì cả. Khi có, mỗi vùng dựng thành 1 khối hộp/mặt phẳng thô, không phân biệt
-  // "đây là gì" — xem mục 17.2/19 kế hoạch đã lưu memory.
-  segments?: LocationSegment[];
+  // Ảnh độ sâu Fal trả về (xem nút "Dựng khối 3D" ở VideoTuYTuongClient.tsx) — tuỳ chọn, nếu chưa gọi
+  // hoặc chưa xong thì khung 3D vẫn hiển thị bình thường (chỉ mannequin + phông ảnh phẳng), không chặn
+  // gì cả. Khi có, dựng thành 1 LƯỚI ĐỊA HÌNH lồi lõm (heightmap mesh) — xem buildTerrainGeometry bên
+  // dưới. SỬA (phản hồi thật user lần 2): bỏ hẳn khối hộp vuông vức dựng từ phân vùng (segments) — địa
+  // hình tự nhiên lồi lõm hợp lý hơn, và không cần gọi thêm AI phân vùng nữa (chỉ cần ảnh độ sâu đã có).
+  depthImageUrl?: string | null;
 };
 
 function loadImageEl(url: string): Promise<HTMLImageElement> {
@@ -40,12 +35,14 @@ function loadImageEl(url: string): Promise<HTMLImageElement> {
   });
 }
 
-// Đọc ảnh mask (trắng = thuộc vùng, đen = không) bằng canvas, trả về khung bao (bounding box) chuẩn
-// hoá 0..1 — không cần hiểu hình dạng chính xác, chỉ cần biết vùng đó nằm ở đâu/rộng bao nhiêu để dựng
-// 1 khối hộp XẤP XỈ. Lấy mẫu thưa (step) cho nhanh, đủ dùng cho mục đích ước lượng thô.
-async function computeMaskBBox(maskUrl: string): Promise<{ minX: number; maxX: number; minY: number; maxY: number } | null> {
+// Đọc ảnh độ sâu (Midas — càng sáng càng gần máy ảnh) bằng canvas, dựng 1 lưới điểm (heightmap) — mỗi
+// điểm có toạ độ world (x, z) tính từ vị trí trên ảnh (y: trên ảnh (0, xa)->dưới ảnh (1, gần), x: trái
+// (0)->phải (1), ĐÚNG công thức world-mapping đã dùng cho nhân vật, để lưới địa hình và nhân vật nằm
+// cùng 1 hệ toạ độ) và chiều cao (world y) tính từ độ sáng tại đúng điểm đó trên ảnh độ sâu — vùng gần
+// (sáng) nhô cao hơn, vùng xa (tối) thấp hơn, cho cảm giác lồi lõm thật thay vì khối hộp phẳng lì.
+async function buildTerrainGeometry(depthUrl: string, gridW = 36, gridH = 22): Promise<THREE.BufferGeometry | null> {
   try {
-    const img = await loadImageEl(maskUrl);
+    const img = await loadImageEl(depthUrl);
     const canvas = document.createElement("canvas");
     canvas.width = img.naturalWidth || img.width;
     canvas.height = img.naturalHeight || img.height;
@@ -53,24 +50,41 @@ async function computeMaskBBox(maskUrl: string): Promise<{ minX: number; maxX: n
     if (!ctx || canvas.width === 0 || canvas.height === 0) return null;
     ctx.drawImage(img, 0, 0);
     const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-    let minX = canvas.width, maxX = 0, minY = canvas.height, maxY = 0, found = false;
-    const step = Math.max(1, Math.floor(Math.max(canvas.width, canvas.height) / 200));
-    for (let y = 0; y < canvas.height; y += step) {
-      for (let x = 0; x < canvas.width; x += step) {
-        const idx = (y * canvas.width + x) * 4;
-        if (data[idx] > 128) {
-          found = true;
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (y < minY) minY = y;
-          if (y > maxY) maxY = y;
-        }
+
+    const positions = new Float32Array(gridW * gridH * 3);
+    for (let iy = 0; iy < gridH; iy++) {
+      for (let ix = 0; ix < gridW; ix++) {
+        const u = ix / (gridW - 1);
+        const v = iy / (gridH - 1);
+        const px = Math.min(canvas.width - 1, Math.floor(u * (canvas.width - 1)));
+        const py = Math.min(canvas.height - 1, Math.floor(v * (canvas.height - 1)));
+        const brightness = data[(py * canvas.width + px) * 4] / 255;
+        const worldX = (u - 0.5) * 5;
+        const worldZ = -(1 - v) * 5;
+        const worldY = brightness * 2.4;
+        const vi = (iy * gridW + ix) * 3;
+        positions[vi] = worldX;
+        positions[vi + 1] = worldY;
+        positions[vi + 2] = worldZ;
       }
     }
-    if (!found) return null;
-    return { minX: minX / canvas.width, maxX: maxX / canvas.width, minY: minY / canvas.height, maxY: maxY / canvas.height };
+    const indices: number[] = [];
+    for (let iy = 0; iy < gridH - 1; iy++) {
+      for (let ix = 0; ix < gridW - 1; ix++) {
+        const a = iy * gridW + ix;
+        const b = a + 1;
+        const c = a + gridW;
+        const d = c + 1;
+        indices.push(a, c, b, b, c, d);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    return geo;
   } catch {
-    return null; // ảnh mask lỗi/không tải được (CORS, 404...) — bỏ qua vùng đó, không chặn cả khung 3D
+    return null; // ảnh độ sâu lỗi/không tải được (CORS, 404...) — bỏ qua, khung 3D vẫn hiện mannequin bình thường
   }
 }
 
@@ -81,7 +95,7 @@ async function computeMaskBBox(maskUrl: string): Promise<{ minX: number; maxX: n
 // xoay CAMERA quanh cả cảnh (orbit) thay vì xoay từng mannequin riêng — vì giờ có nhiều vật thể, xoay
 // riêng từng cái sẽ rối; (3) ảnh bối cảnh vẫn chỉ là phông CSS phẳng phía sau (chưa dùng khối 3D thật
 // từ Fal depth/segment — đó là lớp nâng cấp sau, xem nút "Dựng khối 3D" đã gọi nhưng chưa render).
-export function LocationPositionStage3D({ locationUrl, characters, segments }: Props) {
+export function LocationPositionStage3D({ locationUrl, characters, depthImageUrl }: Props) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -187,62 +201,38 @@ export function LocationPositionStage3D({ locationUrl, characters, segments }: P
     forceRerender((n) => n + 1);
   }, [characters]);
 
-  // Dựng khối thô cho MỖI vùng Fal phát hiện được — không biết/không cần biết "đây là cái gì" (không
-  // còn building/road cố định), chỉ xét HÌNH DẠNG của khung bao để quyết định vẽ mặt phẳng (vùng rộng,
-  // dẹt, nằm thấp trong khung — kiểu mặt đất/lối đi) hay khối hộp đứng (còn lại — kiểu vật thể đứng).
-  // Bỏ qua vùng gần phủ kín cả khung (>85% rộng VÀ >85% cao) — thường là nền/bầu trời gộp chung, không
-  // phải 1 vật thể rời rạc đáng dựng riêng.
+  // Dựng lưới địa hình (heightmap) từ ảnh độ sâu — thay cho khối hộp vuông vức trước đây, cho hình
+  // dạng lồi lõm giống địa hình thật (núi/vách đá nhô ra, chỗ xa lõm vào) thay vì khối chữ nhật phẳng
+  // lì. Vẽ cả mặt đặc (mờ) lẫn khung dây (wireframe) đè lên — khớp đúng kiểu "low-poly wireframe" đã
+  // tham khảo, dễ nhìn rõ hình khối khi xoay.
   useEffect(() => {
     const scene = sceneRef.current;
-    if (!scene || !segments || segments.length === 0) return;
+    if (!scene || !depthImageUrl) return;
     let cancelled = false;
     (async () => {
-      const bboxes = await Promise.all(segments.map((s) => computeMaskBBox(s.maskUrl)));
-      if (cancelled) return;
+      const geo = await buildTerrainGeometry(depthImageUrl);
+      if (cancelled || !geo) return;
       const sc = sceneRef.current;
       if (!sc) return;
       sc.children.filter((c) => c.userData.isLocationBlock).forEach((c) => sc.remove(c));
-      for (const bbox of bboxes) {
-        if (!bbox) continue;
-        const widthFrac = bbox.maxX - bbox.minX;
-        const heightFrac = bbox.maxY - bbox.minY;
-        if (widthFrac > 0.85 && heightFrac > 0.85) continue; // gần phủ kín khung -> bỏ qua
-        const cx = (bbox.minX + bbox.maxX) / 2;
-        const cy = (bbox.minY + bbox.maxY) / 2;
-        const worldX = (cx - 0.5) * 5;
-        const worldZ = -(1 - cy) * 5;
-        const isGroundLike = widthFrac > 0.4 && heightFrac < 0.25 && bbox.maxY > 0.55;
-        if (isGroundLike) {
-          const geo = new THREE.PlaneGeometry(Math.max(0.5, widthFrac * 6), Math.max(0.5, heightFrac * 6));
-          const plane = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x22d3ee, roughness: 0.7, transparent: true, opacity: 0.78 }));
-          plane.rotation.x = -Math.PI / 2;
-          plane.position.set(worldX, 0.02, worldZ);
-          plane.userData.isLocationBlock = true;
-          sc.add(plane);
-          const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: 0x22d3ee }));
-          edges.rotation.copy(plane.rotation);
-          edges.position.copy(plane.position);
-          edges.userData.isLocationBlock = true;
-          sc.add(edges);
-        } else {
-          const height = Math.max(1, heightFrac * 6);
-          const geo = new THREE.BoxGeometry(Math.max(0.3, widthFrac * 5), height, 0.8);
-          const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x22d3ee, roughness: 0.6, transparent: true, opacity: 0.78 }));
-          mesh.position.set(worldX, height / 2, worldZ);
-          mesh.userData.isLocationBlock = true;
-          sc.add(mesh);
-          const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: 0x22d3ee }));
-          edges.position.copy(mesh.position);
-          edges.userData.isLocationBlock = true;
-          sc.add(edges);
-        }
-      }
+
+      const solid = new THREE.Mesh(
+        geo,
+        new THREE.MeshStandardMaterial({ color: 0x22d3ee, roughness: 0.8, transparent: true, opacity: 0.45, side: THREE.DoubleSide })
+      );
+      solid.userData.isLocationBlock = true;
+      sc.add(solid);
+
+      const wire = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x67e8f9, wireframe: true, transparent: true, opacity: 0.6 }));
+      wire.userData.isLocationBlock = true;
+      sc.add(wire);
+
       forceRerender((n) => n + 1);
     })();
     return () => {
       cancelled = true;
     };
-  }, [segments]);
+  }, [depthImageUrl]);
 
   function handlePointerDown(e: React.PointerEvent) {
     (e.target as Element).setPointerCapture(e.pointerId);
