@@ -2987,35 +2987,35 @@ export default function VideoTuYTuongClient({
                 {promptImages.length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {promptImages.map((url, i) => (
-                      <div key={i} className="group relative h-14 w-14 overflow-hidden rounded-lg border border-zinc-700">
+                      <div
+                        key={i}
+                        role="button"
+                        onClick={() => setZoomedPromptImage(url)}
+                        className="group relative h-14 w-14 cursor-pointer overflow-hidden rounded-lg border border-zinc-700"
+                      >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={url} alt="" className="h-full w-full object-cover" />
-                        <div className="absolute right-1 top-1 hidden gap-1 group-hover:flex">
-                          <span
-                            role="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setZoomedPromptImage(url);
-                            }}
-                            title="Xem cỡ lớn"
-                            className="rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white"
-                          >
-                            🔍
-                          </span>
-                          <span
-                            role="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setPromptImages((prev) => prev.filter((_, idx) => idx !== i));
-                            }}
-                            title="Xoá"
-                            className="rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white hover:bg-red-600"
-                          >
-                            ✕
-                          </span>
-                        </div>
+                        <span
+                          role="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPromptImages((prev) => prev.filter((_, idx) => idx !== i));
+                          }}
+                          title="Xoá"
+                          className="absolute right-1 top-1 hidden rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white hover:bg-red-600 group-hover:flex"
+                        >
+                          ✕
+                        </span>
                       </div>
                     ))}
+                    <button
+                      type="button"
+                      onClick={() => setPickerModal({ defaultTab: "upload", forMention: false })}
+                      title="Thêm ảnh"
+                      className="flex h-14 w-14 items-center justify-center rounded-lg border border-dashed border-zinc-600 text-lg text-zinc-400 hover:border-zinc-400 hover:text-zinc-200"
+                    >
+                      +
+                    </button>
                   </div>
                 )}
                 <textarea
@@ -3241,35 +3241,35 @@ export default function VideoTuYTuongClient({
                 {promptImages.length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {promptImages.map((url, i) => (
-                      <div key={i} className="group relative h-14 w-14 overflow-hidden rounded-lg border border-zinc-700">
+                      <div
+                        key={i}
+                        role="button"
+                        onClick={() => setZoomedPromptImage(url)}
+                        className="group relative h-14 w-14 cursor-pointer overflow-hidden rounded-lg border border-zinc-700"
+                      >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={url} alt="" className="h-full w-full object-cover" />
-                        <div className="absolute right-1 top-1 hidden gap-1 group-hover:flex">
-                          <span
-                            role="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setZoomedPromptImage(url);
-                            }}
-                            title="Xem cỡ lớn"
-                            className="rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white"
-                          >
-                            🔍
-                          </span>
-                          <span
-                            role="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setPromptImages((prev) => prev.filter((_, idx) => idx !== i));
-                            }}
-                            title="Xoá"
-                            className="rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white hover:bg-red-600"
-                          >
-                            ✕
-                          </span>
-                        </div>
+                        <span
+                          role="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPromptImages((prev) => prev.filter((_, idx) => idx !== i));
+                          }}
+                          title="Xoá"
+                          className="absolute right-1 top-1 hidden rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white hover:bg-red-600 group-hover:flex"
+                        >
+                          ✕
+                        </span>
                       </div>
                     ))}
+                    <button
+                      type="button"
+                      onClick={() => setPickerModal({ defaultTab: "upload", forMention: false })}
+                      title="Thêm ảnh"
+                      className="flex h-14 w-14 items-center justify-center rounded-lg border border-dashed border-zinc-600 text-lg text-zinc-400 hover:border-zinc-400 hover:text-zinc-200"
+                    >
+                      +
+                    </button>
                   </div>
                 )}
 
