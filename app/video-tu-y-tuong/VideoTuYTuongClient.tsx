@@ -3554,10 +3554,15 @@ export default function VideoTuYTuongClient({
 
           return (
             <div
-              className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/90 p-6"
+              className="fixed inset-0 z-[10000] flex items-center justify-center p-6"
               onClick={() => setZoomedPromptImage(null)}
             >
-              <div className="flex max-h-full max-w-3xl flex-col gap-3" onClick={(e) => e.stopPropagation()}>
+              <div
+                className={`flex max-h-full max-w-3xl flex-col gap-3 ${
+                  isLocationEditor ? "rounded-2xl border border-zinc-700 bg-zinc-800 p-4" : ""
+                }`}
+                onClick={(e) => e.stopPropagation()}
+              >
                 {isLocationEditor && (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm text-zinc-300">Chọn vị trí đứng — bấm chọn nhân vật rồi bấm vào ảnh:</span>
