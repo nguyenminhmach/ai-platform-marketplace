@@ -14,10 +14,62 @@ export type PositionedCharacter = {
   y: number;
 };
 
+export type LocationSegment = { label: string; maskUrl: string | null };
+
 type Props = {
   locationUrl: string;
   characters: PositionedCharacter[];
+  // Kết quả Fal.ai (ước lượng độ sâu + phân vùng, xem nút "Dựng khối 3D" ở VideoTuYTuongClient.tsx) —
+  // tuỳ chọn, nếu chưa gọi hoặc chưa xong thì khung 3D vẫn hiển thị bình thường (chỉ mannequin + phông
+  // ảnh phẳng), không chặn gì cả. Khi có, mỗi vùng (trừ "sky") được dựng thành 1 khối hộp/mặt phẳng
+  // thô — xem mục 17.2/19 kế hoạch đã lưu memory.
+  segments?: LocationSegment[];
 };
+
+function loadImageEl(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("load fail"));
+    img.src = url;
+  });
+}
+
+// Đọc ảnh mask (trắng = thuộc vùng, đen = không) bằng canvas, trả về khung bao (bounding box) chuẩn
+// hoá 0..1 — không cần hiểu hình dạng chính xác, chỉ cần biết vùng đó nằm ở đâu/rộng bao nhiêu để dựng
+// 1 khối hộp XẤP XỈ. Lấy mẫu thưa (step) cho nhanh, đủ dùng cho mục đích ước lượng thô, không cần chính
+// xác tuyệt đối từng pixel.
+async function computeMaskBBox(maskUrl: string): Promise<{ minX: number; maxX: number; minY: number; maxY: number } | null> {
+  try {
+    const img = await loadImageEl(maskUrl);
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth || img.width;
+    canvas.height = img.naturalHeight || img.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx || canvas.width === 0 || canvas.height === 0) return null;
+    ctx.drawImage(img, 0, 0);
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    let minX = canvas.width, maxX = 0, minY = canvas.height, maxY = 0, found = false;
+    const step = Math.max(1, Math.floor(Math.max(canvas.width, canvas.height) / 200));
+    for (let y = 0; y < canvas.height; y += step) {
+      for (let x = 0; x < canvas.width; x += step) {
+        const idx = (y * canvas.width + x) * 4;
+        if (data[idx] > 128) {
+          found = true;
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (!found) return null;
+    return { minX: minX / canvas.width, maxX: maxX / canvas.width, minY: minY / canvas.height, maxY: maxY / canvas.height };
+  } catch {
+    return null; // ảnh mask lỗi/không tải được (CORS, 404...) — bỏ qua vùng đó, không chặn cả khung 3D
+  }
+}
 
 // Xem trước 3D NHIỀU nhân vật cùng lúc, đặt đúng vị trí tương đối đã chọn trên ảnh bối cảnh 2D — mở
 // rộng từ components/MannequinPreviewCard.tsx (vốn chỉ có 1 mannequin xoay tại chỗ). Khác biệt chính:
@@ -26,7 +78,7 @@ type Props = {
 // xoay CAMERA quanh cả cảnh (orbit) thay vì xoay từng mannequin riêng — vì giờ có nhiều vật thể, xoay
 // riêng từng cái sẽ rối; (3) ảnh bối cảnh vẫn chỉ là phông CSS phẳng phía sau (chưa dùng khối 3D thật
 // từ Fal depth/segment — đó là lớp nâng cấp sau, xem nút "Dựng khối 3D" đã gọi nhưng chưa render).
-export function LocationPositionStage3D({ locationUrl, characters }: Props) {
+export function LocationPositionStage3D({ locationUrl, characters, segments }: Props) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -131,6 +183,58 @@ export function LocationPositionStage3D({ locationUrl, characters }: Props) {
     }
     forceRerender((n) => n + 1);
   }, [characters]);
+
+  // Dựng khối hộp (toà nhà) / mặt phẳng (đường) thô từ kết quả Fal — chạy riêng, không chặn mannequin
+  // hiển thị trước. "sky" bỏ qua (không phải vật thể chiếm chỗ thật). Đọc ảnh mask qua canvas để lấy
+  // khung bao xấp xỉ — xem computeMaskBBox() ở trên. Huỷ (cancelled) nếu đổi ảnh khác trước khi load xong.
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene || !segments || segments.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const results = await Promise.all(
+        segments
+          .filter((s) => s.label !== "sky" && s.maskUrl)
+          .map(async (s) => ({ label: s.label, bbox: await computeMaskBBox(s.maskUrl as string) }))
+      );
+      if (cancelled) return;
+      const sc = sceneRef.current;
+      if (!sc) return;
+      sc.children.filter((c) => c.userData.isLocationBlock).forEach((c) => sc.remove(c));
+      for (const { label, bbox } of results) {
+        if (!bbox) continue;
+        const centerX = (bbox.minX + bbox.maxX) / 2;
+        const centerY = (bbox.minY + bbox.maxY) / 2;
+        const widthFrac = Math.max(0.05, bbox.maxX - bbox.minX);
+        const worldX = (centerX - 0.5) * 5;
+        const worldZ = -(1 - centerY) * 5;
+        if (label === "road") {
+          const plane = new THREE.Mesh(
+            new THREE.PlaneGeometry(widthFrac * 6, 3),
+            new THREE.MeshStandardMaterial({ color: 0x4b5563, roughness: 1, transparent: true, opacity: 0.4 })
+          );
+          plane.rotation.x = -Math.PI / 2;
+          plane.position.set(worldX, 0.02, worldZ);
+          plane.userData.isLocationBlock = true;
+          sc.add(plane);
+        } else {
+          // "building" hoặc nhãn khác chưa biết trước -> mặc định vẽ thành khối hộp đứng (toà nhà).
+          const height = 3 + (1 - centerY) * 3; // xa hơn (centerY nhỏ) -> khối cao hơn, ước lượng thô
+          const box = new THREE.Mesh(
+            new THREE.BoxGeometry(widthFrac * 5, height, 0.8),
+            new THREE.MeshStandardMaterial({ color: 0x6b7280, roughness: 0.9, transparent: true, opacity: 0.55 })
+          );
+          box.position.set(worldX, height / 2, worldZ);
+          box.userData.isLocationBlock = true;
+          sc.add(box);
+        }
+      }
+      forceRerender((n) => n + 1);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [segments]);
 
   function handlePointerDown(e: React.PointerEvent) {
     (e.target as Element).setPointerCapture(e.pointerId);

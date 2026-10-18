@@ -8,7 +8,7 @@ import { BalanceBadge } from "@/components/BalanceBadge";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAuth } from "@/lib/auth-context";
 import { MannequinPreviewCard } from "@/components/MannequinPreviewCard";
-import { LocationPositionStage3D } from "@/components/LocationPositionStage3D";
+import { LocationPositionStage3D, type LocationSegment } from "@/components/LocationPositionStage3D";
 import { ReferencePickerModal } from "@/components/reference-elements/ReferencePickerModal";
 import type { ReferenceElement } from "@/components/reference-elements/NewElementModal";
 import { LightSphereModal, nearestLightQuickPosition, type LightSettings } from "@/components/story-video/LightSphereModal";
@@ -2284,7 +2284,10 @@ export default function VideoTuYTuongClient({
   // (cache lại ở đây), KHÔNG tự gọi lúc gắn ảnh — chỉ gọi khi khách chủ động bấm nút "Dựng khối 3D"
   // trong khung chọn vị trí (đã bàn kỹ: gọi sớm quá dễ tốn tiền cho ảnh khách chỉ gắn thử).
   const [locationBlockout, setLocationBlockout] = useState<
-    Record<string, { status: "loading" | "done" | "error"; depthImageUrl?: string | null; error?: string }>
+    Record<
+      string,
+      { status: "loading" | "done" | "error"; depthImageUrl?: string | null; segments?: LocationSegment[]; error?: string }
+    >
   >({});
 
   async function handleBuildLocationBlockout(imageUrl: string) {
@@ -2298,7 +2301,10 @@ export default function VideoTuYTuongClient({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Lỗi dựng khối 3D");
-      setLocationBlockout((prev) => ({ ...prev, [imageUrl]: { status: "done", depthImageUrl: data.depthImageUrl } }));
+      setLocationBlockout((prev) => ({
+        ...prev,
+        [imageUrl]: { status: "done", depthImageUrl: data.depthImageUrl, segments: data.segments },
+      }));
     } catch (err) {
       setLocationBlockout((prev) => ({
         ...prev,
@@ -3672,6 +3678,7 @@ export default function VideoTuYTuongClient({
                           }))
                           .filter((c): c is { url: string; name: string; color: string; pos: { x: number; y: number } } => !!c.pos)
                           .map((c) => ({ url: c.url, name: c.name, color: c.color, x: c.pos.x, y: c.pos.y }))}
+                        segments={locationBlockout[zoomedPromptImage]?.segments}
                       />
                     </div>
                   )}
