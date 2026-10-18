@@ -3564,9 +3564,14 @@ export default function VideoTuYTuongClient({
           const characters = promptImages
             .filter((u) => u !== zoomedPromptImage && promptImageMeta[u]?.type === "character")
             .slice(0, 5); // giới hạn 5 nhân vật — xem mục 18.4 kế hoạch đã lưu
-          const isLocationEditor = meta?.type === "location" && characters.length > 0;
+          // SỬA (phản hồi thật user): trước đây bắt buộc phải có sẵn ≥1 nhân vật mới cho mở khung này —
+          // nhưng khách muốn dựng khối 3D (địa hình) TRƯỚC, rồi mới gắn/chỉnh vị trí nhân vật SAU, không
+          // cần ép thứ tự ngược lại. Bỏ điều kiện characters.length > 0 — chỉ cần đúng ảnh địa điểm.
+          const isLocationEditor = meta?.type === "location";
           const assignments = locationPositions[zoomedPromptImage] ?? {};
           const activeChar = positionEditorActiveChar && characters.includes(positionEditorActiveChar) ? positionEditorActiveChar : characters[0];
+          const blockoutForImage = locationBlockout[zoomedPromptImage];
+          const show3DPanel = !!blockoutForImage?.depthImageUrl || Object.keys(assignments).length > 0;
 
           function handlePlaceMarker(e: React.MouseEvent<HTMLDivElement>) {
             if (!isLocationEditor || !activeChar) return;
@@ -3603,7 +3608,11 @@ export default function VideoTuYTuongClient({
                 </button>
                 {isLocationEditor && (
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm text-zinc-300">Chọn vị trí đứng — bấm chọn nhân vật rồi bấm vào ảnh:</span>
+                    <span className="text-sm text-zinc-300">
+                      {characters.length > 0
+                        ? "Chọn vị trí đứng — bấm chọn nhân vật rồi bấm vào ảnh:"
+                        : "Chưa có nhân vật nào gắn kèm — vẫn dựng được khối 3D địa hình, gắn thêm nhân vật sau để chọn vị trí."}
+                    </span>
                     {characters.map((u, i) => {
                       const color = POSITION_MARKER_COLORS[i % POSITION_MARKER_COLORS.length];
                       const placed = !!assignments[u];
@@ -3629,9 +3638,11 @@ export default function VideoTuYTuongClient({
                   </div>
                 )}
                 {/* Phương án A — 2 khung song song (2D trái, 3D phải), đồng bộ real-time — thay cho bản
-                    tab-chuyển-qua-lại trước đó (user phản hồi không thấy/khó nhận ra). Khung 3D chỉ hiện
-                    khi đã có ít nhất 1 vị trí; trên màn hẹp tự xếp chồng (grid-cols-1) nhờ lg:grid-cols-2. */}
-                <div className={isLocationEditor ? `grid gap-3 ${Object.keys(assignments).length > 0 ? "lg:grid-cols-2" : ""}` : ""}>
+                    tab-chuyển-qua-lại trước đó (user phản hồi không thấy/khó nhận ra). Khung 3D hiện khi
+                    đã có địa hình (depthImageUrl) HOẶC đã có ít nhất 1 vị trí nhân vật — không bắt buộc
+                    phải có nhân vật trước mới dựng được địa hình (phản hồi thật user). Trên màn hẹp tự
+                    xếp chồng (grid-cols-1) nhờ lg:grid-cols-2. */}
+                <div className={isLocationEditor ? `grid gap-3 ${show3DPanel ? "lg:grid-cols-2" : ""}` : ""}>
                   <div
                     className={`relative overflow-hidden rounded-lg ${isLocationEditor ? "cursor-crosshair" : ""}`}
                     onClick={isLocationEditor ? handlePlaceMarker : undefined}
@@ -3658,7 +3669,7 @@ export default function VideoTuYTuongClient({
                         );
                       })}
                   </div>
-                  {isLocationEditor && Object.keys(assignments).length > 0 && (
+                  {isLocationEditor && show3DPanel && (
                     <div className="flex flex-col gap-1.5">
                       <span className="text-xs text-zinc-400">Xem 3D — kéo chuột để xoay:</span>
                       <LocationPositionStage3D
@@ -3702,9 +3713,11 @@ export default function VideoTuYTuongClient({
                               ? "✅ Đã dựng khối 3D"
                               : "🧱 Dựng khối 3D"}
                         </button>
-                        <span className="text-xs text-zinc-400">
-                          Đã đặt {Object.keys(assignments).length}/{characters.length} nhân vật
-                        </span>
+                        {characters.length > 0 && (
+                          <span className="text-xs text-zinc-400">
+                            Đã đặt {Object.keys(assignments).length}/{characters.length} nhân vật
+                          </span>
+                        )}
                         {blockout?.status === "error" && <span className="text-xs text-red-400">{blockout.error}</span>}
                       </div>
                     );
