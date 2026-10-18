@@ -216,14 +216,16 @@ export function LocationPositionStage3D({ characters, depthImageUrl }: Props) {
       if (!sc) return;
       sc.children.filter((c) => c.userData.isLocationBlock).forEach((c) => sc.remove(c));
 
+      // Màu xám trung tính + flatShading (mỗi mặt tam giác giữ phẳng, không làm mượt) — đúng phong cách
+      // "low-poly" tham khảo (núi xám nhiều mặt, không phải màu mè trong suốt như bản trước).
       const solid = new THREE.Mesh(
         geo,
-        new THREE.MeshStandardMaterial({ color: 0x22d3ee, roughness: 0.8, transparent: true, opacity: 0.45, side: THREE.DoubleSide })
+        new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.95, metalness: 0, flatShading: true, side: THREE.DoubleSide })
       );
       solid.userData.isLocationBlock = true;
       sc.add(solid);
 
-      const wire = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x67e8f9, wireframe: true, transparent: true, opacity: 0.6 }));
+      const wire = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x374151, wireframe: true }));
       wire.userData.isLocationBlock = true;
       sc.add(wire);
 
