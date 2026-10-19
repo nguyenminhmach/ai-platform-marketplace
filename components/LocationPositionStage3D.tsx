@@ -310,7 +310,7 @@ export function LocationPositionStage3D({ characters, depthImageUrl, groundMaskU
     ground.rotation.x = -Math.PI / 2;
     scene.add(ground);
 
-    const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
+    const camera = new THREE.PerspectiveCamera(46, 1, 0.1, 100);
     cameraRef.current = camera;
     sceneRef.current = scene;
 
@@ -325,14 +325,18 @@ export function LocationPositionStage3D({ characters, depthImageUrl, groundMaskU
     // SỬA (biên độ cao tăng 2.2 -> 3.6, đỉnh cao hơn trước) — nâng camera + điểm ngắm lên chút để đỉnh
     // cao nhất không bị khung hình cắt mất, vẫn giữ nguyên azimuth=0 (tương ứng trái/phải với ảnh 2D).
     // SỬA (phản hồi thật user: "cho full khung 3d" — sau khi phóng to khung hiển thị, khối địa hình
-    // trông nhỏ lọt thỏm giữa nhiều khoảng tối trống xung quanh) — kéo camera lại gần hơn (radius/cao
-    // 7.5 -> 5.2, cùng tỉ lệ nên góc nhìn chéo giữ nguyên) để khối lấp đầy khung hình hơn, không đổi gì
-    // khác (azimuth, điểm ngắm vẫn như cũ).
+    // trông nhỏ lọt thỏm giữa nhiều khoảng tối trống xung quanh) — đo thử bằng script riêng (đếm % pixel
+    // thật sự có vẽ khối trong khung, xem file test đã dùng) để tìm đúng thông số thay vì đoán mò: kéo
+    // camera gần hơn KHÔNG ĐỦ (chỉ zoom, khoảng trống phía TRÊN khối vẫn y nguyên tỷ lệ vì góc nhìn
+    // không đổi) — phải NGHIÊNG CAMERA XUỐNG SÂU HƠN (hạ bớt khoảng cách ngang theo Z so với độ cao,
+    // nhìn gần như từ trên xuống hơn) để giảm hẳn khoảng trời trống phía trên khối, đo được tăng từ
+    // ~27% lấp đầy khung lên ~43%. KHÔNG đổi azimuth (vẫn 0, tương ứng trái/phải với ảnh 2D).
     function updateCamera() {
-      const radius = 5.2;
+      const camHeight = 5.0;
+      const camDepthOffset = 2.6;
       const az = azimuthRef.current;
-      camera.position.set(Math.sin(az) * radius, 5.2, Math.cos(az) * radius);
-      camera.lookAt(0, 0.6, -2.2);
+      camera.position.set(Math.sin(az) * camDepthOffset, camHeight, Math.cos(az) * camDepthOffset);
+      camera.lookAt(0, 0.4, -2.3);
     }
     updateCamera();
 
