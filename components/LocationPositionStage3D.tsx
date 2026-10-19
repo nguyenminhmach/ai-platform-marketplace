@@ -324,10 +324,14 @@ export function LocationPositionStage3D({ characters, depthImageUrl, groundMaskU
     // giữa ảnh 2D và khung 3D cho vị trí nhân vật.
     // SỬA (biên độ cao tăng 2.2 -> 3.6, đỉnh cao hơn trước) — nâng camera + điểm ngắm lên chút để đỉnh
     // cao nhất không bị khung hình cắt mất, vẫn giữ nguyên azimuth=0 (tương ứng trái/phải với ảnh 2D).
+    // SỬA (phản hồi thật user: "cho full khung 3d" — sau khi phóng to khung hiển thị, khối địa hình
+    // trông nhỏ lọt thỏm giữa nhiều khoảng tối trống xung quanh) — kéo camera lại gần hơn (radius/cao
+    // 7.5 -> 5.2, cùng tỉ lệ nên góc nhìn chéo giữ nguyên) để khối lấp đầy khung hình hơn, không đổi gì
+    // khác (azimuth, điểm ngắm vẫn như cũ).
     function updateCamera() {
-      const radius = 7.5;
+      const radius = 5.2;
       const az = azimuthRef.current;
-      camera.position.set(Math.sin(az) * radius, 7.5, Math.cos(az) * radius);
+      camera.position.set(Math.sin(az) * radius, 5.2, Math.cos(az) * radius);
       camera.lookAt(0, 0.6, -2.2);
     }
     updateCamera();
