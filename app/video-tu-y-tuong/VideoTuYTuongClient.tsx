@@ -3724,7 +3724,15 @@ export default function VideoTuYTuongClient({
                     xếp chồng (grid-cols-1) nhờ lg:grid-cols-2. */}
                 <div className={isLocationEditor ? `grid gap-3 ${show3DPanel ? "lg:grid-cols-[1fr_1.3fr]" : ""}` : ""}>
                   <div
-                    className={`relative overflow-hidden rounded-lg ${isLocationEditor ? "cursor-crosshair" : ""}`}
+                    // SỬA (phản hồi thật user — test điểm 5 rơi ra NGOÀI ảnh, lộ ra toạ độ MỌI điểm bị
+                    // tính sai): CSS Grid mặc định kéo giãn item con cho bằng chiều cao cả hàng
+                    // (align-items: stretch) — khung 3D bên cạnh cao hơn hẳn ảnh 2D (sau khi phóng to
+                    // khung 3D), nên khung ảnh 2D này bị kéo cao hơn ẢNH THẬT bên trong nó, trong khi
+                    // handlePlaceMarker tính toạ độ % theo getBoundingClientRect() của chính div này —
+                    // click ở đáy ảnh thật bị tính ra % nhỏ hơn 1 (ví dụ 0.65 thay vì ~0.98), lệch hẳn
+                    // theo trục gần/xa. "self-start" giữ chiều cao div đúng bằng ảnh thật, không bị kéo
+                    // giãn theo hàng grid nữa.
+                    className={`relative self-start overflow-hidden rounded-lg ${isLocationEditor ? "cursor-crosshair" : ""}`}
                     onClick={isLocationEditor ? handlePlaceMarker : undefined}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
