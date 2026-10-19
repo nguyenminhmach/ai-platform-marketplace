@@ -268,6 +268,46 @@ async function buildTerrainGeometry(
   }
 }
 
+// Sàn phẳng cho ảnh phố/kiến trúc (isNaturalTerrain=false, xem useEffect bên dưới) — SỬA (phản hồi
+// thật user: "mờ", khung 3D gần như trống rỗng vì chỉ còn sàn tròn mờ mặc định opacity 0.35, khó thấy
+// trên nền tối) — dựng 1 mặt lưới phẳng RÕ RÀNG, cùng kích thước footprint (5x5) và phong cách màu với
+// địa hình thật (xám sáng + khung dây), chỉ khác là worldY luôn = 0 (hoàn toàn phẳng, không có độ sâu
+// nào tác động) — cho khung 3D luôn có mặt sàn rõ để nhân vật đứng lên, dù không dựng được địa hình.
+function buildFlatGroundGeometry(gridW = 24, gridH = 20): THREE.BufferGeometry {
+  const positions = new Float32Array(gridW * gridH * 3);
+  const colors = new Float32Array(gridW * gridH * 3);
+  const FLAT_COLOR = new THREE.Color(0x475569);
+  for (let iy = 0; iy < gridH; iy++) {
+    for (let ix = 0; ix < gridW; ix++) {
+      const u = ix / (gridW - 1);
+      const v = iy / (gridH - 1);
+      const vi = (iy * gridW + ix) * 3;
+      positions[vi] = (u - 0.5) * 5;
+      positions[vi + 1] = 0;
+      positions[vi + 2] = -(1 - v) * 5;
+      colors[vi] = FLAT_COLOR.r;
+      colors[vi + 1] = FLAT_COLOR.g;
+      colors[vi + 2] = FLAT_COLOR.b;
+    }
+  }
+  const indices: number[] = [];
+  for (let iy = 0; iy < gridH - 1; iy++) {
+    for (let ix = 0; ix < gridW - 1; ix++) {
+      const a = iy * gridW + ix;
+      const b = a + 1;
+      const c = a + gridW;
+      const d = c + 1;
+      indices.push(a, c, b, b, c, d);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return geo;
+}
+
 // Xem trước 3D NHIỀU nhân vật cùng lúc, đặt đúng vị trí tương đối đã chọn trên ảnh bối cảnh 2D — mở
 // rộng từ components/MannequinPreviewCard.tsx (vốn chỉ có 1 mannequin xoay tại chỗ). Khác biệt chính:
 // (1) nhiều mannequin, mỗi cái nhân bản từ CÙNG 1 hình buildMannequin() (xem mục 18.3 kế hoạch đã lưu
@@ -445,10 +485,21 @@ export function LocationPositionStage3D({ characters, depthImageUrl, groundMaskU
     const scene = sceneRef.current;
     if (!scene) return;
     // SỬA lần 4 (phản hồi thật user: ảnh phố/kiến trúc ra hình "phễu" méo mó) — ảnh không phải cảnh
-    // thiên nhiên thì KHÔNG dựng địa hình nữa, chỉ dùng sàn tròn mờ mặc định (đã có sẵn ở trên) cho
-    // nhân vật đứng — xoá hết khối địa hình cũ (nếu có từ trước, phòng trường hợp đổi ảnh) rồi dừng.
+    // thiên nhiên thì KHÔNG dựng địa hình nữa, thay bằng 1 sàn phẳng RÕ RÀNG (buildFlatGroundGeometry,
+    // xem lý do phía trên — sàn tròn mờ mặc định quá khó thấy, user phản hồi "mờ") cho nhân vật đứng.
     if (!depthImageUrl || !isNaturalTerrain) {
       scene.children.filter((c) => c.userData.isLocationBlock).forEach((c) => scene.remove(c));
+      const flatGeo = buildFlatGroundGeometry();
+      const flatSolid = new THREE.Mesh(
+        flatGeo,
+        new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, flatShading: true, side: THREE.DoubleSide })
+      );
+      flatSolid.userData.isLocationBlock = true;
+      scene.add(flatSolid);
+      const flatWire = new THREE.Mesh(flatGeo, new THREE.MeshBasicMaterial({ color: 0x374151, wireframe: true }));
+      flatWire.userData.isLocationBlock = true;
+      scene.add(flatWire);
+      forceRerender((n) => n + 1);
       return;
     }
     let cancelled = false;
