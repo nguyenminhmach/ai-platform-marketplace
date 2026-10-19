@@ -1044,21 +1044,44 @@ async function callFalSync(model: string, body: Record<string, unknown>): Promis
 export type LocationBlockoutResult = {
   depthImageUrl: string | null;
   groundMaskUrl: string | null;
+  // SỬA lần 4 (phản hồi thật user: ảnh phố/kiến trúc có điểm hội tụ phối cảnh — biến độ sâu thành độ
+  // cao luôn ra hình "phễu/xoáy" méo mó, KHÔNG phải lỗi tham số, mà là giới hạn thật của kỹ thuật
+  // heightmap-từ-độ-sâu với ảnh có phối cảnh hội tụ 1 điểm). Kỹ thuật này chỉ hợp với cảnh THIÊN NHIÊN
+  // ngoài trời (núi/vách đá/rừng — có cao độ thật kiểu địa hình). true = nên dựng địa hình gồ ghề, false
+  // = ảnh phố/kiến trúc/nội thất, chỉ nên hiện sàn phẳng cho nhân vật đứng, không cố dựng khối dễ méo.
+  isNaturalTerrain: boolean;
 };
 
-// Dựng "địa hình 3D thô" cho 1 ảnh bối cảnh — gọi 2 model Fal.ai nhẹ song song (ước lượng độ sâu +
-// phân vùng mặt đất), KHÔNG phải model tạo ảnh/video (rẻ hơn rất nhiều — depth gần như miễn phí,
-// sam-3 khoảng $0.005/ảnh, xem phân tích chi phí đã lưu memory). Hàm này chỉ gọi AI lấy số liệu thô,
-// tách riêng để test/gọi lại độc lập không tốn thêm tiền — việc dựng lưới địa hình thật từ 2 kết quả
-// này nằm ở LocationPositionStage3D.tsx.
+const LOCATION_SCENE_TYPE_PROMPT = `Bạn phân loại 1 ảnh bối cảnh để quyết định có nên dựng mô hình 3D địa hình gồ ghề (núi/đồi/vách đá) từ ảnh này hay không.
+Trả lời ĐÚNG 1 từ duy nhất, không thêm chữ nào khác:
+"natural" — nếu ảnh là cảnh THIÊN NHIÊN ngoài trời có cao độ/địa hình thật (núi, đồi, vách đá, rừng, bờ biển có đá/dốc...).
+"flat" — nếu ảnh là phố, nhà cửa, kiến trúc, nội thất, phòng, đường thẳng có điểm hội tụ phối cảnh, bãi biển/cánh đồng phẳng, hoặc bất kỳ cảnh nào không có địa hình gồ ghề thật.`;
+
+// Phân loại cảnh TRƯỚC khi quyết định dựng địa hình — Gemini Flash rẻ (~18đ/lượt, cùng model/giá dùng
+// cho classifyCharacterImage và các bước kiểm tra ảnh khác trong file này).
+async function classifyLocationSceneType(imageUrl: string): Promise<boolean> {
+  try {
+    const { output } = await callOpenRouter("google/gemini-3-flash-preview", 10, LOCATION_SCENE_TYPE_PROMPT, "Phân loại ảnh này.", imageUrl);
+    return output.trim().toLowerCase().includes("natural");
+  } catch {
+    return true; // lỗi phân loại -- mặc định vẫn dựng địa hình như hành vi cũ, không chặn gì cả
+  }
+}
+
+// Dựng "địa hình 3D thô" cho 1 ảnh bối cảnh — gọi 3 model AI nhẹ song song (ước lượng độ sâu + phân
+// vùng mặt đất + phân loại cảnh), KHÔNG phải model tạo ảnh/video (rẻ hơn rất nhiều — depth gần như
+// miễn phí, sam-3 khoảng $0.005/ảnh, phân loại cảnh ~18đ, xem phân tích chi phí đã lưu memory). Hàm
+// này chỉ gọi AI lấy số liệu thô, tách riêng để test/gọi lại độc lập không tốn thêm tiền — việc dựng
+// lưới địa hình thật từ các kết quả này nằm ở LocationPositionStage3D.tsx.
 export async function generateLocationBlockout(imageUrl: string): Promise<LocationBlockoutResult> {
-  const [depthResult, groundResult] = await Promise.all([
+  const [depthResult, groundResult, isNaturalTerrain] = await Promise.all([
     callFalSync("fal-ai/imageutils/depth", { image_url: imageUrl }).catch(() => null),
     callFalSync("fal-ai/sam-3/image", { image_url: imageUrl, prompt: "ground", include_mask: true, max_masks: 1 }).catch(() => null),
+    classifyLocationSceneType(imageUrl),
   ]);
   const img = depthResult?.image as { url?: string } | undefined;
   const masks = groundResult?.masks as { url?: string }[] | undefined;
-  return { depthImageUrl: img?.url ?? null, groundMaskUrl: masks?.[0]?.url ?? null };
+  return { depthImageUrl: img?.url ?? null, groundMaskUrl: masks?.[0]?.url ?? null, isNaturalTerrain };
 }
 
 export function extractImageUrl(falPayload: Record<string, unknown>): string | undefined {

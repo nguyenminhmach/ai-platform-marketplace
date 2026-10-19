@@ -29,6 +29,11 @@ type Props = {
   // thuộc vùng mặt đất) — dùng ép vùng này về gần phẳng khi dựng lưới, vùng còn lại giữ nguyên cách tính
   // cũ. Tuỳ chọn, null thì lưới dựng y như trước (chỉ mất phần phân biệt đất/đá).
   groundMaskUrl?: string | null;
+  // SỬA lần 4 (phản hồi thật user: ảnh phố có điểm hội tụ phối cảnh ra hình "phễu/xoáy" méo mó) — biến
+  // độ sâu thành độ cao chỉ hợp cảnh THIÊN NHIÊN (núi/vách đá), KHÔNG hợp ảnh phố/kiến trúc/nội thất
+  // (luôn méo do cách phối cảnh hội tụ). true (mặc định, xem generateLocationBlockout) = dựng địa hình
+  // gồ ghề như cũ; false = CHỈ hiện sàn phẳng cho nhân vật đứng, không dựng khối từ độ sâu nữa.
+  isNaturalTerrain?: boolean;
 };
 
 function loadImageEl(url: string): Promise<HTMLImageElement> {
@@ -271,7 +276,7 @@ async function buildTerrainGeometry(
 // nữa (bản trước làm vậy, user phản hồi không đúng ý: "đừng cho mô hình phong cảnh quay") — khách chỉ
 // bấm-kéo TRÚNG 1 mannequin mới xoay riêng người đó tại chỗ (raycasting, xem pickMannequinAt), giống
 // đúng cách mannequin đơn cũ hoạt động, áp dụng cho từng người khi có nhiều người.
-export function LocationPositionStage3D({ characters, depthImageUrl, groundMaskUrl }: Props) {
+export function LocationPositionStage3D({ characters, depthImageUrl, groundMaskUrl, isNaturalTerrain = true }: Props) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -438,7 +443,14 @@ export function LocationPositionStage3D({ characters, depthImageUrl, groundMaskU
   // tham khảo, dễ nhìn rõ hình khối khi xoay.
   useEffect(() => {
     const scene = sceneRef.current;
-    if (!scene || !depthImageUrl) return;
+    if (!scene) return;
+    // SỬA lần 4 (phản hồi thật user: ảnh phố/kiến trúc ra hình "phễu" méo mó) — ảnh không phải cảnh
+    // thiên nhiên thì KHÔNG dựng địa hình nữa, chỉ dùng sàn tròn mờ mặc định (đã có sẵn ở trên) cho
+    // nhân vật đứng — xoá hết khối địa hình cũ (nếu có từ trước, phòng trường hợp đổi ảnh) rồi dừng.
+    if (!depthImageUrl || !isNaturalTerrain) {
+      scene.children.filter((c) => c.userData.isLocationBlock).forEach((c) => scene.remove(c));
+      return;
+    }
     let cancelled = false;
     (async () => {
       const geo = await buildTerrainGeometry(depthImageUrl, groundMaskUrl);
@@ -465,7 +477,7 @@ export function LocationPositionStage3D({ characters, depthImageUrl, groundMaskU
     return () => {
       cancelled = true;
     };
-  }, [depthImageUrl, groundMaskUrl]);
+  }, [depthImageUrl, groundMaskUrl, isNaturalTerrain]);
 
   // Tìm đúng mannequin bị bấm trúng (nếu có) bằng raycasting — bấm trúng khoảng trống/địa hình thì
   // KHÔNG làm gì cả (địa hình luôn đứng yên, đúng yêu cầu).

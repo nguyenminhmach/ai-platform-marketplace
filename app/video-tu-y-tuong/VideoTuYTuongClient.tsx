@@ -2298,7 +2298,13 @@ export default function VideoTuYTuongClient({
   const [locationBlockout, setLocationBlockout] = useState<
     Record<
       string,
-      { status: "loading" | "done" | "error"; depthImageUrl?: string | null; groundMaskUrl?: string | null; error?: string }
+      {
+        status: "loading" | "done" | "error";
+        depthImageUrl?: string | null;
+        groundMaskUrl?: string | null;
+        isNaturalTerrain?: boolean;
+        error?: string;
+      }
     >
   >({});
 
@@ -2315,7 +2321,12 @@ export default function VideoTuYTuongClient({
       if (!res.ok) throw new Error(data.error || "Lỗi dựng khối 3D");
       setLocationBlockout((prev) => ({
         ...prev,
-        [imageUrl]: { status: "done", depthImageUrl: data.depthImageUrl, groundMaskUrl: data.groundMaskUrl },
+        [imageUrl]: {
+          status: "done",
+          depthImageUrl: data.depthImageUrl,
+          groundMaskUrl: data.groundMaskUrl,
+          isNaturalTerrain: data.isNaturalTerrain,
+        },
       }));
     } catch (err) {
       setLocationBlockout((prev) => ({
@@ -3704,7 +3715,13 @@ export default function VideoTuYTuongClient({
                   </div>
                   {isLocationEditor && show3DPanel && (
                     <div className="flex flex-col gap-1.5">
-                      <span className="text-xs text-zinc-400">Xem 3D — kéo chuột để xoay:</span>
+                      <span className="text-xs text-zinc-400">
+                        Xem 3D — kéo chuột để xoay:
+                        {locationBlockout[zoomedPromptImage]?.status === "done" &&
+                          locationBlockout[zoomedPromptImage]?.isNaturalTerrain === false && (
+                            <span className="ml-1 text-zinc-500">(ảnh phố/kiến trúc — chỉ hiện sàn phẳng)</span>
+                          )}
+                      </span>
                       <LocationPositionStage3D
                         locationUrl={zoomedPromptImage}
                         characters={characters
@@ -3718,6 +3735,7 @@ export default function VideoTuYTuongClient({
                           .map((c) => ({ url: c.url, name: c.name, color: c.color, x: c.pos.x, y: c.pos.y }))}
                         depthImageUrl={locationBlockout[zoomedPromptImage]?.depthImageUrl}
                         groundMaskUrl={locationBlockout[zoomedPromptImage]?.groundMaskUrl}
+                        isNaturalTerrain={locationBlockout[zoomedPromptImage]?.isNaturalTerrain ?? true}
                       />
                     </div>
                   )}
