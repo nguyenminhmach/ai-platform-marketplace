@@ -285,6 +285,26 @@ export function LocationPositionStage3D({ characters, depthImageUrl, groundMaskU
   const raycasterRef = useRef(new THREE.Raycaster());
   const draggedMannequinRef = useRef<THREE.Group | null>(null);
   const dragRef = useRef<{ dragging: boolean; startX: number; startRotationY: number }>({ dragging: false, startX: 0, startRotationY: 0 });
+  // SỬA (phản hồi thật user: "cho chế độ xem chi tiết mô hình, muốn xem vị trí nào thì trỏ chuột kéo
+  // tới") — thêm 1 CHẾ ĐỘ RIÊNG để xoay/zoom tự do quan sát khối địa hình, TÁCH HẲN khỏi chế độ đặt vị
+  // trí mặc định (ở đó kéo chuột chỉ xoay đúng mannequin bấm trúng, địa hình/camera đứng yên — vẫn giữ
+  // nguyên, không đổi gì). Bật "Xem chi tiết" thì kéo chuột xoay CAMERA quanh khối (orbit tự do), lăn
+  // chuột để phóng to/thu nhỏ — dùng ref (không phải state) vì đọc trong vòng lặp render Three.js mỗi
+  // khung hình, giống cách azimuthRef hoạt động.
+  const inspectModeRef = useRef(false);
+  const [inspectMode, setInspectMode] = useState(false);
+  const INSPECT_TARGET = { x: 0, y: 0.4, z: -2.3 }; // trùng điểm ngắm mặc định, xem updateCamera bên dưới
+  const INSPECT_DEFAULTS = { azimuth: 0, pitch: (43.2 * Math.PI) / 180, distance: 6.72 }; // khớp đúng góc nhìn mặc định
+  const inspectAzimuthRef = useRef(INSPECT_DEFAULTS.azimuth);
+  const inspectPitchRef = useRef(INSPECT_DEFAULTS.pitch);
+  const inspectDistanceRef = useRef(INSPECT_DEFAULTS.distance);
+  const orbitDragRef = useRef<{ dragging: boolean; startX: number; startY: number; startAzimuth: number; startPitch: number }>({
+    dragging: false,
+    startX: 0,
+    startY: 0,
+    startAzimuth: 0,
+    startPitch: 0,
+  });
   const [, forceRerender] = useState(0);
 
   useEffect(() => {
@@ -332,6 +352,20 @@ export function LocationPositionStage3D({ characters, depthImageUrl, groundMaskU
     // nhìn gần như từ trên xuống hơn) để giảm hẳn khoảng trời trống phía trên khối, đo được tăng từ
     // ~27% lấp đầy khung lên ~43%. KHÔNG đổi azimuth (vẫn 0, tương ứng trái/phải với ảnh 2D).
     function updateCamera() {
+      if (inspectModeRef.current) {
+        // Chế độ "Xem chi tiết" — orbit tự do quanh INSPECT_TARGET theo azimuth/pitch/distance do khách
+        // kéo/lăn chuột chỉnh (xem handlePointerMove/handleWheel), không còn cố định như chế độ đặt vị trí.
+        const az = inspectAzimuthRef.current;
+        const pitch = inspectPitchRef.current;
+        const dist = inspectDistanceRef.current;
+        camera.position.set(
+          INSPECT_TARGET.x + Math.sin(az) * Math.cos(pitch) * dist,
+          INSPECT_TARGET.y + Math.sin(pitch) * dist,
+          INSPECT_TARGET.z + Math.cos(az) * Math.cos(pitch) * dist
+        );
+        camera.lookAt(INSPECT_TARGET.x, INSPECT_TARGET.y, INSPECT_TARGET.z);
+        return;
+      }
       const camHeight = 5.0;
       const camDepthOffset = 2.6;
       const az = azimuthRef.current;
@@ -452,6 +486,19 @@ export function LocationPositionStage3D({ characters, depthImageUrl, groundMaskU
   }
 
   function handlePointerDown(e: React.PointerEvent) {
+    if (inspectModeRef.current) {
+      // Chế độ "Xem chi tiết" — kéo ở BẤT KỲ đâu trong khung (không cần trúng mannequin) đều xoay camera
+      // quanh khối, khác hẳn chế độ đặt vị trí (chỉ xoay đúng mannequin bấm trúng).
+      (e.target as Element).setPointerCapture(e.pointerId);
+      orbitDragRef.current = {
+        dragging: true,
+        startX: e.clientX,
+        startY: e.clientY,
+        startAzimuth: inspectAzimuthRef.current,
+        startPitch: inspectPitchRef.current,
+      };
+      return;
+    }
     const hit = pickMannequinAt(e.clientX, e.clientY);
     if (!hit) return; // bấm trúng địa hình/khoảng trống -> không xoay gì cả
     (e.target as Element).setPointerCapture(e.pointerId);
@@ -459,26 +506,67 @@ export function LocationPositionStage3D({ characters, depthImageUrl, groundMaskU
     dragRef.current = { dragging: true, startX: e.clientX, startRotationY: hit.rotation.y };
   }
   function handlePointerMove(e: React.PointerEvent) {
+    if (inspectModeRef.current) {
+      if (!orbitDragRef.current.dragging) return;
+      const dx = e.clientX - orbitDragRef.current.startX;
+      const dy = e.clientY - orbitDragRef.current.startY;
+      inspectAzimuthRef.current = orbitDragRef.current.startAzimuth - dx * 0.01;
+      const MIN_PITCH = (10 * Math.PI) / 180;
+      const MAX_PITCH = (85 * Math.PI) / 180;
+      inspectPitchRef.current = Math.min(MAX_PITCH, Math.max(MIN_PITCH, orbitDragRef.current.startPitch + dy * 0.01));
+      return;
+    }
     if (!dragRef.current.dragging || !draggedMannequinRef.current) return;
     const dx = e.clientX - dragRef.current.startX;
     draggedMannequinRef.current.rotation.y = dragRef.current.startRotationY + dx * 0.012;
   }
+  function handleWheel(e: React.WheelEvent) {
+    if (!inspectModeRef.current) return;
+    e.preventDefault();
+    const MIN_DIST = 2.5;
+    const MAX_DIST = 13;
+    inspectDistanceRef.current = Math.min(MAX_DIST, Math.max(MIN_DIST, inspectDistanceRef.current + e.deltaY * 0.01));
+  }
+  function toggleInspectMode() {
+    setInspectMode((prev) => {
+      const next = !prev;
+      inspectModeRef.current = next;
+      if (next) {
+        // Vào chế độ xem chi tiết — bắt đầu từ đúng góc nhìn mặc định, không giật hình.
+        inspectAzimuthRef.current = INSPECT_DEFAULTS.azimuth;
+        inspectPitchRef.current = INSPECT_DEFAULTS.pitch;
+        inspectDistanceRef.current = INSPECT_DEFAULTS.distance;
+      }
+      return next;
+    });
+  }
   function handlePointerUp() {
     dragRef.current.dragging = false;
     draggedMannequinRef.current = null;
+    orbitDragRef.current.dragging = false;
   }
 
   return (
     <div
-      className="relative aspect-[4/3] w-full touch-none overflow-hidden rounded-lg bg-zinc-900"
+      className={`relative aspect-[4/3] w-full touch-none overflow-hidden rounded-lg bg-zinc-900 ${inspectMode ? "cursor-move" : ""}`}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerLeave={handlePointerUp}
+      onWheel={handleWheel}
     >
       <div ref={mountRef} className="absolute inset-0" />
+      <button
+        type="button"
+        onClick={toggleInspectMode}
+        className={`absolute left-1.5 top-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium shadow ${
+          inspectMode ? "bg-indigo-500 text-white" : "bg-black/50 text-white hover:bg-black/70"
+        }`}
+      >
+        {inspectMode ? "✕ Thoát xem chi tiết" : "🔎 Xem chi tiết"}
+      </button>
       <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/50 px-2 py-0.5 text-[10px] text-white">
-        🔄 Kéo vào nhân vật để xoay riêng người đó
+        {inspectMode ? "🖱️ Kéo để xoay góc nhìn, lăn chuột để zoom" : "🔄 Kéo vào nhân vật để xoay riêng người đó"}
       </span>
     </div>
   );
