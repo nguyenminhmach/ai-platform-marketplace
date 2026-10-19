@@ -3732,7 +3732,13 @@ export default function VideoTuYTuongClient({
                     // click ở đáy ảnh thật bị tính ra % nhỏ hơn 1 (ví dụ 0.65 thay vì ~0.98), lệch hẳn
                     // theo trục gần/xa. "self-start" giữ chiều cao div đúng bằng ảnh thật, không bị kéo
                     // giãn theo hàng grid nữa.
-                    className={`relative self-start overflow-hidden rounded-lg ${isLocationEditor ? "cursor-crosshair" : ""}`}
+                    // SỬA (phản hồi thật user: muốn viền tím 3 cạnh trái/dưới/phải quanh ảnh 2D, khớp
+                    // với viền tím vẽ quanh mép khối 3D — xem buildEdgeOutline trong
+                    // LocationPositionStage3D.tsx) — giúp khách đối chiếu nhanh hướng nhìn giữa 2D/3D,
+                    // không vẽ cạnh TRÊN (ứng với mép xa/đỉnh ảnh, không cần viền).
+                    className={`relative self-start overflow-hidden rounded-lg ${
+                      isLocationEditor ? "cursor-crosshair border-b-4 border-l-4 border-r-4 border-violet-500" : ""
+                    }`}
                     onClick={isLocationEditor ? handlePlaceMarker : undefined}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}

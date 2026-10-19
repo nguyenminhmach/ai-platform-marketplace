@@ -313,6 +313,31 @@ function buildFlatGroundGeometry(gridW = 24, gridH = 20): THREE.BufferGeometry {
   return geo;
 }
 
+// SỬA (phản hồi thật user: muốn 1 viền tím bao 3 cạnh trái/dưới/phải quanh ảnh 2D VÀ quanh mép khối
+// 3D, để khách dễ đối chiếu hướng nhìn giữa 2 bên — đúng kiểu user tự vẽ tay bằng bút đỏ để kiểm chứng)
+// — lấy ĐÚNG toạ độ các đỉnh biên của lưới đã dựng (bám theo độ cao thật tại từng điểm, không vẽ phẳng
+// cứng) để viền không bị lơ lửng/chìm vào địa hình khi địa hình có độ cao thật. Thứ tự điểm: TRÁI (từ xa
+// về gần) -> DƯỚI/GẦN (trái sang phải) -> PHẢI (gần ra xa) — đúng 1 nét liền, không vẽ cạnh TRÊN (ứng
+// với mép xa/đỉnh ảnh 2D, cũng không viền trong bản gốc user vẽ tay).
+function buildEdgeOutline(positions: Float32Array, gridW: number, gridH: number): THREE.Line {
+  const pts: THREE.Vector3[] = [];
+  for (let iy = 0; iy < gridH; iy++) {
+    const vi = (iy * gridW + 0) * 3;
+    pts.push(new THREE.Vector3(positions[vi], positions[vi + 1], positions[vi + 2]));
+  }
+  for (let ix = 0; ix < gridW; ix++) {
+    const vi = ((gridH - 1) * gridW + ix) * 3;
+    pts.push(new THREE.Vector3(positions[vi], positions[vi + 1], positions[vi + 2]));
+  }
+  for (let iy = gridH - 1; iy >= 0; iy--) {
+    const vi = (iy * gridW + (gridW - 1)) * 3;
+    pts.push(new THREE.Vector3(positions[vi], positions[vi + 1], positions[vi + 2]));
+  }
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x8b5cf6, linewidth: 2 }));
+  return line;
+}
+
 // Xem trước 3D NHIỀU nhân vật cùng lúc, đặt đúng vị trí tương đối đã chọn trên ảnh bối cảnh 2D — mở
 // rộng từ components/MannequinPreviewCard.tsx (vốn chỉ có 1 mannequin xoay tại chỗ). Khác biệt chính:
 // (1) nhiều mannequin, mỗi cái nhân bản từ CÙNG 1 hình buildMannequin() (xem mục 18.3 kế hoạch đã lưu
@@ -555,6 +580,9 @@ export function LocationPositionStage3D({
       const flatWire = new THREE.Mesh(flatGeo, new THREE.MeshBasicMaterial({ color: 0x374151, wireframe: true }));
       flatWire.userData.isLocationBlock = true;
       scene.add(flatWire);
+      const flatOutline = buildEdgeOutline(flatGeo.getAttribute("position").array as Float32Array, 24, 20);
+      flatOutline.userData.isLocationBlock = true;
+      scene.add(flatOutline);
       forceRerender((n) => n + 1);
       return;
     }
@@ -578,6 +606,10 @@ export function LocationPositionStage3D({
       const wire = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x374151, wireframe: true }));
       wire.userData.isLocationBlock = true;
       sc.add(wire);
+
+      const outline = buildEdgeOutline(geo.getAttribute("position").array as Float32Array, 128, 80);
+      outline.userData.isLocationBlock = true;
+      sc.add(outline);
 
       forceRerender((n) => n + 1);
     })();
