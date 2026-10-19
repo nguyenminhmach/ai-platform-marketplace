@@ -3681,7 +3681,7 @@ export default function VideoTuYTuongClient({
             // khi tìm ra nguyên nhân.
             const imgRect = (e.currentTarget.querySelector("img") as HTMLImageElement | null)?.getBoundingClientRect();
             setDebugClickInfo(
-              `click=(${e.clientX},${e.clientY}) divRect=(${rect.left.toFixed(0)},${rect.top.toFixed(0)},${rect.width.toFixed(0)}x${rect.height.toFixed(0)}) imgRect=(${imgRect?.left.toFixed(0)},${imgRect?.top.toFixed(0)},${imgRect?.width.toFixed(0)}x${imgRect?.height.toFixed(0)}) x=${x.toFixed(3)} y=${y.toFixed(3)}`
+              `click=(${e.clientX},${e.clientY}) x=${x.toFixed(3)} y=${y.toFixed(3)} | activeChar=${activeChar ?? "null"} testMarkMode=${testMarkMode} characters=[${characters.join(",")}] positionEditorActiveChar=${positionEditorActiveChar ?? "null"}`
             );
             // eslint-disable-next-line no-console
             console.log("[DEBUG handlePlaceMarker]", {
