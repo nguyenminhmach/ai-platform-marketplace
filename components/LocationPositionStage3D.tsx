@@ -623,21 +623,12 @@ export function LocationPositionStage3D({
         sc.add(group);
       }
 
-      // Vừa dựng lại TOÀN BỘ mannequin (group cũ đã bị huỷ) — nếu đang ở chế độ "Di chuyển" và đang gắn
-      // gizmo vào 1 nhân vật, group cũ transformControls trỏ tới không còn tồn tại nữa. Tìm lại đúng
-      // group MỚI của nhân vật đó (theo characterUrl) rồi gắn lại; nhân vật đã bị xoá khỏi danh sách
-      // thì gỡ gizmo hẳn (không còn gì để gắn vào).
-      const tc = transformControlsRef.current;
-      if (tc && attachedCharacterUrlRef.current) {
-        const stillThere = sc.children.find(
-          (c) => c.userData.isCharacterMannequin && c.userData.characterUrl === attachedCharacterUrlRef.current
-        );
-        if (stillThere) tc.attach(stillThere);
-        else {
-          tc.detach();
-          attachedCharacterUrlRef.current = null;
-        }
-      }
+      // DEBUG TẠM THỜI — tắt hẳn việc tự gắn lại gizmo sau khi dựng lại mannequin, để kiểm chứng xem
+      // đây có phải nguyên nhân "vị trí 2D bị ghi đè sau khi lưu đúng" user báo hay không. Nếu tắt cái
+      // này mà hết lỗi thì xác nhận đúng chỗ, sẽ sửa lại cho đúng (không chỉ xoá hẳn). Gỡ gizmo hẳn mỗi
+      // khi mannequin dựng lại — khách phải bấm chọn lại nhân vật nếu muốn tiếp tục kéo.
+      transformControlsRef.current?.detach();
+      attachedCharacterUrlRef.current = null;
 
       forceRerender((n) => n + 1);
     })();
