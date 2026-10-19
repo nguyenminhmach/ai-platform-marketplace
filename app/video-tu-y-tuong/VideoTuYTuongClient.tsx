@@ -2298,6 +2298,9 @@ export default function VideoTuYTuongClient({
   // phiên làm việc, KHÔNG lưu DB, không liên quan gì tới nhân vật/vị trí thật.
   const [testMarkMode, setTestMarkMode] = useState(false);
   const [testPoints, setTestPoints] = useState<{ x: number; y: number }[]>([]);
+  // DEBUG TẠM THỜI — chẩn đoán "vị trí nhân vật trong 2D đưa lên trên trời" user báo — XOÁ sau khi tìm
+  // ra nguyên nhân. Hiện ngay trên màn hình (không cần mở DevTools) để user chụp lại gửi.
+  const [debugClickInfo, setDebugClickInfo] = useState<string | null>(null);
   // Đổi ảnh đang xem (mở ảnh khác, hoặc đóng khung) thì xoá hết điểm test cũ — tránh chấm đỏ của ảnh A
   // lạc sang ảnh B.
   useEffect(() => {
@@ -3674,6 +3677,20 @@ export default function VideoTuYTuongClient({
             const rect = e.currentTarget.getBoundingClientRect();
             const x = (e.clientX - rect.left) / rect.width;
             const y = (e.clientY - rect.top) / rect.height;
+            // DEBUG TẠM THỜI — chẩn đoán "vị trí nhân vật trong 2D đưa lên trên trời" user báo — XOÁ sau
+            // khi tìm ra nguyên nhân.
+            const imgRect = (e.currentTarget.querySelector("img") as HTMLImageElement | null)?.getBoundingClientRect();
+            setDebugClickInfo(
+              `click=(${e.clientX},${e.clientY}) divRect=(${rect.left.toFixed(0)},${rect.top.toFixed(0)},${rect.width.toFixed(0)}x${rect.height.toFixed(0)}) imgRect=(${imgRect?.left.toFixed(0)},${imgRect?.top.toFixed(0)},${imgRect?.width.toFixed(0)}x${imgRect?.height.toFixed(0)}) x=${x.toFixed(3)} y=${y.toFixed(3)}`
+            );
+            // eslint-disable-next-line no-console
+            console.log("[DEBUG handlePlaceMarker]", {
+              clientX: e.clientX,
+              clientY: e.clientY,
+              rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+              computed: { x, y },
+              imgRect,
+            });
             if (testMarkMode) {
               setTestPoints((prev) => [...prev, { x, y }]);
               return;
@@ -3756,6 +3773,9 @@ export default function VideoTuYTuongClient({
                       </button>
                     )}
                   </div>
+                )}
+                {debugClickInfo && (
+                  <div className="rounded bg-yellow-900/40 p-1.5 text-[10px] text-yellow-300">DEBUG: {debugClickInfo}</div>
                 )}
                 {/* Phương án A — 2 khung song song (2D trái, 3D phải), đồng bộ real-time — thay cho bản
                     tab-chuyển-qua-lại trước đó (user phản hồi không thấy/khó nhận ra). Khung 3D hiện khi
