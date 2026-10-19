@@ -2,7 +2,29 @@
 
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-import { buildMannequin } from "@/lib/mannequin-preview";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
+
+// SỬA (phản hồi thật user: "đưa người 3D từ bên tạo ánh sáng sang thay" — khối mannequin đơn giản
+// buildMannequin() quá thô so với model người thật dùng bên khung ánh sáng/camera) — dùng chung đúng 1
+// model .glb ("Man" by Quaternius, CC0, public/models/man.glb — xem components/story-video/
+// LightSphereModal.tsx đã dùng model này trước). Tải 1 LẦN DUY NHẤT (Promise cache module-level, không
+// phải mỗi lần đổi characters lại tải lại), các nhân vật sau nhân bản từ cùng 1 template bằng
+// SkeletonUtils.clone (an toàn cho cả model có rig/skeleton, khác .clone() thường dễ vỡ xương).
+let manModelPromise: Promise<THREE.Group> | null = null;
+function loadManModel(): Promise<THREE.Group> {
+  if (!manModelPromise) {
+    manModelPromise = new Promise((resolve, reject) => {
+      new GLTFLoader().load(
+        "/models/man.glb",
+        (gltf) => resolve(gltf.scene),
+        undefined,
+        (err) => reject(err)
+      );
+    });
+  }
+  return manModelPromise;
+}
 
 export type PositionedCharacter = {
   url: string;
@@ -489,28 +511,55 @@ export function LocationPositionStage3D({
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
-    const old = scene.children.filter((c) => c.userData.isCharacterMannequin);
-    old.forEach((c) => scene.remove(c));
+    let cancelled = false;
+    (async () => {
+      const template = await loadManModel().catch(() => null);
+      if (cancelled) return;
+      const sc = sceneRef.current;
+      if (!sc) return;
+      const old = sc.children.filter((c) => c.userData.isCharacterMannequin);
+      old.forEach((c) => sc.remove(c));
+      if (!template) return; // model .glb lỗi/không tải được — bỏ qua, không chặn khung 3D còn lại
 
-    const SPREAD_X = 5;
-    const SPREAD_Z = 5;
-    for (const ch of characters) {
-      const mannequin = buildMannequin();
-      mannequin.userData.isCharacterMannequin = true;
-      const worldX = (ch.x - 0.5) * SPREAD_X;
-      const worldZ = -(1 - ch.y) * SPREAD_Z;
-      mannequin.position.set(worldX, 0, worldZ);
-      mannequin.scale.setScalar(0.42); // thu nhỏ để vừa khung + chừa chỗ nhiều người đứng cạnh nhau
-      mannequin.traverse((obj) => {
-        if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial && obj.material.color.getHex() === 0x9ca3af) {
-          const mat = obj.material.clone();
-          mat.color.set(ch.color);
-          obj.material = mat;
-        }
-      });
-      scene.add(mannequin);
-    }
-    forceRerender((n) => n + 1);
+      const SPREAD_X = 5;
+      const SPREAD_Z = 5;
+      // Scale theo CHIỀU CAO thật của model (đo 1 lần từ template, áp dụng chung cho mọi bản sao) —
+      // TARGET_HEIGHT=1.6 khớp đúng cỡ mannequin cũ (3.8 đơn vị gốc × scale 0.42 ≈ 1.6), không đổi tỉ
+      // lệ so với lưới địa hình 5×5 đã quen mắt từ trước. Gốc model đã nằm đúng ở chân (min.y≈0, xem
+      // LightSphereModal.tsx) nên không cần dịch thêm theo Y, đặt thẳng position.y=0 là chân chạm đất.
+      const box = new THREE.Box3().setFromObject(template);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      const TARGET_HEIGHT = 1.6;
+      const scale = size.y > 0 ? TARGET_HEIGHT / size.y : 1;
+
+      for (const ch of characters) {
+        const group = new THREE.Group();
+        group.userData.isCharacterMannequin = true;
+        const model = cloneSkeleton(template) as THREE.Group;
+        model.scale.setScalar(scale);
+        group.add(model);
+
+        // Model người thật giữ nguyên màu da/trang phục gốc (không tô màu đè lên, dễ vỡ hình/trông giả)
+        // — phân biệt từng nhân vật bằng 1 chấm tròn màu đúng theo màu marker 2D, đặt ngay dưới chân.
+        const ring = new THREE.Mesh(
+          new THREE.CircleGeometry(0.35, 24),
+          new THREE.MeshBasicMaterial({ color: ch.color, transparent: true, opacity: 0.85, side: THREE.DoubleSide })
+        );
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.y = 0.015;
+        group.add(ring);
+
+        const worldX = (ch.x - 0.5) * SPREAD_X;
+        const worldZ = -(1 - ch.y) * SPREAD_Z;
+        group.position.set(worldX, 0, worldZ);
+        sc.add(group);
+      }
+      forceRerender((n) => n + 1);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [characters]);
 
   // SỬA (phản hồi thật user: muốn kiểm chứng điểm 2D nào ứng điểm nào trong 3D, không cần gắn nhân vật
