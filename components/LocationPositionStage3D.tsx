@@ -34,6 +34,11 @@ type Props = {
   // (luôn méo do cách phối cảnh hội tụ). true (mặc định, xem generateLocationBlockout) = dựng địa hình
   // gồ ghề như cũ; false = CHỈ hiện sàn phẳng cho nhân vật đứng, không dựng khối từ độ sâu nữa.
   isNaturalTerrain?: boolean;
+  // SỬA (phản hồi thật user: muốn kiểm chứng trực quan điểm 2D nào tương ứng điểm nào trong 3D, không
+  // cần gắn hẳn 1 nhân vật thật) — danh sách điểm test tạm thời (không lưu DB, không liên quan nhân
+  // vật), hiện thành chấm đỏ đánh số 1,2,3... tại đúng vị trí tương ứng trong khung 3D, dùng công thức
+  // world-mapping Y HỆT nhân vật thật (xem mannequin-building effect bên dưới).
+  testPoints?: { x: number; y: number }[];
 };
 
 function loadImageEl(url: string): Promise<HTMLImageElement> {
@@ -316,7 +321,13 @@ function buildFlatGroundGeometry(gridW = 24, gridH = 20): THREE.BufferGeometry {
 // nữa (bản trước làm vậy, user phản hồi không đúng ý: "đừng cho mô hình phong cảnh quay") — khách chỉ
 // bấm-kéo TRÚNG 1 mannequin mới xoay riêng người đó tại chỗ (raycasting, xem pickMannequinAt), giống
 // đúng cách mannequin đơn cũ hoạt động, áp dụng cho từng người khi có nhiều người.
-export function LocationPositionStage3D({ characters, depthImageUrl, groundMaskUrl, isNaturalTerrain = true }: Props) {
+export function LocationPositionStage3D({
+  characters,
+  depthImageUrl,
+  groundMaskUrl,
+  isNaturalTerrain = true,
+  testPoints = [],
+}: Props) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -476,6 +487,51 @@ export function LocationPositionStage3D({ characters, depthImageUrl, groundMaskU
     }
     forceRerender((n) => n + 1);
   }, [characters]);
+
+  // SỬA (phản hồi thật user: muốn kiểm chứng điểm 2D nào ứng điểm nào trong 3D, không cần gắn nhân vật
+  // thật) — chấm đỏ đánh số, dùng ĐÚNG công thức world-mapping như mannequin thật ở trên (SPREAD_X/Z=5,
+  // cùng 1 hệ toạ độ) để chấm luôn khớp đúng, không lệch so với nhân vật thật nếu có.
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    scene.children.filter((c) => c.userData.isTestMarker).forEach((c) => scene.remove(c));
+
+    const SPREAD_X = 5;
+    const SPREAD_Z = 5;
+    testPoints.forEach((p, i) => {
+      const worldX = (p.x - 0.5) * SPREAD_X;
+      const worldZ = -(1 - p.y) * SPREAD_Z;
+
+      const dot = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 16), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
+      dot.position.set(worldX, 0.12, worldZ);
+      dot.userData.isTestMarker = true;
+      scene.add(dot);
+
+      // Nhãn số — vẽ lên canvas 2D rồi dùng làm texture cho Sprite (luôn quay mặt về camera, đọc được
+      // dù xoay góc nhìn nào), đặt lơ lửng phía trên chấm đỏ.
+      const canvas = document.createElement("canvas");
+      canvas.width = 64;
+      canvas.height = 64;
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = "#ef4444";
+      ctx.beginPath();
+      ctx.arc(32, 32, 28, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 32px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(i + 1), 32, 34);
+      const texture = new THREE.CanvasTexture(canvas);
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false }));
+      sprite.position.set(worldX, 0.55, worldZ);
+      sprite.scale.set(0.4, 0.4, 1);
+      sprite.renderOrder = 999;
+      sprite.userData.isTestMarker = true;
+      scene.add(sprite);
+    });
+    forceRerender((n) => n + 1);
+  }, [testPoints]);
 
   // Dựng lưới địa hình (heightmap) từ ảnh độ sâu — thay cho khối hộp vuông vức trước đây, cho hình
   // dạng lồi lõm giống địa hình thật (núi/vách đá nhô ra, chỗ xa lõm vào) thay vì khối chữ nhật phẳng

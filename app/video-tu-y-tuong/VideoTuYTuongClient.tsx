@@ -2292,6 +2292,18 @@ export default function VideoTuYTuongClient({
   // ảnh địa điểm + nhân vật đó được gắn chung vào 1 prompt (xem mục 18-19 kế hoạch đã lưu memory).
   const [locationPositions, setLocationPositions] = useState<Record<string, Record<string, { x: number; y: number }>>>({});
   const [positionEditorActiveChar, setPositionEditorActiveChar] = useState<string | null>(null);
+  // SỬA (phản hồi thật user: muốn kiểm chứng điểm 2D nào ứng điểm nào trong 3D mà không cần gắn hẳn 1
+  // nhân vật thật) — chế độ "đánh dấu điểm test": bật lên thì bấm vào ảnh 2D thêm 1 chấm đỏ đánh số,
+  // hiện cùng lúc cả bên 2D lẫn 3D (xem testPoints prop ở LocationPositionStage3D.tsx) — tạm thời trong
+  // phiên làm việc, KHÔNG lưu DB, không liên quan gì tới nhân vật/vị trí thật.
+  const [testMarkMode, setTestMarkMode] = useState(false);
+  const [testPoints, setTestPoints] = useState<{ x: number; y: number }[]>([]);
+  // Đổi ảnh đang xem (mở ảnh khác, hoặc đóng khung) thì xoá hết điểm test cũ — tránh chấm đỏ của ảnh A
+  // lạc sang ảnh B.
+  useEffect(() => {
+    setTestPoints([]);
+    setTestMarkMode(false);
+  }, [zoomedPromptImage]);
   // Kết quả gọi Fal.ai (ước lượng độ sâu) cho từng ảnh địa điểm — keyed theo url, chỉ gọi 1 lần/ảnh
   // (cache lại ở đây), KHÔNG tự gọi lúc gắn ảnh — chỉ gọi khi khách chủ động bấm nút "Dựng khối 3D"
   // trong khung chọn vị trí (đã bàn kỹ: gọi sớm quá dễ tốn tiền cho ảnh khách chỉ gắn thử).
@@ -3615,13 +3627,18 @@ export default function VideoTuYTuongClient({
           const assignments = locationPositions[zoomedPromptImage] ?? {};
           const activeChar = positionEditorActiveChar && characters.includes(positionEditorActiveChar) ? positionEditorActiveChar : characters[0];
           const blockoutForImage = locationBlockout[zoomedPromptImage];
-          const show3DPanel = !!blockoutForImage?.depthImageUrl || Object.keys(assignments).length > 0;
+          const show3DPanel = !!blockoutForImage?.depthImageUrl || Object.keys(assignments).length > 0 || testPoints.length > 0;
 
           function handlePlaceMarker(e: React.MouseEvent<HTMLDivElement>) {
-            if (!isLocationEditor || !activeChar) return;
+            if (!isLocationEditor) return;
             const rect = e.currentTarget.getBoundingClientRect();
             const x = (e.clientX - rect.left) / rect.width;
             const y = (e.clientY - rect.top) / rect.height;
+            if (testMarkMode) {
+              setTestPoints((prev) => [...prev, { x, y }]);
+              return;
+            }
+            if (!activeChar) return;
             setLocationPositions((prev) => ({
               ...prev,
               [zoomedPromptImage as string]: { ...(prev[zoomedPromptImage as string] ?? {}), [activeChar]: { x, y } },
@@ -3679,6 +3696,25 @@ export default function VideoTuYTuongClient({
                         </button>
                       );
                     })}
+                    <span className="mx-1 h-5 w-px bg-zinc-600" />
+                    <button
+                      type="button"
+                      onClick={() => setTestMarkMode((v) => !v)}
+                      className={`rounded-full border px-2.5 py-1 text-sm font-medium ${
+                        testMarkMode ? "border-red-500 bg-red-500/20 text-red-400" : "border-zinc-600 text-zinc-400 hover:text-zinc-200"
+                      }`}
+                    >
+                      📍 Đánh dấu điểm test{testMarkMode ? " (đang bật)" : ""}
+                    </button>
+                    {testPoints.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setTestPoints([])}
+                        className="rounded-full border border-zinc-600 px-2.5 py-1 text-sm font-medium text-zinc-400 hover:text-zinc-200"
+                      >
+                        Xoá điểm test
+                      </button>
+                    )}
                   </div>
                 )}
                 {/* Phương án A — 2 khung song song (2D trái, 3D phải), đồng bộ real-time — thay cho bản
@@ -3712,6 +3748,16 @@ export default function VideoTuYTuongClient({
                           />
                         );
                       })}
+                    {isLocationEditor &&
+                      testPoints.map((p, i) => (
+                        <div
+                          key={i}
+                          className="pointer-events-none absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white bg-red-500 text-[11px] font-bold text-white"
+                          style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%`, width: 20, height: 20 }}
+                        >
+                          {i + 1}
+                        </div>
+                      ))}
                   </div>
                   {isLocationEditor && show3DPanel && (
                     <div className="flex flex-col gap-1.5">
@@ -3736,6 +3782,7 @@ export default function VideoTuYTuongClient({
                         depthImageUrl={locationBlockout[zoomedPromptImage]?.depthImageUrl}
                         groundMaskUrl={locationBlockout[zoomedPromptImage]?.groundMaskUrl}
                         isNaturalTerrain={locationBlockout[zoomedPromptImage]?.isNaturalTerrain ?? true}
+                        testPoints={testPoints}
                       />
                     </div>
                   )}
