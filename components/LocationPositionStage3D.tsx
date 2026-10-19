@@ -580,13 +580,18 @@ export function LocationPositionStage3D({
       const SPREAD_Z = 5;
       // Scale theo CHIỀU CAO thật của model (đo 1 lần từ template, áp dụng chung cho mọi bản sao) —
       // TARGET_HEIGHT=1.6 khớp đúng cỡ mannequin cũ (3.8 đơn vị gốc × scale 0.42 ≈ 1.6), không đổi tỉ
-      // lệ so với lưới địa hình 5×5 đã quen mắt từ trước. Gốc model đã nằm đúng ở chân (min.y≈0, xem
-      // LightSphereModal.tsx) nên không cần dịch thêm theo Y, đặt thẳng position.y=0 là chân chạm đất.
+      // lệ so với lưới địa hình 5×5 đã quen mắt từ trước.
+      // SỬA (phản hồi thật user: "phải lấy mặt đất gốc toạ độ y bằng 0") — trước đây TIN gốc model đã
+      // nằm đúng ở chân (min.y≈0, dựa theo ghi chú ở LightSphereModal.tsx) nên đặt thẳng position.y=0,
+      // KHÔNG tự đo lại — không chắc chắn, rủi ro model/máy nhân bản (SkeletonUtils.clone trên rig) lệch
+      // gốc khiến chân lơ lửng hoặc chìm xuống đất. Giờ ĐO LẠI min.y thật của model rồi tính groundOffset
+      // bù trực tiếp, đảm bảo chân LUÔN chạm đúng y=0 world, không phụ thuộc giả định về gốc toạ độ gốc.
       const box = new THREE.Box3().setFromObject(template);
       const size = new THREE.Vector3();
       box.getSize(size);
       const TARGET_HEIGHT = 1.6;
       const scale = size.y > 0 ? TARGET_HEIGHT / size.y : 1;
+      const groundOffset = -box.min.y * scale; // dịch model lên/xuống để chân (điểm thấp nhất) luôn = y=0
 
       for (const ch of characters) {
         const group = new THREE.Group();
@@ -594,6 +599,7 @@ export function LocationPositionStage3D({
         group.userData.characterUrl = ch.url; // dùng để tra lại đúng nhân vật khi chọn ở chế độ "Di chuyển"
         const model = cloneSkeleton(template) as THREE.Group;
         model.scale.setScalar(scale);
+        model.position.y = groundOffset;
         group.add(model);
 
         // Model người thật giữ nguyên màu da/trang phục gốc (không tô màu đè lên, dễ vỡ hình/trông giả)
