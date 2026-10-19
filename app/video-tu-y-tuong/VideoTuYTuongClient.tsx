@@ -3696,10 +3696,18 @@ export default function VideoTuYTuongClient({
               return;
             }
             if (!activeChar) return;
-            setLocationPositions((prev) => ({
-              ...prev,
-              [zoomedPromptImage as string]: { ...(prev[zoomedPromptImage as string] ?? {}), [activeChar]: { x, y } },
-            }));
+            setLocationPositions((prev) => {
+              const next = {
+                ...prev,
+                [zoomedPromptImage as string]: { ...(prev[zoomedPromptImage as string] ?? {}), [activeChar]: { x, y } },
+              };
+              // DEBUG TẠM THỜI — in thẳng giá trị VỪA GHI vào state, không suy luận gì thêm.
+              setDebugClickInfo(
+                (prevDebug) =>
+                  `${prevDebug} || JUST SET: zoomedPromptImage=${zoomedPromptImage} activeChar=${activeChar} -> {x:${x.toFixed(3)}, y:${y.toFixed(3)}} | next[img][activeChar]=${JSON.stringify(next[zoomedPromptImage as string]?.[activeChar])}`
+              );
+              return next;
+            });
           }
 
           return (
