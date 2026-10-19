@@ -475,9 +475,13 @@ export function LocationPositionStage3D({
     // nhìn gần như từ trên xuống hơn) để giảm hẳn khoảng trời trống phía trên khối, đo được tăng từ
     // ~27% lấp đầy khung lên ~43%. KHÔNG đổi azimuth (vẫn 0, tương ứng trái/phải với ảnh 2D).
     function updateCamera() {
-      if (inspectModeRef.current) {
-        // Chế độ "Xem chi tiết" — orbit tự do quanh INSPECT_TARGET theo azimuth/pitch/distance do khách
-        // kéo/lăn chuột chỉnh (xem handlePointerMove/handleWheel), không còn cố định như chế độ đặt vị trí.
+      // SỬA (phản hồi thật user: bấm "Di chuyển" thì chế độ xoay góc nhìn ở "Xem chi tiết" bị khoá) —
+      // trước đây CHỈ orbit khi inspectModeRef, 2 chế độ loại trừ nhau. Giờ GỘP: orbit camera áp dụng
+      // bất cứ khi nào đang ở 1 trong 2 chế độ (Xem chi tiết HOẶC Di chuyển) — cho phép vừa xoay góc nhìn
+      // vừa kéo gizmo di chuyển nhân vật trong CÙNG 1 chế độ "Di chuyển", không cần thoát ra bật riêng.
+      if (inspectModeRef.current || moveModeRef.current) {
+        // Orbit tự do quanh INSPECT_TARGET theo azimuth/pitch/distance do khách kéo/lăn chuột chỉnh (xem
+        // handlePointerMove/handleWheel), không còn cố định như chế độ đặt vị trí.
         const az = inspectAzimuthRef.current;
         const pitch = inspectPitchRef.current;
         const dist = inspectDistanceRef.current;
@@ -766,24 +770,31 @@ export function LocationPositionStage3D({
 
   function handlePointerDown(e: React.PointerEvent) {
     if (moveModeRef.current) {
-      // Chế độ "Di chuyển" — bấm trúng 1 nhân vật thì gắn gizmo XYZ vào đúng người đó (kéo gizmo tự
-      // TransformControls xử lý, không qua handlePointerMove ở đây); bấm trượt ra ngoài (khoảng trống)
-      // thì BỎ gắn (chọn lại/deselect) — không xoay/kéo gì qua đường cũ (dragRef) nữa trong chế độ này.
+      // SỬA (phản hồi thật user: bấm "Di chuyển" thì mất luôn khả năng xoay góc nhìn) — chế độ "Di
+      // chuyển" giờ gộp cả 2: bấm TRÚNG nhân vật thì gắn gizmo XYZ (kéo gizmo tự TransformControls xử
+      // lý); bấm/kéo chỗ TRỐNG (không trúng gizmo, không trúng nhân vật) thì XOAY GÓC NHÌN như "Xem chi
+      // tiết" — không còn gỡ gizmo khi bấm trượt ra ngoài nữa (giữ nguyên lựa chọn, chỉ đổi góc camera).
       const tc = transformControlsRef.current;
       if (!tc) return;
       // Bấm TRÚNG gizmo (tc.axis khác null, do TransformControls tự raycast lúc hover trước đó) — để
-      // chính TransformControls xử lý kéo, KHÔNG chạy logic chọn/bỏ chọn bên dưới (nếu không, bấm vào
-      // mũi tên để bắt đầu kéo sẽ bị hiểu nhầm thành "bấm trượt ra ngoài" và gỡ gizmo ngay lập tức).
+      // chính TransformControls xử lý kéo, KHÔNG chạy logic bên dưới.
       if (tc.axis) return;
       const hit = pickMannequinAt(e.clientX, e.clientY);
       if (hit) {
         tc.attach(hit);
         attachedCharacterUrlRef.current = (hit.userData.characterUrl as string) ?? null;
-      } else {
-        tc.detach();
-        attachedCharacterUrlRef.current = null;
+        forceRerender((n) => n + 1);
+        return;
       }
-      forceRerender((n) => n + 1);
+      // Không trúng gì cả -> xoay góc nhìn, giữ nguyên gizmo đang gắn (nếu có).
+      (e.target as Element).setPointerCapture(e.pointerId);
+      orbitDragRef.current = {
+        dragging: true,
+        startX: e.clientX,
+        startY: e.clientY,
+        startAzimuth: inspectAzimuthRef.current,
+        startPitch: inspectPitchRef.current,
+      };
       return;
     }
     if (inspectModeRef.current) {
@@ -806,8 +817,11 @@ export function LocationPositionStage3D({
     dragRef.current = { dragging: true, startX: e.clientX, startRotationY: hit.rotation.y };
   }
   function handlePointerMove(e: React.PointerEvent) {
-    if (moveModeRef.current) return; // TransformControls tự xử lý kéo bằng listener riêng trên domElement
-    if (inspectModeRef.current) {
+    // SỬA (phản hồi thật user: bấm "Di chuyển" thì mất khả năng xoay góc nhìn) — chế độ "Di chuyển" giờ
+    // dùng CHUNG logic orbit với "Xem chi tiết" (chỉ chạy khi orbitDragRef.dragging=true, bắt đầu từ
+    // handlePointerDown khi bấm trúng chỗ trống — kéo gizmo thật thì TransformControls tự lo riêng,
+    // không qua đây).
+    if (moveModeRef.current || inspectModeRef.current) {
       if (!orbitDragRef.current.dragging) return;
       const dx = e.clientX - orbitDragRef.current.startX;
       const dy = e.clientY - orbitDragRef.current.startY;
@@ -822,7 +836,7 @@ export function LocationPositionStage3D({
     draggedMannequinRef.current.rotation.y = dragRef.current.startRotationY + dx * 0.012;
   }
   function handleWheel(e: React.WheelEvent) {
-    if (!inspectModeRef.current) return;
+    if (!inspectModeRef.current && !moveModeRef.current) return;
     e.preventDefault();
     const MIN_DIST = 2.5;
     const MAX_DIST = 13;
@@ -832,17 +846,13 @@ export function LocationPositionStage3D({
     setInspectMode((prev) => {
       const next = !prev;
       inspectModeRef.current = next;
-      if (next) {
-        // Vào chế độ xem chi tiết — bắt đầu từ đúng góc nhìn mặc định, không giật hình.
+      // SỬA (phản hồi thật user: bấm "Di chuyển" khoá mất "Xem chi tiết") — KHÔNG còn ép tắt chế độ kia
+      // nữa, 2 nút giờ độc lập — chỉ reset góc nhìn về mặc định khi bật lên từ trạng thái CẢ HAI đều
+      // đang tắt (tránh giật hình nếu đang orbit dở từ chế độ kia).
+      if (next && !moveModeRef.current) {
         inspectAzimuthRef.current = INSPECT_DEFAULTS.azimuth;
         inspectPitchRef.current = INSPECT_DEFAULTS.pitch;
         inspectDistanceRef.current = INSPECT_DEFAULTS.distance;
-        // Tách biệt hẳn với chế độ "Di chuyển" — bật xem chi tiết thì tắt luôn di chuyển (tránh vừa
-        // orbit camera vừa kéo gizmo cùng lúc, rối tay).
-        moveModeRef.current = false;
-        setMoveMode(false);
-        transformControlsRef.current?.detach();
-        attachedCharacterUrlRef.current = null;
       }
       return next;
     });
@@ -851,11 +861,15 @@ export function LocationPositionStage3D({
     setMoveMode((prev) => {
       const next = !prev;
       moveModeRef.current = next;
-      if (next) {
-        // Tách biệt hẳn với chế độ "Xem chi tiết" — xem lý do ở toggleInspectMode phía trên.
-        inspectModeRef.current = false;
-        setInspectMode(false);
-      } else {
+      // SỬA (phản hồi thật user: bấm "Di chuyển" khoá mất khả năng xoay ở "Xem chi tiết") — không còn
+      // ép tắt "Xem chi tiết" nữa; "Di chuyển" tự nó đã có khả năng orbit khi bấm chỗ trống (xem
+      // handlePointerDown), chỉ reset góc nhìn mặc định khi bật lên từ trạng thái cả 2 đều tắt.
+      if (next && !inspectModeRef.current) {
+        inspectAzimuthRef.current = INSPECT_DEFAULTS.azimuth;
+        inspectPitchRef.current = INSPECT_DEFAULTS.pitch;
+        inspectDistanceRef.current = INSPECT_DEFAULTS.distance;
+      }
+      if (!next) {
         transformControlsRef.current?.detach();
         attachedCharacterUrlRef.current = null;
       }
@@ -870,7 +884,9 @@ export function LocationPositionStage3D({
 
   return (
     <div
-      className={`relative aspect-[4/3] w-full touch-none overflow-hidden rounded-lg bg-zinc-900 ${inspectMode ? "cursor-move" : ""}`}
+      className={`relative aspect-[4/3] w-full touch-none overflow-hidden rounded-lg bg-zinc-900 ${
+        inspectMode || moveMode ? "cursor-move" : ""
+      }`}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -902,7 +918,7 @@ export function LocationPositionStage3D({
       </div>
       <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/50 px-2 py-0.5 text-[10px] text-white">
         {moveMode
-          ? "✥ Bấm chọn nhân vật, kéo mũi tên để di chuyển — vị trí trên ảnh 2D tự cập nhật theo"
+          ? "✥ Bấm nhân vật rồi kéo mũi tên để di chuyển — kéo chỗ trống để xoay góc nhìn"
           : inspectMode
             ? "🖱️ Kéo để xoay góc nhìn, lăn chuột để zoom"
             : "🔄 Kéo vào nhân vật để xoay riêng người đó"}
