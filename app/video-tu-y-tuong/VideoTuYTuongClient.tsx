@@ -2347,6 +2347,46 @@ export default function VideoTuYTuongClient({
       }));
     }
   }
+
+  // SỬA (phản hồi thật user: dữ liệu CÓ trong DB nhưng mở lại ảnh "không thấy" trên app — trước đây chỉ
+  // lấy lại kết quả khi khách CHỦ ĐỘNG bấm nút "Dựng khối 3D" lần nữa, không tự hiện khi mở ảnh) — tự
+  // động kiểm tra DB (GET, KHÔNG BAO GIỜ gọi AI — xem route) mỗi khi mở khung chọn vị trí cho 1 ảnh địa
+  // điểm, để khối 3D đã tạo từ trước tự hiện lại ngay. An toàn chi phí: ảnh chưa từng tạo khối 3D thì
+  // GET trả về rỗng, không tốn tiền gì — chỉ ảnh ĐÃ tạo rồi mới có gì để khôi phục.
+  useEffect(() => {
+    if (!user || !zoomedPromptImage) return;
+    if (promptImageMeta[zoomedPromptImage]?.type !== "location") return;
+    if (locationBlockout[zoomedPromptImage]) return; // đã có rồi (vừa tạo, hoặc đã khôi phục) -> khỏi gọi lại
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/story-video/location-blockout?imageUrl=${encodeURIComponent(zoomedPromptImage)}`);
+        const data = await res.json();
+        if (cancelled || !res.ok || !data.depthImageUrl) return;
+        setLocationBlockout((prev) =>
+          prev[zoomedPromptImage]
+            ? prev
+            : {
+                ...prev,
+                [zoomedPromptImage]: {
+                  status: "done",
+                  depthImageUrl: data.depthImageUrl,
+                  groundMaskUrl: data.groundMaskUrl,
+                  isNaturalTerrain: data.isNaturalTerrain,
+                },
+              }
+        );
+      } catch {
+        // im lặng bỏ qua -- chỉ là bước khôi phục tự động, lỗi ở đây không chặn gì, khách vẫn bấm
+        // "Dựng khối 3D" thủ công được như cũ.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoomedPromptImage, user]);
+
   const POSITION_MARKER_COLORS = ["#10b981", "#0ea5e9", "#f59e0b", "#d946ef", "#ef4444"]; // tối đa 5 nhân vật, xem mục 18.4
   const [pickerModal, setPickerModal] = useState<{ defaultTab: "upload" | "reference" | "favorite"; forMention: boolean } | null>(null);
   const [createToast, setCreateToast] = useState<string | null>(null);
