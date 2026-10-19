@@ -3624,7 +3624,7 @@ export default function VideoTuYTuongClient({
             >
               <div
                 className={`relative flex max-h-full flex-col gap-3 ${
-                  isLocationEditor ? "w-full max-w-6xl rounded-2xl border border-zinc-700 bg-zinc-800 p-4" : "max-w-3xl"
+                  isLocationEditor ? "w-full max-w-[92vw] rounded-2xl border border-zinc-700 bg-zinc-800 p-4 xl:max-w-7xl" : "max-w-3xl"
                 }`}
                 onClick={isLocationEditor ? (e) => e.stopPropagation() : undefined}
               >
@@ -3675,7 +3675,7 @@ export default function VideoTuYTuongClient({
                     đã có địa hình (depthImageUrl) HOẶC đã có ít nhất 1 vị trí nhân vật — không bắt buộc
                     phải có nhân vật trước mới dựng được địa hình (phản hồi thật user). Trên màn hẹp tự
                     xếp chồng (grid-cols-1) nhờ lg:grid-cols-2. */}
-                <div className={isLocationEditor ? `grid gap-3 ${show3DPanel ? "lg:grid-cols-2" : ""}` : ""}>
+                <div className={isLocationEditor ? `grid gap-3 ${show3DPanel ? "lg:grid-cols-[1fr_1.3fr]" : ""}` : ""}>
                   <div
                     className={`relative overflow-hidden rounded-lg ${isLocationEditor ? "cursor-crosshair" : ""}`}
                     onClick={isLocationEditor ? handlePlaceMarker : undefined}

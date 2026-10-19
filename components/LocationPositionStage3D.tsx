@@ -462,7 +462,7 @@ export function LocationPositionStage3D({ characters, depthImageUrl, groundMaskU
 
   return (
     <div
-      className="relative aspect-video w-full touch-none overflow-hidden rounded-lg bg-zinc-900"
+      className="relative aspect-[4/3] w-full touch-none overflow-hidden rounded-lg bg-zinc-900"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
