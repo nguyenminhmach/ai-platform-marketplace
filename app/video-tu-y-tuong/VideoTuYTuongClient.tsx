@@ -3816,10 +3816,17 @@ export default function VideoTuYTuongClient({
                         return (
                           <div
                             key={u}
-                            className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white"
-                            style={{ left: `${pos.x * 100}%`, top: `${pos.y * 100}%`, width: 16, height: 16, backgroundColor: color }}
+                            className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2"
+                            style={{ left: `${pos.x * 100}%`, top: `${pos.y * 100}%` }}
                             title={promptImageMeta[u]?.name}
-                          />
+                          >
+                            <div className="rounded-full border-2 border-white" style={{ width: 16, height: 16, backgroundColor: color }} />
+                            {/* DEBUG TẠM THỜI — in thẳng pos.x/pos.y ngay cạnh chấm, tránh đọc nhầm toạ độ
+                                pixel từ ảnh chụp màn hình. XOÁ sau khi tìm ra nguyên nhân. */}
+                            <span className="absolute left-4 top-0 whitespace-nowrap rounded bg-yellow-900/80 px-1 text-[9px] text-yellow-300">
+                              x={pos.x.toFixed(3)} y={pos.y.toFixed(3)}
+                            </span>
+                          </div>
                         );
                       })}
                     {isLocationEditor &&
