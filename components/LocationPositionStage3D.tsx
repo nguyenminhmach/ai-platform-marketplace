@@ -531,14 +531,15 @@ export function LocationPositionStage3D({
       const obj = transformControls.object;
       const url = attachedCharacterUrlRef.current;
       if (!obj || !url || !onCharacterMove) return;
-      // Kẹp trong biên lưới (X: -2.5..2.5, Z: -5..0) — kéo quá mép thì dừng lại đúng mép, không cho
-      // nhân vật lọt ra ngoài ảnh. Nghịch đảo công thức world-mapping dùng chung với mannequin/test
-      // point ở trên: worldX=(x-0.5)*5, worldZ=-(1-y)*5 -> x=worldX/5+0.5, y=1+worldZ/5.
-      obj.position.x = Math.min(2.5, Math.max(-2.5, obj.position.x));
-      obj.position.z = Math.min(0, Math.max(-5, obj.position.z));
-      obj.position.y = 0;
-      const x = obj.position.x / 5 + 0.5;
-      const y = 1 + obj.position.z / 5;
+      // SỬA (phản hồi thật user: "kéo về trục Z thì ảnh 2D vị trí sai") — bản trước GHI ĐÈ NGƯỢC LẠI
+      // obj.position ngay trong lúc đang kéo (để kẹp biên) — TransformControls tự theo dõi vị trí nội
+      // bộ để tính delta cho bước kéo TIẾP THEO (dựa trên con trỏ chuột di chuyển bao nhiêu so với vị
+      // trí NÓ nhớ), nếu mình chen vào đổi obj.position giữa chừng thì làm lệch hẳn phép tính nội bộ đó
+      // ở bước sau — lệch rõ nhất ở trục Z vì biên hẹp hơn X (-5..0 so với -2.5..2.5) nên bị ghi đè
+      // thường xuyên hơn. SỬA: không đụng vào obj.position nữa trong lúc kéo — chỉ ĐỌC (không ghi), kẹp
+      // biên cho dữ liệu x,y gửi SANG 2D thôi, để nguyên vị trí 3D thật cho thư viện tự quản lý.
+      const x = Math.min(1, Math.max(0, obj.position.x / 5 + 0.5));
+      const y = Math.min(1, Math.max(0, 1 + obj.position.z / 5));
       onCharacterMove(url, { x, y });
     });
 
