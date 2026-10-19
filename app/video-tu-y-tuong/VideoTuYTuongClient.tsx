@@ -3837,6 +3837,12 @@ export default function VideoTuYTuongClient({
                         groundMaskUrl={locationBlockout[zoomedPromptImage]?.groundMaskUrl}
                         isNaturalTerrain={locationBlockout[zoomedPromptImage]?.isNaturalTerrain ?? true}
                         testPoints={testPoints}
+                        onCharacterMove={(characterUrl, pos) =>
+                          setLocationPositions((prev) => ({
+                            ...prev,
+                            [zoomedPromptImage as string]: { ...(prev[zoomedPromptImage as string] ?? {}), [characterUrl]: pos },
+                          }))
+                        }
                       />
                     </div>
                   )}

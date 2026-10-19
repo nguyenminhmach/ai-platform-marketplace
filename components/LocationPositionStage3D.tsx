@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
+import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 
 // SỬA (phản hồi thật user: "đưa người 3D từ bên tạo ánh sáng sang thay" — khối mannequin đơn giản
 // buildMannequin() quá thô so với model người thật dùng bên khung ánh sáng/camera) — dùng chung đúng 1
@@ -61,6 +62,12 @@ type Props = {
   // vật), hiện thành chấm đỏ đánh số 1,2,3... tại đúng vị trí tương ứng trong khung 3D, dùng công thức
   // world-mapping Y HỆT nhân vật thật (xem mannequin-building effect bên dưới).
   testPoints?: { x: number; y: number }[];
+  // SỬA (phản hồi thật user: muốn nút "Di chuyển" hiện gizmo mũi tên XYZ kéo nhân vật trực tiếp trong
+  // khung 3D, kéo xong thì vị trí trên ảnh 2D cũng cập nhật theo — tham khảo TopView Film Studio) — báo
+  // ngược lên component cha (VideoTuYTuongClient.tsx) mỗi khi kéo xong vị trí 1 nhân vật, để cập nhật
+  // locationPositions giữ đồng bộ với chấm đánh dấu trên ảnh 2D. Không bắt buộc — thiếu thì nút "Di
+  // chuyển" vẫn hiện nhưng kéo xong không lưu lại vị trí mới.
+  onCharacterMove?: (characterUrl: string, pos: { x: number; y: number }) => void;
 };
 
 function loadImageEl(url: string): Promise<HTMLImageElement> {
@@ -374,6 +381,7 @@ export function LocationPositionStage3D({
   groundMaskUrl,
   isNaturalTerrain = true,
   testPoints = [],
+  onCharacterMove,
 }: Props) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -408,6 +416,18 @@ export function LocationPositionStage3D({
     startAzimuth: 0,
     startPitch: 0,
   });
+  // SỬA (phản hồi thật user: muốn nút "Di chuyển" hiện gizmo mũi tên XYZ kéo nhân vật, tham khảo
+  // TopView Film Studio) — chế độ TÁCH RIÊNG khỏi 2 chế độ trên (đặt vị trí mặc định + xem chi tiết):
+  // bật lên rồi bấm trúng 1 nhân vật mới gắn gizmo TransformControls vào đúng người đó (showY=false,
+  // chỉ cho kéo ngang mặt đất X/Z, không kéo lên trời được — đúng ràng buộc nhân vật luôn đứng trên
+  // sàn). draggingRef để tạm NGƯNG effect dựng lại mannequin (bên dưới) trong lúc đang kéo — nếu không
+  // ngưng, mỗi lần gọi onCharacterMove cập nhật locationPositions ở component cha sẽ làm characters đổi
+  // reference, effect dựng lại chạy lại, PHÁ HUỶ đúng group đang gắn gizmo giữa chừng cú kéo.
+  const moveModeRef = useRef(false);
+  const [moveMode, setMoveMode] = useState(false);
+  const transformControlsRef = useRef<TransformControls | null>(null);
+  const draggingTransformRef = useRef(false);
+  const attachedCharacterUrlRef = useRef<string | null>(null);
   const [, forceRerender] = useState(0);
 
   useEffect(() => {
@@ -489,6 +509,35 @@ export function LocationPositionStage3D({
     ro.observe(mount);
     resize();
 
+    // Gizmo mũi tên XYZ kéo nhân vật (chế độ "Di chuyển") — showY=false: chỉ cho kéo theo X/Z (mặt
+    // đất), KHÔNG cho kéo lên/xuống (nhân vật luôn đứng trên sàn, không có trục "nhảy lên"). Thêm
+    // getHelper() vào scene (bản three.js mới, API tách riêng phần hiển thị khỏi logic điều khiển),
+    // chưa gắn vào object nào (object=undefined) cho tới khi khách bấm trúng 1 nhân vật ở chế độ này.
+    const transformControls = new TransformControls(camera, renderer.domElement);
+    transformControls.setMode("translate");
+    transformControls.showY = false;
+    transformControls.size = 0.8;
+    scene.add(transformControls.getHelper());
+    transformControlsRef.current = transformControls;
+
+    transformControls.addEventListener("dragging-changed", (event) => {
+      draggingTransformRef.current = !!event.value;
+    });
+    transformControls.addEventListener("objectChange", () => {
+      const obj = transformControls.object;
+      const url = attachedCharacterUrlRef.current;
+      if (!obj || !url || !onCharacterMove) return;
+      // Kẹp trong biên lưới (X: -2.5..2.5, Z: -5..0) — kéo quá mép thì dừng lại đúng mép, không cho
+      // nhân vật lọt ra ngoài ảnh. Nghịch đảo công thức world-mapping dùng chung với mannequin/test
+      // point ở trên: worldX=(x-0.5)*5, worldZ=-(1-y)*5 -> x=worldX/5+0.5, y=1+worldZ/5.
+      obj.position.x = Math.min(2.5, Math.max(-2.5, obj.position.x));
+      obj.position.z = Math.min(0, Math.max(-5, obj.position.z));
+      obj.position.y = 0;
+      const x = obj.position.x / 5 + 0.5;
+      const y = 1 + obj.position.z / 5;
+      onCharacterMove(url, { x, y });
+    });
+
     let raf = 0;
     function loop() {
       updateCamera();
@@ -500,6 +549,7 @@ export function LocationPositionStage3D({
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      transformControls.dispose();
       renderer.dispose();
       mount.removeChild(renderer.domElement);
     };
@@ -511,6 +561,11 @@ export function LocationPositionStage3D({
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
+    // Đang kéo gizmo "Di chuyển" (xem transformControls ở trên) — KHÔNG dựng lại mannequin giữa chừng,
+    // vì mỗi lần kéo đều gọi onCharacterMove cập nhật locationPositions ở cha, khiến characters đổi
+    // reference liên tục; dựng lại sẽ phá huỷ đúng group đang gắn gizmo, làm gizmo "rơi" khỏi người
+    // đang kéo. Bỏ qua lần này, effect sẽ tự chạy lại đúng 1 lần sau khi thả chuột (characters đổi).
+    if (draggingTransformRef.current) return;
     let cancelled = false;
     (async () => {
       const template = await loadManModel().catch(() => null);
@@ -536,6 +591,7 @@ export function LocationPositionStage3D({
       for (const ch of characters) {
         const group = new THREE.Group();
         group.userData.isCharacterMannequin = true;
+        group.userData.characterUrl = ch.url; // dùng để tra lại đúng nhân vật khi chọn ở chế độ "Di chuyển"
         const model = cloneSkeleton(template) as THREE.Group;
         model.scale.setScalar(scale);
         group.add(model);
@@ -555,6 +611,23 @@ export function LocationPositionStage3D({
         group.position.set(worldX, 0, worldZ);
         sc.add(group);
       }
+
+      // Vừa dựng lại TOÀN BỘ mannequin (group cũ đã bị huỷ) — nếu đang ở chế độ "Di chuyển" và đang gắn
+      // gizmo vào 1 nhân vật, group cũ transformControls trỏ tới không còn tồn tại nữa. Tìm lại đúng
+      // group MỚI của nhân vật đó (theo characterUrl) rồi gắn lại; nhân vật đã bị xoá khỏi danh sách
+      // thì gỡ gizmo hẳn (không còn gì để gắn vào).
+      const tc = transformControlsRef.current;
+      if (tc && attachedCharacterUrlRef.current) {
+        const stillThere = sc.children.find(
+          (c) => c.userData.isCharacterMannequin && c.userData.characterUrl === attachedCharacterUrlRef.current
+        );
+        if (stillThere) tc.attach(stillThere);
+        else {
+          tc.detach();
+          attachedCharacterUrlRef.current = null;
+        }
+      }
+
       forceRerender((n) => n + 1);
     })();
     return () => {
@@ -686,6 +759,27 @@ export function LocationPositionStage3D({
   }
 
   function handlePointerDown(e: React.PointerEvent) {
+    if (moveModeRef.current) {
+      // Chế độ "Di chuyển" — bấm trúng 1 nhân vật thì gắn gizmo XYZ vào đúng người đó (kéo gizmo tự
+      // TransformControls xử lý, không qua handlePointerMove ở đây); bấm trượt ra ngoài (khoảng trống)
+      // thì BỎ gắn (chọn lại/deselect) — không xoay/kéo gì qua đường cũ (dragRef) nữa trong chế độ này.
+      const tc = transformControlsRef.current;
+      if (!tc) return;
+      // Bấm TRÚNG gizmo (tc.axis khác null, do TransformControls tự raycast lúc hover trước đó) — để
+      // chính TransformControls xử lý kéo, KHÔNG chạy logic chọn/bỏ chọn bên dưới (nếu không, bấm vào
+      // mũi tên để bắt đầu kéo sẽ bị hiểu nhầm thành "bấm trượt ra ngoài" và gỡ gizmo ngay lập tức).
+      if (tc.axis) return;
+      const hit = pickMannequinAt(e.clientX, e.clientY);
+      if (hit) {
+        tc.attach(hit);
+        attachedCharacterUrlRef.current = (hit.userData.characterUrl as string) ?? null;
+      } else {
+        tc.detach();
+        attachedCharacterUrlRef.current = null;
+      }
+      forceRerender((n) => n + 1);
+      return;
+    }
     if (inspectModeRef.current) {
       // Chế độ "Xem chi tiết" — kéo ở BẤT KỲ đâu trong khung (không cần trúng mannequin) đều xoay camera
       // quanh khối, khác hẳn chế độ đặt vị trí (chỉ xoay đúng mannequin bấm trúng).
@@ -706,6 +800,7 @@ export function LocationPositionStage3D({
     dragRef.current = { dragging: true, startX: e.clientX, startRotationY: hit.rotation.y };
   }
   function handlePointerMove(e: React.PointerEvent) {
+    if (moveModeRef.current) return; // TransformControls tự xử lý kéo bằng listener riêng trên domElement
     if (inspectModeRef.current) {
       if (!orbitDragRef.current.dragging) return;
       const dx = e.clientX - orbitDragRef.current.startX;
@@ -736,6 +831,27 @@ export function LocationPositionStage3D({
         inspectAzimuthRef.current = INSPECT_DEFAULTS.azimuth;
         inspectPitchRef.current = INSPECT_DEFAULTS.pitch;
         inspectDistanceRef.current = INSPECT_DEFAULTS.distance;
+        // Tách biệt hẳn với chế độ "Di chuyển" — bật xem chi tiết thì tắt luôn di chuyển (tránh vừa
+        // orbit camera vừa kéo gizmo cùng lúc, rối tay).
+        moveModeRef.current = false;
+        setMoveMode(false);
+        transformControlsRef.current?.detach();
+        attachedCharacterUrlRef.current = null;
+      }
+      return next;
+    });
+  }
+  function toggleMoveMode() {
+    setMoveMode((prev) => {
+      const next = !prev;
+      moveModeRef.current = next;
+      if (next) {
+        // Tách biệt hẳn với chế độ "Xem chi tiết" — xem lý do ở toggleInspectMode phía trên.
+        inspectModeRef.current = false;
+        setInspectMode(false);
+      } else {
+        transformControlsRef.current?.detach();
+        attachedCharacterUrlRef.current = null;
       }
       return next;
     });
@@ -756,17 +872,34 @@ export function LocationPositionStage3D({
       onWheel={handleWheel}
     >
       <div ref={mountRef} className="absolute inset-0" />
-      <button
-        type="button"
-        onClick={toggleInspectMode}
-        className={`absolute left-1.5 top-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium shadow ${
-          inspectMode ? "bg-indigo-500 text-white" : "bg-black/50 text-white hover:bg-black/70"
-        }`}
-      >
-        {inspectMode ? "✕ Thoát xem chi tiết" : "🔎 Xem chi tiết"}
-      </button>
+      <div className="absolute left-1.5 top-1.5 flex gap-1.5">
+        <button
+          type="button"
+          onClick={toggleInspectMode}
+          className={`rounded-full px-2.5 py-1 text-[11px] font-medium shadow ${
+            inspectMode ? "bg-indigo-500 text-white" : "bg-black/50 text-white hover:bg-black/70"
+          }`}
+        >
+          {inspectMode ? "✕ Thoát xem chi tiết" : "🔎 Xem chi tiết"}
+        </button>
+        {!!onCharacterMove && (
+          <button
+            type="button"
+            onClick={toggleMoveMode}
+            className={`rounded-full px-2.5 py-1 text-[11px] font-medium shadow ${
+              moveMode ? "bg-amber-500 text-white" : "bg-black/50 text-white hover:bg-black/70"
+            }`}
+          >
+            {moveMode ? "✕ Thoát di chuyển" : "✥ Di chuyển"}
+          </button>
+        )}
+      </div>
       <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/50 px-2 py-0.5 text-[10px] text-white">
-        {inspectMode ? "🖱️ Kéo để xoay góc nhìn, lăn chuột để zoom" : "🔄 Kéo vào nhân vật để xoay riêng người đó"}
+        {moveMode
+          ? "✥ Bấm chọn nhân vật, kéo mũi tên để di chuyển — vị trí trên ảnh 2D tự cập nhật theo"
+          : inspectMode
+            ? "🖱️ Kéo để xoay góc nhìn, lăn chuột để zoom"
+            : "🔄 Kéo vào nhân vật để xoay riêng người đó"}
       </span>
     </div>
   );
