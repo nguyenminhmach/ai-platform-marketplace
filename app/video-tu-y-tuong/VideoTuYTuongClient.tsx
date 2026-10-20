@@ -2389,7 +2389,12 @@ export default function VideoTuYTuongClient({
   // Loại + tên của ảnh gắn vào prompt khi ảnh đó đến từ kho tham chiếu (keyed theo url) — ảnh tải thô
   // ở tab "Tải lên" không có mặt trong map này (coi như không rõ loại). Dùng để biết ảnh nào là "địa
   // điểm" khi khách bấm phóng to, mở thêm khung "Chọn vị trí đứng" cho các nhân vật cũng đang gắn sẵn.
-  const [promptImageMeta, setPromptImageMeta] = useState<Record<string, { type: "character" | "location" | "prop"; name: string }>>({});
+  // SỬA (phản hồi thật user: "ta quy định là @ mà" — nhãn dưới ảnh phải hiện ĐÚNG dạng @element_id
+  // dùng để @mention trong prompt, không phải tên hiển thị có dấu — 2 thứ khác nhau, name có dấu
+  // không khớp với @mention thật đã chèn vào ô prompt) — thêm elementId vào meta để hiện đúng "@slug".
+  const [promptImageMeta, setPromptImageMeta] = useState<Record<string, { type: "character" | "location" | "prop"; name: string; elementId: string }>>(
+    {}
+  );
   const [zoomedPromptImage, setZoomedPromptImage] = useState<string | null>(null);
   // Vị trí đứng của từng nhân vật trên 1 ảnh địa điểm cụ thể — keyed theo [locationUrl][characterUrl],
   // toạ độ chuẩn hoá 0..1 (x/y tính từ góc trên-trái ảnh). Cài 1 lần, dùng lại mọi lần sau khi cùng
@@ -3378,9 +3383,12 @@ export default function VideoTuYTuongClient({
                             ✕
                           </span>
                         </div>
-                        {promptImageMeta[url]?.name && (
-                          <span className="w-full truncate text-center text-[10px] text-zinc-400" title={promptImageMeta[url].name}>
-                            {promptImageMeta[url].name}
+                        {promptImageMeta[url]?.elementId && (
+                          <span
+                            className="w-full truncate text-center text-[10px] text-zinc-400"
+                            title={`@${promptImageMeta[url].elementId} — ${promptImageMeta[url].name}`}
+                          >
+                            @{promptImageMeta[url].elementId}
                           </span>
                         )}
                       </div>
@@ -3643,9 +3651,12 @@ export default function VideoTuYTuongClient({
                             ✕
                           </span>
                         </div>
-                        {promptImageMeta[url]?.name && (
-                          <span className="w-full truncate text-center text-[10px] text-zinc-400" title={promptImageMeta[url].name}>
-                            {promptImageMeta[url].name}
+                        {promptImageMeta[url]?.elementId && (
+                          <span
+                            className="w-full truncate text-center text-[10px] text-zinc-400"
+                            title={`@${promptImageMeta[url].elementId} — ${promptImageMeta[url].name}`}
+                          >
+                            @{promptImageMeta[url].elementId}
                           </span>
                         )}
                       </div>
@@ -3759,7 +3770,7 @@ export default function VideoTuYTuongClient({
           onAddElementMeta={(items) =>
             setPromptImageMeta((prev) => {
               const next = { ...prev };
-              for (const it of items) next[it.url] = { type: it.type, name: it.name };
+              for (const it of items) next[it.url] = { type: it.type, name: it.name, elementId: it.elementId };
               return next;
             })
           }

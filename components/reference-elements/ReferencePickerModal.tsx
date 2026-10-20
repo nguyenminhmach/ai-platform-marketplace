@@ -35,7 +35,7 @@ export function ReferencePickerModal({
   // Gọi kèm onAddImages khi ảnh thêm vào đến từ 1 phần tử trong kho tham chiếu (có type/tên) — khác
   // ảnh tải lên thô ở tab "Tải lên" (không có type). Dùng để trang cha biết ảnh nào là "địa điểm" (vd
   // mở khung khoanh vùng vị trí đứng khi khách bấm phóng to đúng ảnh địa điểm đó).
-  onAddElementMeta?: (items: { url: string; type: ElementType; name: string }[]) => void;
+  onAddElementMeta?: (items: { url: string; type: ElementType; name: string; elementId: string }[]) => void;
   onInsertMention?: (elementId: string) => void;
   // Ảnh đang gắn sẵn vào prompt (promptImages ở trang cha) — dùng để tô dấu "✓ đã thêm" đúng ảnh,
   // KHÔNG dùng để tự động gắn gì cả (xem handleFiles: tải ảnh lên chỉ lưu vào thư viện "Tải lên",
@@ -135,7 +135,7 @@ export function ReferencePickerModal({
   function handlePickElement(el: ReferenceElement) {
     if (el.image_urls.length > 0) {
       onAddImages([el.image_urls[0]]);
-      onAddElementMeta?.([{ url: el.image_urls[0], type: el.type, name: el.name }]);
+      onAddElementMeta?.([{ url: el.image_urls[0], type: el.type, name: el.name, elementId: el.element_id }]);
     }
     onInsertMention?.(el.element_id);
     // Mở từ "@": chọn xong đóng luôn modal để khách quay lại viết tiếp prompt — mở từ "+" (không có
