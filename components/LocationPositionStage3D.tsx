@@ -904,20 +904,20 @@ export function LocationPositionStage3D({
     dragRef.current.dragging = false;
     draggedMannequinRef.current = null;
     orbitDragRef.current.dragging = false;
-    // SỬA (phản hồi thật user: gizmo "Di chuyển" tự bắn vị trí liên tục không ngừng, đè lên mọi cú bấm
-    // 2D sau đó) — TransformControls tự quản lý trạng thái "đang kéo" (this.dragging) bằng listener
-    // RIÊNG của nó gắn thẳng vào canvas (pointerup), độc lập với onPointerUp của React ở div bọc ngoài.
-    // Nếu khách thả chuột ra NGOÀI vùng canvas (rất dễ xảy ra khi kéo gần mép khung), listener riêng đó
-    // không nhận được sự kiện thả chuột — this.dragging bị KẸT MÃI MÃI ở true, khiến MỌI rung tay nhỏ
-    // nhất sau đó cũng bị hiểu nhầm thành "đang kéo tiếp", bắn objectChange liên tục trôi dần vị trí.
-    // Gọi thẳng pointerUp(null) ép tắt trạng thái kéo mỗi khi React nhận được pointerup/pointerleave ở
-    // ĐÂY (vùng bắt sự kiện rộng hơn hẳn canvas, luôn nhận được dù thả chuột ở đâu trong khung 3D) —
-    // "an toàn kép" đảm bảo this.dragging không bao giờ bị kẹt, kể cả khi canvas tự nó bỏ lỡ sự kiện.
-    const tc = transformControlsRef.current;
-    // DEBUG TẠM THỜI — xác nhận trực tiếp handler này THỰC SỰ chạy và dragging THỰC SỰ về false.
-    onDebugLogRef.current?.(`[panel pointerup] before dragging=${tc?.dragging}`);
-    tc?.pointerUp(null);
-    onDebugLogRef.current?.(`[panel pointerup] after dragging=${tc?.dragging}`);
+  }
+  function handlePointerLeave() {
+    dragRef.current.dragging = false;
+    draggedMannequinRef.current = null;
+    orbitDragRef.current.dragging = false;
+    // SỬA LẠI (phản hồi thật user: "mũi tên XYZ có hiện ra nhưng không di chuyển được") — bản trước gọi
+    // pointerUp(null) ở ĐÂY (pointerleave), nhưng pointerleave bắn ra ngay khi CON TRỎ CHUỘT vượt ra
+    // khỏi biên khung 3D nhỏ — chuyện XẢY RA GẦN NHƯ NGAY LẬP TỨC với bất kỳ cú kéo trục X nào (khung
+    // 3D nhỏ hơn hẳn biên độ kéo thực tế), nên vừa bấm kéo là bị ép huỷ dragging=false tức thì, gizmo
+    // coi như không kéo được gì. Pointer CAPTURE mà TransformControls tự đặt lên canvas lúc pointerdown
+    // (xem TransformControls.js onPointerDown) đã đảm bảo pointerup THẬT (khi khách thả nút chuột) vẫn
+    // luôn được bắt đúng trên canvas dù thả ở đâu — nên không cần ép tắt ở pointerleave nữa, chỉ dựa vào
+    // listener window-level pointerup thật (bên dưới) làm an toàn kép cho trường hợp thả chuột ra ngoài
+    // cả trình duyệt.
   }
 
   return (
@@ -928,7 +928,7 @@ export function LocationPositionStage3D({
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      onPointerLeave={handlePointerUp}
+      onPointerLeave={handlePointerLeave}
       onWheel={handleWheel}
     >
       <div ref={mountRef} className="absolute inset-0" />
