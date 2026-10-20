@@ -2708,7 +2708,15 @@ export default function VideoTuYTuongClient({
   const [promptLights, setPromptLights] = useState<LightSettings[] | null>(null);
 
   // Chèn "@element_id " vào đúng vị trí con trỏ trong ô "viết prompt" — mục 8 trong spec (gõ "@" chèn
-  // thẳng @mention, không chỉ chọn ảnh rời). Dùng lại state `input` đã có sẵn (prompt truyện).
+  // thẳng @mention, không chỉ chọn ảnh rời).
+  // SỬA (phản hồi thật user: chọn 2 nhân vật nhưng prompt chỉ còn đúng 1 @mention, mention đầu bị mất)
+  // — trước đây đọc thẳng state `input` từ closure của hàm này để ghép chuỗi mới. Nếu lần chèn thứ 2
+  // xảy ra trước khi React kịp re-render sau lần chèn thứ 1 (component cha re-render + truyền lại props
+  // mới cho modal picker không đồng bộ tức thì với mỗi click), lần 2 đọc phải `input` CŨ (chưa có
+  // mention đầu), setInput ghi đè mất luôn — đúng hiện tượng "chỉ còn 1 mention". Sửa triệt để: dùng
+  // functional update `setInput(prev => ...)` (luôn đọc đúng giá trị MỚI NHẤT tại thời điểm thực thi,
+  // không phụ thuộc closure cũ) + lấy vị trí con trỏ/nội dung gốc từ chính `el.value` (DOM thật) thay vì
+  // state `input` React cho phần cắt chuỗi, loại bỏ hoàn toàn khả năng lệch dữ liệu giữa 2 nguồn.
   function insertMentionAtCursor(elementId: string) {
     const el = promptTextareaRef.current;
     const mentionText = `@${elementId} `;
@@ -2716,9 +2724,10 @@ export default function VideoTuYTuongClient({
       setInput((prev) => `${prev}${mentionText}`);
       return;
     }
-    const start = el.selectionStart ?? input.length;
-    const end = el.selectionEnd ?? input.length;
-    const next = `${input.slice(0, start)}${mentionText}${input.slice(end)}`;
+    const currentValue = el.value;
+    const start = el.selectionStart ?? currentValue.length;
+    const end = el.selectionEnd ?? currentValue.length;
+    const next = `${currentValue.slice(0, start)}${mentionText}${currentValue.slice(end)}`;
     setInput(next);
     requestAnimationFrame(() => {
       el.focus();
