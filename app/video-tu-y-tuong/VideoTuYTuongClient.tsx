@@ -2301,6 +2301,18 @@ export default function VideoTuYTuongClient({
   // DEBUG TẠM THỜI — chẩn đoán "vị trí nhân vật trong 2D đưa lên trên trời" user báo — XOÁ sau khi tìm
   // ra nguyên nhân. Hiện ngay trên màn hình (không cần mở DevTools) để user chụp lại gửi.
   const [debugClickInfo, setDebugClickInfo] = useState<string | null>(null);
+  // DEBUG TẠM THỜI — NHẬT KÝ cộng dồn mọi lần setLocationPositions được gọi (từ cả handlePlaceMarker
+  // lẫn onCharacterMove của gizmo "Di chuyển"), đánh dấu rõ NGUỒN gọi — để xem có lần gọi nào KHÔNG
+  // MONG MUỐN xảy ra ngay sau cú bấm hay không, thay vì chỉ thấy giá trị cuối cùng. Dùng ref để push tức
+  // thì (đồng bộ) + 1 state đếm để ép re-render hiện log mới nhất, tránh gọi setState lồng trong
+  // setState khác (chính cách cũ nghi gây nhiễu).
+  const debugLogRef = useRef<string[]>([]);
+  const [debugLogVersion, setDebugLogVersion] = useState(0);
+  function pushDebugLog(msg: string) {
+    const t = new Date().toISOString().slice(11, 23);
+    debugLogRef.current = [...debugLogRef.current.slice(-9), `${t} ${msg}`];
+    setDebugLogVersion((v) => v + 1);
+  }
   // Đổi ảnh đang xem (mở ảnh khác, hoặc đóng khung) thì xoá hết điểm test cũ — tránh chấm đỏ của ảnh A
   // lạc sang ảnh B.
   useEffect(() => {
@@ -3696,6 +3708,7 @@ export default function VideoTuYTuongClient({
               return;
             }
             if (!activeChar) return;
+            pushDebugLog(`[2D click] activeChar=${activeChar.slice(-20)} -> x=${x.toFixed(3)} y=${y.toFixed(3)}`);
             const imgKey = zoomedPromptImage as string;
             const charKey = activeChar;
             const newPos = { x, y };
@@ -3786,6 +3799,14 @@ export default function VideoTuYTuongClient({
                 <div className="rounded bg-cyan-900/40 p-1.5 text-[10px] text-cyan-300">
                   LIVE STATE: assignments={JSON.stringify(assignments)}
                 </div>
+                {/* DEBUG TẠM THỜI — nhật ký TOÀN BỘ chuỗi gọi setLocationPositions (cả từ bấm 2D lẫn kéo
+                    gizmo 3D), đánh dấu rõ nguồn — key={debugLogVersion} ép re-render hiện log mới nhất. */}
+                <div key={debugLogVersion} className="rounded bg-fuchsia-900/40 p-1.5 text-[10px] text-fuchsia-300">
+                  LOG ({debugLogRef.current.length}):
+                  {debugLogRef.current.map((l, i) => (
+                    <div key={i}>{l}</div>
+                  ))}
+                </div>
                 {/* Phương án A — 2 khung song song (2D trái, 3D phải), đồng bộ real-time — thay cho bản
                     tab-chuyển-qua-lại trước đó (user phản hồi không thấy/khó nhận ra). Khung 3D hiện khi
                     đã có địa hình (depthImageUrl) HOẶC đã có ít nhất 1 vị trí nhân vật — không bắt buộc
@@ -3873,12 +3894,13 @@ export default function VideoTuYTuongClient({
                         groundMaskUrl={locationBlockout[zoomedPromptImage]?.groundMaskUrl}
                         isNaturalTerrain={locationBlockout[zoomedPromptImage]?.isNaturalTerrain ?? true}
                         testPoints={testPoints}
-                        onCharacterMove={(characterUrl, pos) =>
+                        onCharacterMove={(characterUrl, pos) => {
+                          pushDebugLog(`[3D gizmo] characterUrl=${characterUrl.slice(-20)} -> x=${pos.x.toFixed(3)} y=${pos.y.toFixed(3)}`);
                           setLocationPositions((prev) => ({
                             ...prev,
                             [zoomedPromptImage as string]: { ...(prev[zoomedPromptImage as string] ?? {}), [characterUrl]: pos },
-                          }))
-                        }
+                          }));
+                        }}
                       />
                     </div>
                   )}
