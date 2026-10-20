@@ -3352,26 +3352,37 @@ export default function VideoTuYTuongClient({
               <div className="flex flex-col gap-3 rounded-[28px] bg-zinc-800 p-4">
                 {promptImages.length > 0 && (
                   <div className="flex flex-wrap gap-2">
+                    {/* SỬA (phản hồi thật user: muốn tên nhân vật/địa điểm/đạo cụ hiện NGAY DƯỚI ảnh,
+                        không chỉ gộp chung thành dòng @mention bên dưới cả khối) — tên lấy từ
+                        promptImageMeta (gắn lúc chọn qua modal "@", xem onAddElementMeta ở
+                        ReferencePickerModal) — ảnh tải thô qua "+" (không qua kho tham chiếu) không có
+                        meta, không hiện nhãn gì, đúng bản chất "chỉ là ảnh rời". */}
                     {promptImages.map((url, i) => (
-                      <div
-                        key={i}
-                        role="button"
-                        onClick={() => setZoomedPromptImage(url)}
-                        className="group relative h-14 w-14 cursor-pointer overflow-hidden rounded-lg border border-zinc-700"
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={url} alt="" className="h-full w-full object-cover" />
-                        <span
+                      <div key={i} className="flex w-14 flex-col items-center gap-1">
+                        <div
                           role="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setPromptImages((prev) => prev.filter((_, idx) => idx !== i));
-                          }}
-                          title="Xoá"
-                          className="absolute right-1 top-1 hidden rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white hover:bg-red-600 group-hover:flex"
+                          onClick={() => setZoomedPromptImage(url)}
+                          className="group relative h-14 w-14 cursor-pointer overflow-hidden rounded-lg border border-zinc-700"
                         >
-                          ✕
-                        </span>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={url} alt="" className="h-full w-full object-cover" />
+                          <span
+                            role="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPromptImages((prev) => prev.filter((_, idx) => idx !== i));
+                            }}
+                            title="Xoá"
+                            className="absolute right-1 top-1 hidden rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white hover:bg-red-600 group-hover:flex"
+                          >
+                            ✕
+                          </span>
+                        </div>
+                        {promptImageMeta[url]?.name && (
+                          <span className="w-full truncate text-center text-[10px] text-zinc-400" title={promptImageMeta[url].name}>
+                            {promptImageMeta[url].name}
+                          </span>
+                        )}
                       </div>
                     ))}
                     <button
@@ -3606,26 +3617,37 @@ export default function VideoTuYTuongClient({
               <div className="flex flex-col gap-3 rounded-[28px] bg-zinc-800 p-4">
                 {promptImages.length > 0 && (
                   <div className="flex flex-wrap gap-2">
+                    {/* SỬA (phản hồi thật user: muốn tên nhân vật/địa điểm/đạo cụ hiện NGAY DƯỚI ảnh,
+                        không chỉ gộp chung thành dòng @mention bên dưới cả khối) — tên lấy từ
+                        promptImageMeta (gắn lúc chọn qua modal "@", xem onAddElementMeta ở
+                        ReferencePickerModal) — ảnh tải thô qua "+" (không qua kho tham chiếu) không có
+                        meta, không hiện nhãn gì, đúng bản chất "chỉ là ảnh rời". */}
                     {promptImages.map((url, i) => (
-                      <div
-                        key={i}
-                        role="button"
-                        onClick={() => setZoomedPromptImage(url)}
-                        className="group relative h-14 w-14 cursor-pointer overflow-hidden rounded-lg border border-zinc-700"
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={url} alt="" className="h-full w-full object-cover" />
-                        <span
+                      <div key={i} className="flex w-14 flex-col items-center gap-1">
+                        <div
                           role="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setPromptImages((prev) => prev.filter((_, idx) => idx !== i));
-                          }}
-                          title="Xoá"
-                          className="absolute right-1 top-1 hidden rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white hover:bg-red-600 group-hover:flex"
+                          onClick={() => setZoomedPromptImage(url)}
+                          className="group relative h-14 w-14 cursor-pointer overflow-hidden rounded-lg border border-zinc-700"
                         >
-                          ✕
-                        </span>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={url} alt="" className="h-full w-full object-cover" />
+                          <span
+                            role="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPromptImages((prev) => prev.filter((_, idx) => idx !== i));
+                            }}
+                            title="Xoá"
+                            className="absolute right-1 top-1 hidden rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white hover:bg-red-600 group-hover:flex"
+                          >
+                            ✕
+                          </span>
+                        </div>
+                        {promptImageMeta[url]?.name && (
+                          <span className="w-full truncate text-center text-[10px] text-zinc-400" title={promptImageMeta[url].name}>
+                            {promptImageMeta[url].name}
+                          </span>
+                        )}
                       </div>
                     ))}
                     <button
