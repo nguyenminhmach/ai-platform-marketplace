@@ -2298,21 +2298,6 @@ export default function VideoTuYTuongClient({
   // phiên làm việc, KHÔNG lưu DB, không liên quan gì tới nhân vật/vị trí thật.
   const [testMarkMode, setTestMarkMode] = useState(false);
   const [testPoints, setTestPoints] = useState<{ x: number; y: number }[]>([]);
-  // DEBUG TẠM THỜI — chẩn đoán "vị trí nhân vật trong 2D đưa lên trên trời" user báo — XOÁ sau khi tìm
-  // ra nguyên nhân. Hiện ngay trên màn hình (không cần mở DevTools) để user chụp lại gửi.
-  const [debugClickInfo, setDebugClickInfo] = useState<string | null>(null);
-  // DEBUG TẠM THỜI — NHẬT KÝ cộng dồn mọi lần setLocationPositions được gọi (từ cả handlePlaceMarker
-  // lẫn onCharacterMove của gizmo "Di chuyển"), đánh dấu rõ NGUỒN gọi — để xem có lần gọi nào KHÔNG
-  // MONG MUỐN xảy ra ngay sau cú bấm hay không, thay vì chỉ thấy giá trị cuối cùng. Dùng ref để push tức
-  // thì (đồng bộ) + 1 state đếm để ép re-render hiện log mới nhất, tránh gọi setState lồng trong
-  // setState khác (chính cách cũ nghi gây nhiễu).
-  const debugLogRef = useRef<string[]>([]);
-  const [debugLogVersion, setDebugLogVersion] = useState(0);
-  function pushDebugLog(msg: string) {
-    const t = new Date().toISOString().slice(11, 23);
-    debugLogRef.current = [...debugLogRef.current.slice(-9), `${t} ${msg}`];
-    setDebugLogVersion((v) => v + 1);
-  }
   // Đổi ảnh đang xem (mở ảnh khác, hoặc đóng khung) thì xoá hết điểm test cũ — tránh chấm đỏ của ảnh A
   // lạc sang ảnh B.
   useEffect(() => {
@@ -3689,26 +3674,11 @@ export default function VideoTuYTuongClient({
             const rect = e.currentTarget.getBoundingClientRect();
             const x = (e.clientX - rect.left) / rect.width;
             const y = (e.clientY - rect.top) / rect.height;
-            // DEBUG TẠM THỜI — chẩn đoán "vị trí nhân vật trong 2D đưa lên trên trời" user báo — XOÁ sau
-            // khi tìm ra nguyên nhân.
-            const imgRect = (e.currentTarget.querySelector("img") as HTMLImageElement | null)?.getBoundingClientRect();
-            setDebugClickInfo(
-              `click=(${e.clientX},${e.clientY}) x=${x.toFixed(3)} y=${y.toFixed(3)} | activeChar=${activeChar ?? "null"} testMarkMode=${testMarkMode} characters=[${characters.join(",")}] positionEditorActiveChar=${positionEditorActiveChar ?? "null"}`
-            );
-            // eslint-disable-next-line no-console
-            console.log("[DEBUG handlePlaceMarker]", {
-              clientX: e.clientX,
-              clientY: e.clientY,
-              rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
-              computed: { x, y },
-              imgRect,
-            });
             if (testMarkMode) {
               setTestPoints((prev) => [...prev, { x, y }]);
               return;
             }
             if (!activeChar) return;
-            pushDebugLog(`[2D click] activeChar=${activeChar.slice(-20)} -> x=${x.toFixed(3)} y=${y.toFixed(3)}`);
             const imgKey = zoomedPromptImage as string;
             const charKey = activeChar;
             const newPos = { x, y };
@@ -3790,23 +3760,6 @@ export default function VideoTuYTuongClient({
                     )}
                   </div>
                 )}
-                {debugClickInfo && (
-                  <div className="rounded bg-yellow-900/40 p-1.5 text-[10px] text-yellow-300">DEBUG: {debugClickInfo}</div>
-                )}
-                {/* DEBUG TẠM THỜI — đọc thẳng locationPositions NGAY TẠI THỜI ĐIỂM RENDER (không qua
-                    handler/updater nào) — nếu dòng này SAI thì chắc chắn lỗi nằm ở chính state
-                    locationPositions, không phải ở chỗ hiển thị marker. XOÁ sau khi tìm ra nguyên nhân. */}
-                <div className="rounded bg-cyan-900/40 p-1.5 text-[10px] text-cyan-300">
-                  LIVE STATE: assignments={JSON.stringify(assignments)}
-                </div>
-                {/* DEBUG TẠM THỜI — nhật ký TOÀN BỘ chuỗi gọi setLocationPositions (cả từ bấm 2D lẫn kéo
-                    gizmo 3D), đánh dấu rõ nguồn — key={debugLogVersion} ép re-render hiện log mới nhất. */}
-                <div key={debugLogVersion} className="rounded bg-fuchsia-900/40 p-1.5 text-[10px] text-fuchsia-300">
-                  LOG ({debugLogRef.current.length}):
-                  {debugLogRef.current.map((l, i) => (
-                    <div key={i}>{l}</div>
-                  ))}
-                </div>
                 {/* Phương án A — 2 khung song song (2D trái, 3D phải), đồng bộ real-time — thay cho bản
                     tab-chuyển-qua-lại trước đó (user phản hồi không thấy/khó nhận ra). Khung 3D hiện khi
                     đã có địa hình (depthImageUrl) HOẶC đã có ít nhất 1 vị trí nhân vật — không bắt buộc
@@ -3851,11 +3804,6 @@ export default function VideoTuYTuongClient({
                             title={promptImageMeta[u]?.name}
                           >
                             <div className="rounded-full border-2 border-white" style={{ width: 16, height: 16, backgroundColor: color }} />
-                            {/* DEBUG TẠM THỜI — in thẳng pos.x/pos.y ngay cạnh chấm, tránh đọc nhầm toạ độ
-                                pixel từ ảnh chụp màn hình. XOÁ sau khi tìm ra nguyên nhân. */}
-                            <span className="absolute left-4 top-0 whitespace-nowrap rounded bg-yellow-900/80 px-1 text-[9px] text-yellow-300">
-                              x={pos.x.toFixed(3)} y={pos.y.toFixed(3)}
-                            </span>
                           </div>
                         );
                       })}
@@ -3889,13 +3837,11 @@ export default function VideoTuYTuongClient({
                         horizonY={locationBlockout[zoomedPromptImage]?.horizonY ?? 0.5}
                         testPoints={testPoints}
                         onCharacterMove={(characterUrl, pos) => {
-                          pushDebugLog(`[3D gizmo] characterUrl=${characterUrl.slice(-20)} -> x=${pos.x.toFixed(3)} y=${pos.y.toFixed(3)}`);
                           setLocationPositions((prev) => ({
                             ...prev,
                             [zoomedPromptImage as string]: { ...(prev[zoomedPromptImage as string] ?? {}), [characterUrl]: pos },
                           }));
                         }}
-                        onDebugLog={pushDebugLog}
                       />
                     </div>
                   )}
