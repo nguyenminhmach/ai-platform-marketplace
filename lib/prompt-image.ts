@@ -47,6 +47,7 @@ export type PromptImageJobRow = {
   credit_tx_id: number | null;
   created_at: string;
   updated_at: string;
+  project_id: number | null;
 };
 
 /** Submit 1 lần tạo ảnh từ prompt bar — trừ credit NGAY (an toàn hơn trừ sau), tạo job "processing",
@@ -58,7 +59,9 @@ export async function submitPromptImageJob(
   modelKey: string | undefined,
   aspectRatio: string,
   resolutionKey: string | undefined,
-  idempotencyKey: string
+  idempotencyKey: string,
+  // SỬA (phản hồi thật user: tính năng "Dự án") — tuỳ chọn, null/undefined = không gán dự án nào.
+  projectId?: number | null
 ): Promise<{ jobId: number; newBalance: number }> {
   if (!prompt.trim()) throw new Error("Thiếu câu lệnh mô tả");
 
@@ -92,6 +95,7 @@ export async function submitPromptImageJob(
       status: "processing",
       credit_cost: creditCost,
       credit_tx_id: deduction.txId,
+      project_id: projectId ?? null,
     })
     .select("id")
     .single();
@@ -140,7 +144,7 @@ export async function applyPromptImageResult(job: PromptImageJobRow, falPayload:
   }
 
   await supabase.from("prompt_image_jobs").update({ status: "done", output_url: outputUrl }).eq("id", job.id);
-  await recordGenerationHistory(job.user_id, MINI_APP_ID, "image", outputUrl);
+  await recordGenerationHistory(job.user_id, MINI_APP_ID, "image", outputUrl, job.project_id);
 }
 
 /** Chủ động hỏi lại Fal.ai khi job "processing" quá lâu mà chưa có webhook — gọi từ resolvePromptImageJob. */

@@ -67,14 +67,62 @@ export default function VideoTuYTuongClient({
   // trang /wallet vốn gộp chung lịch sử mọi app cho khách xem tổng quan toàn tài khoản).
   type HistoryItem = { id: number; outputType: string; outputUrl: string; createdAt: string };
   const [appHistory, setAppHistory] = useState<HistoryItem[]>([]);
+  // SỬA (phản hồi thật user: muốn "Dự án" gom nội dung đã tạo ở panel nhanh này theo từng dự án đặt tên
+  // riêng) — activeProjectId khác null thì lọc đúng nội dung của dự án đó (xem content_projects/
+  // generation_history.project_id), null = xem toàn bộ lịch sử app như trước (hành vi cũ không đổi).
+  const [activeProjectId, setActiveProjectId] = useState<number | null>(null);
   function loadAppHistory() {
     if (!user || !app) return;
-    fetch(`/api/history?userId=${user.id}&miniAppId=${app.id}`)
+    const projectQuery = activeProjectId ? `&projectId=${activeProjectId}` : "";
+    fetch(`/api/history?userId=${user.id}&miniAppId=${app.id}${projectQuery}`)
       .then((res) => res.json())
       .then((data) => setAppHistory(data.items ?? []))
       .catch(() => {});
   }
-  useEffect(loadAppHistory, [user, app?.id]);
+  useEffect(loadAppHistory, [user, app?.id, activeProjectId]);
+
+  // Danh sách "Dự án" của khách (gom nội dung đã tạo theo tên riêng) — tải 1 lần khi đăng nhập, cập
+  // nhật thêm ngay khi tạo dự án mới (không cần tải lại cả danh sách).
+  type ContentProjectItem = { id: number; name: string; isPrivate: boolean; createdAt: string };
+  const [contentProjects, setContentProjects] = useState<ContentProjectItem[]>([]);
+  useEffect(() => {
+    if (!user) return;
+    fetch("/api/content-projects")
+      .then((res) => res.json())
+      .then((data) => setContentProjects(data.projects ?? []))
+      .catch(() => {});
+  }, [user]);
+  const [showNewProjectModal, setShowNewProjectModal] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [newProjectPrivate, setNewProjectPrivate] = useState(true);
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [newProjectError, setNewProjectError] = useState<string | null>(null);
+  async function handleCreateProject() {
+    if (!newProjectName.trim()) {
+      setNewProjectError("Nhập tên dự án trước đã");
+      return;
+    }
+    setCreatingProject(true);
+    setNewProjectError(null);
+    try {
+      const res = await fetch("/api/content-projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newProjectName, isPrivate: newProjectPrivate }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Có lỗi xảy ra");
+      setContentProjects((prev) => [data.project, ...prev]);
+      setActiveProjectId(data.project.id);
+      setShowNewProjectModal(false);
+      setNewProjectName("");
+      setNewProjectPrivate(true);
+    } catch (err) {
+      setNewProjectError(err instanceof Error ? err.message : "Có lỗi xảy ra");
+    } finally {
+      setCreatingProject(false);
+    }
+  }
   async function handleDeleteAppHistory(id: number) {
     if (!user) return;
     setAppHistory((items) => items.filter((item) => item.id !== id));
@@ -2904,6 +2952,7 @@ export default function VideoTuYTuongClient({
           modelKey: imageModelKey,
           aspectRatio: storyAspectRatio,
           resolutionKey: storyResolutionKey,
+          projectId: activeProjectId,
         }),
       });
       const data = await res.json();
@@ -2954,6 +3003,24 @@ export default function VideoTuYTuongClient({
           ← Danh mục
         </Link>
         <nav className="space-y-1 text-sm">
+          {/* SỬA (phản hồi thật user: dự án mới tạo xuất hiện NGAY TRÊN "trang chủ") — danh sách dự án
+              đã tạo, mỗi dòng bấm vào để lọc "Tạo" + lịch sử theo đúng dự án đó (activeProjectId). Bấm
+              lại đúng dự án đang chọn thì bỏ chọn (quay về xem toàn bộ, không lọc). */}
+          {contentProjects.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setActiveProjectId((cur) => (cur === p.id ? null : p.id))}
+              className={`block w-full truncate rounded-lg px-3 py-2 text-left ${
+                activeProjectId === p.id
+                  ? "border border-fuchsia-500/60 bg-zinc-700 font-medium text-fuchsia-400"
+                  : "text-zinc-300 hover:bg-zinc-900 hover:text-white"
+              }`}
+              title={p.name}
+            >
+              {p.name}
+            </button>
+          ))}
           <Link href="/" className="block rounded-lg px-3 py-2 text-zinc-300 hover:bg-zinc-900 hover:text-white">
             trang chủ
           </Link>
@@ -2964,8 +3031,14 @@ export default function VideoTuYTuongClient({
           <button type="button" className="block w-full rounded-lg px-3 py-2 text-left text-zinc-300 hover:bg-zinc-900 hover:text-white">
             Bộ sưu tập yêu thích
           </button>
-          <button type="button" className="block w-full rounded-lg px-3 py-2 text-left text-zinc-300 hover:bg-zinc-900 hover:text-white">
-            dự án của tôi
+          {/* SỬA (phản hồi thật user: "dự án của tôi" -> thay bằng "+ Dự án mới", bấm vào hiện modal đặt
+              tên dự án) — nút tĩnh cũ không làm gì cả, giờ mở modal tạo dự án thật. */}
+          <button
+            type="button"
+            onClick={() => setShowNewProjectModal(true)}
+            className="block w-full rounded-lg px-3 py-2 text-left text-zinc-300 hover:bg-zinc-900 hover:text-white"
+          >
+            + Dự án mới
           </button>
           <button type="button" className="block w-full rounded-lg px-3 py-2 text-left text-zinc-300 hover:bg-zinc-900 hover:text-white">
             Tất cả các dự án
@@ -2996,17 +3069,62 @@ export default function VideoTuYTuongClient({
           này mới có bo góc + lề ngoài, nền sáng hơn (zinc-800) các khối con bên trong (zinc-900). */}
       <main className="m-3 min-w-0 flex-1 overflow-y-auto rounded-[32px] bg-zinc-700">
         <div className="mx-auto max-w-5xl px-6 py-8">
-          {/* Carousel/slider — placeholder tĩnh, chưa cần logic carousel thật ở đợt này. */}
-          <div className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-3">
-            {[0, 1, 2].map((i) => (
-              <div
-                key={i}
-                className="flex h-28 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-blue-400 text-sm font-medium text-white shadow-lg"
-              >
-                carousel/slider
+          {/* SỬA (phản hồi thật user: bấm vào 1 dự án phải lọc/gom nội dung đã tạo trong đó) — thay
+              carousel placeholder bằng lưới nội dung đã tạo trong dự án đang chọn (appHistory đã lọc
+              theo activeProjectId qua loadAppHistory ở trên). Bấm lại đúng tên dự án trong sidebar để
+              bỏ chọn, quay về giao diện mặc định. */}
+          {activeProjectId ? (
+            <div className="mb-10">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-white">
+                  {contentProjects.find((p) => p.id === activeProjectId)?.name ?? "Dự án"}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setActiveProjectId(null)}
+                  className="text-sm text-zinc-400 hover:text-white"
+                >
+                  Thoát dự án
+                </button>
               </div>
-            ))}
-          </div>
+              {appHistory.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-zinc-600 p-8 text-center text-sm text-zinc-400">
+                  Dự án này chưa có nội dung nào — tạo ảnh/video bên dưới sẽ tự gom vào đây.
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {appHistory.map((item) => (
+                    <a
+                      key={item.id}
+                      href={item.outputUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block aspect-square overflow-hidden rounded-xl bg-zinc-900"
+                    >
+                      {item.outputType === "video" ? (
+                        <video src={item.outputUrl} className="h-full w-full object-cover" muted />
+                      ) : (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={item.outputUrl} alt="" className="h-full w-full object-cover" />
+                      )}
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-3">
+              {/* Carousel/slider — placeholder tĩnh, chưa cần logic carousel thật ở đợt này. */}
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="flex h-28 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-blue-400 text-sm font-medium text-white shadow-lg"
+                >
+                  carousel/slider
+                </div>
+              ))}
+            </div>
+          )}
 
           <h1 className="mb-6 text-center text-3xl font-bold text-white sm:text-4xl">Không gian cho mọi ý tưởng</h1>
 
@@ -3501,6 +3619,63 @@ export default function VideoTuYTuongClient({
           onInsertMention={pickerModal.forMention ? insertMentionAtCursor : undefined}
           selectedUrls={promptImages}
         />
+      )}
+
+      {/* Modal "Dự án mới" — đặt tên dự án để gom nội dung tạo ở panel nhanh phía trên, xem
+          onClick={() => setShowNewProjectModal(true)} ở nút "+ Dự án mới" trong sidebar. */}
+      {showNewProjectModal && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+          onClick={() => setShowNewProjectModal(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-zinc-700 bg-zinc-900 p-6 text-zinc-100 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-5 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Dự án mới</h3>
+              <button
+                type="button"
+                onClick={() => setShowNewProjectModal(false)}
+                className="rounded-full p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                aria-label="Đóng"
+              >
+                ✕
+              </button>
+            </div>
+            <input
+              type="text"
+              value={newProjectName}
+              onChange={(e) => setNewProjectName(e.target.value)}
+              placeholder="Dự án của tôi"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !creatingProject) handleCreateProject();
+              }}
+              className="mb-4 w-full rounded-lg border border-zinc-700 bg-transparent px-3 py-2 text-center text-xl font-semibold text-zinc-100 placeholder:text-zinc-600 focus:border-fuchsia-500 focus:outline-none"
+            />
+            <div className="mb-4 flex justify-center">
+              <button
+                type="button"
+                onClick={() => setNewProjectPrivate((v) => !v)}
+                className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium ${
+                  newProjectPrivate ? "bg-zinc-800 text-zinc-200" : "bg-zinc-800/50 text-zinc-500"
+                }`}
+              >
+                🔒 Dự án tư nhân
+              </button>
+            </div>
+            {newProjectError && <div className="mb-3 text-center text-sm text-red-400">{newProjectError}</div>}
+            <button
+              type="button"
+              onClick={handleCreateProject}
+              disabled={creatingProject}
+              className="w-full rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 py-3 text-base font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {creatingProject ? "Đang tạo..." : "Tạo nên"}
+            </button>
+          </div>
+        </div>
       )}
 
       {cameraModalOpen && (

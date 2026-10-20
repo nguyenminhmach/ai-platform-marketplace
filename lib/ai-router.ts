@@ -312,7 +312,11 @@ export async function recordGenerationHistory(
   userId: string,
   miniAppId: string,
   outputType: "image" | "video",
-  outputUrl: string
+  outputUrl: string,
+  // SỬA (phản hồi thật user: tính năng "Dự án" ở panel nhanh video-tu-y-tuong, gom nội dung đã tạo theo
+  // dự án đặt tên riêng) — tuỳ chọn, null/undefined = không gán dự án nào (hành vi cũ, mọi lời gọi khác
+  // không đổi gì cả).
+  projectId?: number | null
 ): Promise<void> {
   const supabase = getSupabaseAdmin();
   await supabase.from("generation_history").insert({
@@ -320,6 +324,7 @@ export async function recordGenerationHistory(
     mini_app_id: miniAppId,
     output_type: outputType,
     output_url: outputUrl,
+    project_id: projectId ?? null,
   });
 }
 

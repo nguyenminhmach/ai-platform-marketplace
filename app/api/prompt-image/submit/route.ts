@@ -12,7 +12,7 @@ export async function POST(req: Request) {
     return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
   }
 
-  const { prompt, imageUrls, modelKey, aspectRatio, resolutionKey } = await req.json();
+  const { prompt, imageUrls, modelKey, aspectRatio, resolutionKey, projectId } = await req.json();
   if (typeof prompt !== "string" || !prompt.trim()) {
     return Response.json({ error: "Thiếu câu lệnh mô tả" }, { status: 400 });
   }
@@ -25,7 +25,8 @@ export async function POST(req: Request) {
       typeof modelKey === "string" ? modelKey : undefined,
       typeof aspectRatio === "string" ? aspectRatio : "1:1",
       typeof resolutionKey === "string" ? resolutionKey : undefined,
-      randomUUID()
+      randomUUID(),
+      typeof projectId === "number" ? projectId : null
     );
     return Response.json(result);
   } catch (err) {
