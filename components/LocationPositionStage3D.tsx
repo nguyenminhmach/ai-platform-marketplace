@@ -212,6 +212,163 @@ async function loadGroundWeightGrid(maskUrl: string, gridW: number, gridH: numbe
   }
 }
 
+// SỬA (phản hồi thật user: công thức chân trời horizonY cải thiện nhưng vẫn chưa khớp sát mặt đất thật
+// — vì nó chỉ là đường cong xấp xỉ chung (1 hằng số DEPTH_SCALE đoán sẵn), không phản ánh đúng hình học
+// thật của riêng từng ảnh) — thay bằng hiệu chuẩn THẬT, lấy trực tiếp từ chính ảnh độ sâu + mặt nạ đất
+// đã có sẵn (không tốn thêm tiền AI): với mỗi HÀNG pixel của ảnh, lấy độ sáng trung bình các điểm THUỘC
+// vùng đất (theo mask) ở đúng hàng đó — ảnh độ sâu Midas "càng sáng càng gần máy ảnh" (xem ghi chú ở
+// loadImageEl phía trên) nên độ sáng trung bình mỗi hàng chính là 1 proxy thật cho độ gần/xa của MẶT ĐẤT
+// tại đúng hàng ảnh đó, phản ánh đúng góc nghiêng/độ cao camera thật của ảnh này — không còn là đường
+// cong đoán chung cho mọi ảnh nữa.
+type GroundCalibration = {
+  rows: Float32Array; // chỉ số hàng ảnh (0=mép trên) có đủ dữ liệu đất, tăng dần
+  nearness: Float32Array; // 0..1 cùng độ dài với rows — 0=xa nhất biết được, 1=gần nhất biết được, TĂNG DẦN theo rows (ép đơn điệu)
+  imgHeight: number;
+};
+
+function movingAverage1D(arr: number[], radius: number): number[] {
+  const out = new Array(arr.length);
+  for (let i = 0; i < arr.length; i++) {
+    let sum = 0;
+    let count = 0;
+    for (let j = Math.max(0, i - radius); j <= Math.min(arr.length - 1, i + radius); j++) {
+      sum += arr[j];
+      count++;
+    }
+    out[i] = sum / count;
+  }
+  return out;
+}
+
+// Dựng bảng hiệu chuẩn "hàng ảnh <-> độ gần/xa thật" cho 1 ảnh bối cảnh — gọi 1 lần khi ảnh có đủ
+// depthImageUrl + groundMaskUrl (giống buildTerrainGeometry), cache lại trong state, dùng cho MỌI lượt
+// quy đổi 2D<->3D sau đó (đặt nhân vật từ ảnh 2D, đọc lại vị trí khi kéo gizmo trong 3D...).
+async function buildGroundDepthCalibration(depthUrl: string, groundMaskUrl: string | null | undefined): Promise<GroundCalibration | null> {
+  if (!groundMaskUrl) return null; // không có mask đất -- không đủ dữ liệu, gọi nơi dùng tự rơi về công thức horizonY
+  try {
+    const [depthImg, maskImg] = await Promise.all([loadImageEl(depthUrl), loadImageEl(groundMaskUrl)]);
+    const w = depthImg.naturalWidth || depthImg.width;
+    const h = depthImg.naturalHeight || depthImg.height;
+    if (!w || !h) return null;
+
+    const dCanvas = document.createElement("canvas");
+    dCanvas.width = w;
+    dCanvas.height = h;
+    const dCtx = dCanvas.getContext("2d");
+    if (!dCtx) return null;
+    dCtx.drawImage(depthImg, 0, 0);
+    const depthData = dCtx.getImageData(0, 0, w, h).data;
+
+    // Mask có thể khác kích thước ảnh gốc (SAM-3 tự co giãn theo input) — vẽ co giãn về ĐÚNG kích thước
+    // ảnh độ sâu để đối chiếu đúng pixel-với-pixel.
+    const mCanvas = document.createElement("canvas");
+    mCanvas.width = w;
+    mCanvas.height = h;
+    const mCtx = mCanvas.getContext("2d");
+    if (!mCtx) return null;
+    mCtx.drawImage(maskImg, 0, 0, w, h);
+    const maskData = mCtx.getImageData(0, 0, w, h).data;
+
+    const rowBrightnessSum = new Float64Array(h);
+    const rowWeightSum = new Float64Array(h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = (y * w + x) * 4;
+        const alpha = maskData[idx + 3] / 255; // mask SAM-3: alpha = độ chắc chắn là "đất"
+        if (alpha < 0.05) continue;
+        const brightness = (depthData[idx] + depthData[idx + 1] + depthData[idx + 2]) / 3;
+        rowBrightnessSum[y] += brightness * alpha;
+        rowWeightSum[y] += alpha;
+      }
+    }
+
+    const rows: number[] = [];
+    const rowBrightness: number[] = [];
+    for (let y = 0; y < h; y++) {
+      // Hàng cần tối thiểu ~2% bề rộng ảnh là đất mới tính — tránh vài điểm lẻ (nhiễu mask) tạo ra 1
+      // điểm dữ liệu không đáng tin trong bảng hiệu chuẩn.
+      if (rowWeightSum[y] > w * 0.02) {
+        rows.push(y);
+        rowBrightness.push(rowBrightnessSum[y] / rowWeightSum[y]);
+      }
+    }
+    if (rows.length < 10) return null; // quá ít dữ liệu đất (ảnh toàn nhà/trời, gần như không thấy đất) -- không đủ tin cậy
+
+    // Độ sáng CÀNG CAO = CÀNG GẦN (quy ước Midas, xem ghi chú ở loadImageEl) -- nearnessRaw tăng dần theo
+    // độ gần, đúng chiều mong muốn luôn, không cần tự dò chiều.
+    const nearnessRaw = movingAverage1D(rowBrightness, 5); // làm mượt theo hàng, giảm nhiễu điểm ảnh thật
+
+    // Ép ĐƠN ĐIỆU TĂNG DẦN theo thứ tự hàng (ảnh thật luôn có nhiễu cục bộ phá vỡ tính đơn điệu lý
+    // thuyết của 1 mặt phẳng đất hoàn hảo) — bắt buộc để nghịch đảo (độ sâu -> hàng) có nghĩa. Dùng
+    // running max đơn giản hoá cho pool-adjacent-violators.
+    let runningMax = -Infinity;
+    const monotone = nearnessRaw.map((v) => {
+      runningMax = Math.max(runningMax, v);
+      return runningMax;
+    });
+
+    // Co giãn percentile 5-95 (cùng cách xử lý outlier như buildTerrainGeometry) rồi chuẩn hoá 0..1.
+    const sorted = [...monotone].sort((a, b) => a - b);
+    const pct = (p: number) => sorted[Math.min(sorted.length - 1, Math.max(0, Math.floor(p * (sorted.length - 1))))];
+    const lo = pct(0.05);
+    const hi = pct(0.95);
+    const range = hi - lo || 1;
+    const nearness = new Float32Array(rows.length);
+    for (let i = 0; i < rows.length; i++) nearness[i] = Math.min(1, Math.max(0, (monotone[i] - lo) / range));
+
+    return { rows: new Float32Array(rows), nearness, imgHeight: h };
+  } catch {
+    return null; // lỗi tải/đọc ảnh -- nơi dùng tự rơi về công thức horizonY
+  }
+}
+
+// Từ điểm bấm trên ảnh 2D (y 0..1) suy ra độ sâu 3D (0..maxDepth), dùng bảng hiệu chuẩn thật nếu có —
+// nội suy tuyến tính giữa 2 hàng hiệu chuẩn gần nhất; nếu không có hiệu chuẩn (ảnh thiếu mask/chưa đủ
+// dữ liệu đất) rơi về công thức phối cảnh xấp xỉ theo horizonY như trước.
+function y2DToDepthResolved(y2D: number, calib: GroundCalibration | null, horizonY: number, maxDepth: number): number {
+  if (!calib || calib.rows.length < 2) return y2DToDepth(y2D, horizonY, maxDepth);
+  const targetRow = y2D * (calib.imgHeight - 1);
+  const { rows, nearness } = calib;
+  let nearnessAtRow: number;
+  if (targetRow <= rows[0]) nearnessAtRow = nearness[0];
+  else if (targetRow >= rows[rows.length - 1]) nearnessAtRow = nearness[rows.length - 1];
+  else {
+    let lo = 0;
+    let hi = rows.length - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (rows[mid] <= targetRow) lo = mid;
+      else hi = mid;
+    }
+    const t = (targetRow - rows[lo]) / (rows[hi] - rows[lo] || 1);
+    nearnessAtRow = nearness[lo] + t * (nearness[hi] - nearness[lo]);
+  }
+  return (1 - nearnessAtRow) * maxDepth; // nearness cao (gần) -> độ sâu thấp
+}
+
+// Chiều ngược: từ độ sâu 3D (sau khi kéo gizmo) suy ra lại toạ độ y trên ảnh 2D, dùng bảng hiệu chuẩn
+// thật nếu có — tìm kiếm nhị phân trong mảng nearness (đã ép đơn điệu tăng dần theo rows khi dựng bảng).
+function depthToY2DResolved(depth: number, calib: GroundCalibration | null, horizonY: number, maxDepth: number): number {
+  if (!calib || calib.rows.length < 2) return depthToY2D(depth, horizonY);
+  const targetNearness = Math.min(1, Math.max(0, 1 - depth / maxDepth));
+  const { rows, nearness } = calib;
+  let row: number;
+  if (targetNearness <= nearness[0]) row = rows[0];
+  else if (targetNearness >= nearness[nearness.length - 1]) row = rows[rows.length - 1];
+  else {
+    let lo = 0;
+    let hi = nearness.length - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (nearness[mid] <= targetNearness) lo = mid;
+      else hi = mid;
+    }
+    const t = (targetNearness - nearness[lo]) / (nearness[hi] - nearness[lo] || 1);
+    row = rows[lo] + t * (rows[hi] - rows[lo]);
+  }
+  return Math.min(1, Math.max(0, row / (calib.imgHeight - 1)));
+}
+
 async function buildTerrainGeometry(
   depthUrl: string,
   groundMaskUrl: string | null | undefined,
@@ -470,6 +627,25 @@ export function LocationPositionStage3D({
   // toàn bộ effect (tạo lại renderer/scene) mỗi khi horizonY đổi.
   const horizonYRef = useRef(horizonY);
   horizonYRef.current = horizonY;
+  // Bảng hiệu chuẩn "hàng ảnh <-> độ gần/xa thật" dựng từ depth map + ground mask thật của ảnh này (xem
+  // buildGroundDepthCalibration) — chính xác hơn hẳn công thức horizonY xấp xỉ, dùng khi có đủ dữ liệu.
+  const [groundCalib, setGroundCalib] = useState<GroundCalibration | null>(null);
+  const groundCalibRef = useRef<GroundCalibration | null>(null);
+  groundCalibRef.current = groundCalib;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!depthImageUrl) {
+      setGroundCalib(null);
+      return;
+    }
+    buildGroundDepthCalibration(depthImageUrl, groundMaskUrl).then((calib) => {
+      if (!cancelled) setGroundCalib(calib);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [depthImageUrl, groundMaskUrl]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -586,11 +762,12 @@ export function LocationPositionStage3D({
       // thường xuyên hơn. SỬA: không đụng vào obj.position nữa trong lúc kéo — chỉ ĐỌC (không ghi), kẹp
       // biên cho dữ liệu x,y gửi SANG 2D thôi, để nguyên vị trí 3D thật cho thư viện tự quản lý.
       // SỬA LẦN 2 (phản hồi thật user: chấm 2D bay lên trời khi kéo xa) — y không còn tính tuyến tính
-      // theo obj.position.z nữa, dùng depthToY2D (công thức phối cảnh tụ về horizonY) — xem ghi chú ở
-      // đầu file.
+      // theo obj.position.z nữa. SỬA LẦN 3 (phản hồi thật user: "cải thiện nhưng chưa sát mặt đất") —
+      // dùng bảng hiệu chuẩn thật (groundCalibRef, dựng từ depth map + ground mask thật của ảnh) thay vì
+      // công thức horizonY xấp xỉ chung khi có đủ dữ liệu — xem depthToY2DResolved ở đầu file.
       const x = Math.min(1, Math.max(0, obj.position.x / 5 + 0.5));
       const depth = Math.min(5, Math.max(0, -obj.position.z));
-      const y = depthToY2D(depth, horizonYRef.current);
+      const y = depthToY2DResolved(depth, groundCalibRef.current, horizonYRef.current, 5);
       onCharacterMove(url, { x, y });
     });
 
@@ -686,11 +863,11 @@ export function LocationPositionStage3D({
         ring.position.y = 0.015;
         group.add(ring);
 
-        // SỬA (phản hồi thật user: chấm 2D bay lên trời khi kéo nhân vật ra xa) — worldZ không còn tính
-        // tuyến tính theo ch.y nữa, dùng y2DToDepth (chiều ngược của depthToY2D, công thức phối cảnh tụ
-        // về horizonY) để điểm bấm trên ảnh 2D chuyển đúng sang độ sâu 3D tương ứng.
+        // SỬA (phản hồi thật user: chấm 2D bay lên trời khi kéo nhân vật ra xa, rồi "chưa sát mặt đất")
+        // — worldZ không còn tính tuyến tính theo ch.y nữa, dùng y2DToDepthResolved (ưu tiên bảng hiệu
+        // chuẩn thật từ depth map + ground mask, rơi về công thức horizonY khi thiếu dữ liệu).
         const worldX = (ch.x - 0.5) * SPREAD_X;
-        const worldZ = -y2DToDepth(ch.y, horizonY, SPREAD_Z);
+        const worldZ = -y2DToDepthResolved(ch.y, groundCalib, horizonY, SPREAD_Z);
         group.position.set(worldX, 0, worldZ);
         sc.add(group);
         if (ch.url === attachedCharacterUrlRef.current) justAttachedGroup = group;
@@ -717,7 +894,7 @@ export function LocationPositionStage3D({
     return () => {
       cancelled = true;
     };
-  }, [characters, horizonY]);
+  }, [characters, horizonY, groundCalib]);
 
   // SỬA (phản hồi thật user: muốn kiểm chứng điểm 2D nào ứng điểm nào trong 3D, không cần gắn nhân vật
   // thật) — chấm đỏ đánh số, dùng ĐÚNG công thức world-mapping như mannequin thật ở trên (SPREAD_X/Z=5,
@@ -731,7 +908,7 @@ export function LocationPositionStage3D({
     const SPREAD_Z = 5;
     testPoints.forEach((p, i) => {
       const worldX = (p.x - 0.5) * SPREAD_X;
-      const worldZ = -y2DToDepth(p.y, horizonY, SPREAD_Z);
+      const worldZ = -y2DToDepthResolved(p.y, groundCalib, horizonY, SPREAD_Z);
 
       const dot = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 16), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
       dot.position.set(worldX, 0.12, worldZ);
@@ -762,7 +939,7 @@ export function LocationPositionStage3D({
       scene.add(sprite);
     });
     forceRerender((n) => n + 1);
-  }, [testPoints, horizonY]);
+  }, [testPoints, horizonY, groundCalib]);
 
   // Dựng lưới địa hình (heightmap) từ ảnh độ sâu — thay cho khối hộp vuông vức trước đây, cho hình
   // dạng lồi lõm giống địa hình thật (núi/vách đá nhô ra, chỗ xa lõm vào) thay vì khối chữ nhật phẳng
