@@ -25,6 +25,7 @@ export function ReferencePickerModal({
   onAddImages,
   onAddElementMeta,
   onInsertMention,
+  closeOnPick = true,
   selectedUrls = [],
 }: {
   defaultTab: TabKey;
@@ -37,6 +38,11 @@ export function ReferencePickerModal({
   // mở khung khoanh vùng vị trí đứng khi khách bấm phóng to đúng ảnh địa điểm đó).
   onAddElementMeta?: (items: { url: string; type: ElementType; name: string; elementId: string }[]) => void;
   onInsertMention?: (elementId: string) => void;
+  // Tự đóng modal ngay sau khi chọn 1 phần tử từ tab "Hình ảnh tham chiếu" hay không — TÁCH RIÊNG khỏi
+  // onInsertMention (trước đây dùng chung 1 điều kiện, gây lỗi "chọn qua '+' không chèn mention"). Mặc
+  // định true (đóng ngay, khớp hành vi mở từ "@" trước đây) — truyền false khi mở từ "+" muốn chọn
+  // nhiều ảnh liên tiếp mà không bị đóng giữa chừng.
+  closeOnPick?: boolean;
   // Ảnh đang gắn sẵn vào prompt (promptImages ở trang cha) — dùng để tô dấu "✓ đã thêm" đúng ảnh,
   // KHÔNG dùng để tự động gắn gì cả (xem handleFiles: tải ảnh lên chỉ lưu vào thư viện "Tải lên",
   // phải bấm chọn đúng ảnh đó thì mới gắn vào prompt).
@@ -132,15 +138,20 @@ export function ReferencePickerModal({
     if (res.ok) setElements((prev) => prev.filter((el) => el.id !== id));
   }
 
+  // SỬA (phản hồi thật user: bấm "+" rồi chuyển sang tab "Hình ảnh tham chiếu" chọn 1 phần tử có tên
+  // thật, nhưng KHÔNG được chèn @mention — vì trước đây việc chèn mention gắn theo NÚT NÀO mở modal
+  // (+/@), không gắn theo TAB NÀO chọn ảnh. Sửa đúng bản chất: chọn từ tab "Hình ảnh tham chiếu" LUÔN
+  // chèn mention (đây đúng là 1 phần tử có tên/element_id thật trong kho, xứng đáng được nhắc tới trong
+  // câu chuyện), bất kể mở modal từ "+" hay "@" — chỉ việc TỰ ĐÓNG modal sau khi chọn mới còn phân biệt
+  // theo closeOnPick (giữ nguyên trải nghiệm cũ: mở từ "@" đóng ngay để viết tiếp câu; mở từ "+" không
+  // đóng, để chọn thêm nhiều ảnh liên tiếp).
   function handlePickElement(el: ReferenceElement) {
     if (el.image_urls.length > 0) {
       onAddImages([el.image_urls[0]]);
       onAddElementMeta?.([{ url: el.image_urls[0], type: el.type, name: el.name, elementId: el.element_id }]);
     }
     onInsertMention?.(el.element_id);
-    // Mở từ "@": chọn xong đóng luôn modal để khách quay lại viết tiếp prompt — mở từ "+" (không có
-    // onInsertMention) thì chỉ thêm ảnh, không đóng, để khách chọn thêm ảnh khác nếu muốn.
-    if (onInsertMention) onClose();
+    if (closeOnPick) onClose();
   }
 
   const REF_FILTERS: Array<{ key: ElementType | "tat-ca"; label: string; icon: string }> = [

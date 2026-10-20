@@ -3739,6 +3739,11 @@ export default function VideoTuYTuongClient({
       </main>
 
       {pickerModal && (
+        // SỬA (phản hồi thật user: "nhưng khi vào thì vào mục ảnh tham khảo mà" — bấm "+" rồi chọn 1
+        // phần tử từ tab "Hình ảnh tham chiếu" bên trong modal vẫn phải được chèn @mention, vì đó là
+        // phần tử có tên thật trong kho, không phải ảnh tải thô — không còn phụ thuộc nút nào mở modal
+        // nữa, luôn truyền onInsertMention; chỉ còn việc TỰ ĐÓNG modal là khác nhau theo
+        // pickerModal.forMention (giữ nguyên trải nghiệm cũ: "+" cho chọn nhiều ảnh liên tiếp).
         <ReferencePickerModal
           defaultTab={pickerModal.defaultTab}
           onClose={() => setPickerModal(null)}
@@ -3752,7 +3757,8 @@ export default function VideoTuYTuongClient({
               return next;
             })
           }
-          onInsertMention={pickerModal.forMention ? insertMentionAtCursor : undefined}
+          onInsertMention={insertMentionAtCursor}
+          closeOnPick={pickerModal.forMention}
           selectedUrls={promptImages}
         />
       )}
