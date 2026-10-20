@@ -630,6 +630,7 @@ export function LocationPositionStage3D({
       const scale = size.y > 0 ? TARGET_HEIGHT / size.y : 1;
       const groundOffset = -box.min.y * scale; // dịch model lên/xuống để chân (điểm thấp nhất) luôn = y=0
 
+      let justAttachedGroup: THREE.Group | null = null;
       for (const ch of characters) {
         const group = new THREE.Group();
         group.userData.isCharacterMannequin = true;
@@ -653,14 +654,24 @@ export function LocationPositionStage3D({
         const worldZ = -(1 - ch.y) * SPREAD_Z;
         group.position.set(worldX, 0, worldZ);
         sc.add(group);
+        if (ch.url === attachedCharacterUrlRef.current) justAttachedGroup = group;
       }
 
-      // DEBUG TẠM THỜI — tắt hẳn việc tự gắn lại gizmo sau khi dựng lại mannequin, để kiểm chứng xem
-      // đây có phải nguyên nhân "vị trí 2D bị ghi đè sau khi lưu đúng" user báo hay không. Nếu tắt cái
-      // này mà hết lỗi thì xác nhận đúng chỗ, sẽ sửa lại cho đúng (không chỉ xoá hẳn). Gỡ gizmo hẳn mỗi
-      // khi mannequin dựng lại — khách phải bấm chọn lại nhân vật nếu muốn tiếp tục kéo.
-      transformControlsRef.current?.detach();
-      attachedCharacterUrlRef.current = null;
+      // SỬA LẠI (phản hồi thật user: "mũi tên hiện ra rồi biến mất, không di chuyển được") — bản DEBUG
+      // trước đây gỡ gizmo HOÀN TOÀN mỗi khi effect này chạy, mà `characters` là mảng MỚI (object mới)
+      // mỗi lần component cha re-render (do `.map()` tạo lại), nên effect này chạy lại rất thường xuyên,
+      // kể cả ngay sau khi khách vừa bấm CHỌN nhân vật (trước khi kịp kéo) — gỡ luôn gizmo vừa gắn, trông
+      // như "hiện ra rồi biến mất". Đã xác nhận KHÔNG phải nguyên nhân gây lỗi "vị trí 2D bị ghi đè" ở
+      // thời điểm debug trước, nên giờ khôi phục đúng hành vi mong muốn: nếu đang có nhân vật được chọn
+      // (attachedCharacterUrlRef) và nhân vật đó vẫn còn trong danh sách, GẮN LẠI gizmo vào group MỚI
+      // vừa dựng (group cũ đã bị xoá nên object cũ trong transformControls.object không còn hợp lệ) —
+      // chỉ detach khi nhân vật đó không còn (bị xoá khỏi scene).
+      if (justAttachedGroup) {
+        transformControlsRef.current?.attach(justAttachedGroup);
+      } else {
+        transformControlsRef.current?.detach();
+        attachedCharacterUrlRef.current = null;
+      }
 
       forceRerender((n) => n + 1);
     })();
