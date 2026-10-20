@@ -1182,6 +1182,39 @@ export default function VideoTuYTuongClient({
     return canvas.toDataURL("image/png");
   }
 
+  // SỬA (phản hồi thật user: "khi tạo ảnh vị trí trong ảnh không đúng như vị trí đã chọn" — hệ thống
+  // "Chọn vị trí đứng" (locationPositions, bấm 1 điểm + xem trước 3D — tính năng vừa sửa cả phiên này)
+  // trước đây CHƯA BAO GIỜ được nối vào bước tạo ảnh/video thật, chỉ là công cụ xem trước) — quy đổi mỗi
+  // điểm đã chọn (x,y chuẩn hoá 0..1, y = vị trí CHÂN/đứng trên mặt đất, đúng quy ước đã dùng cho
+  // LocationPositionStage3D) thành 1 vùng chữ nhật đặt nhân vật rồi tái dùng generateLocationMaskDataUrl
+  // ở trên — đáy khung đặt đúng tại y (chân chạm đất), giữa khung canh theo x. PLACEMENT_W/H là tỉ lệ
+  // khung hình người đứng ước lượng (không cần chính xác tuyệt đối, chỉ cần đủ để model AI hiểu VÙNG nào
+  // nên đặt nhân vật vào, không phải khung giới hạn cứng).
+  const PLACEMENT_BOX_W = 0.22;
+  const PLACEMENT_BOX_H = 0.5;
+  function generatePositionMaskDataUrl(positions: { x: number; y: number }[], naturalW: number, naturalH: number): string {
+    const rects = positions.map((p) => ({
+      x: Math.max(0, Math.min(1 - PLACEMENT_BOX_W, p.x - PLACEMENT_BOX_W / 2)),
+      y: Math.max(0, Math.min(1 - PLACEMENT_BOX_H, p.y - PLACEMENT_BOX_H)),
+      w: PLACEMENT_BOX_W,
+      h: PLACEMENT_BOX_H,
+    }));
+    return generateLocationMaskDataUrl(rects, naturalW, naturalH);
+  }
+
+  // Đọc kích thước thật (naturalWidth/Height) của 1 ảnh từ URL — cần để sinh mask đúng tỉ lệ ảnh gốc
+  // (mask phải cùng kích thước ảnh, theo yêu cầu fal-ai/gpt-image-2/edit), không thể lấy từ thẻ <img>
+  // đang hiển thị (có thể bị CSS co giãn khác kích thước thật).
+  function loadImageNaturalSize(url: string): Promise<{ w: number; h: number }> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+      img.onerror = () => reject(new Error("Không tải được ảnh để đo kích thước"));
+      img.src = url;
+    });
+  }
+
   function handleLocationMaskPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     const bounds = e.currentTarget.getBoundingClientRect();
     if (bounds.width === 0 || bounds.height === 0) return; // khung chưa có kích thước (đang ẩn) — tránh chia cho 0 ra NaN
@@ -2161,6 +2194,22 @@ export default function VideoTuYTuongClient({
     if (!reuseId || storyPrimaryItemReferences.length > 0 || hasMultipleCharacters || storyLocationReference) {
       setStoryStatusText("Đang tải ảnh lên...");
       try {
+        // SỬA (phản hồi thật user: "khi tạo ảnh vị trí trong ảnh không đúng như vị trí đã chọn" — hệ
+        // thống "Chọn vị trí đứng" điểm-click mới (locationPositions) trước đây CHƯA BAO GIỜ được nối
+        // vào bước tạo video thật, chỉ có hệ cũ kéo khung chữ nhật (storyLocationMaskRect) mới có tác
+        // dụng) — nếu ảnh Bối cảnh đang gắn có vị trí đã chọn qua hệ mới, ƯU TIÊN dùng nó (quy đổi điểm
+        // -> mask trắng/đen bằng generatePositionMaskDataUrl), chỉ rơi về mask hệ cũ (storyLocationReferenceMaskUrl)
+        // khi không có dữ liệu hệ mới — không phá luồng cũ cho job nào chưa dùng tính năng điểm-click.
+        let effectiveLocationMaskSource: string | null = storyLocationReferenceMaskUrl;
+        const positionsForLocation = storyLocationReference ? locationPositions[storyLocationReference] : undefined;
+        if (storyLocationReference && positionsForLocation && Object.keys(positionsForLocation).length > 0) {
+          try {
+            const { w, h } = await loadImageNaturalSize(storyLocationReference);
+            effectiveLocationMaskSource = generatePositionMaskDataUrl(Object.values(positionsForLocation), w, h);
+          } catch {
+            // Lỗi tạo mask từ vị trí mới -- rơi về mask hệ cũ (có thể null), không chặn tạo video.
+          }
+        }
         // Gộp TẤT CẢ lượt tải ảnh (nhân vật #1, vật phẩm #1, từng nhân vật phụ, địa điểm) vào 1 lượt
         // Promise.all duy nhất thay vì 4 khối await tuần tự như trước — mỗi khối trước đây chờ khối
         // trước xong mới bắt đầu dù hoàn toàn độc lập với nhau, cộng dồn thời gian chờ (vd 4 khối x
@@ -2207,10 +2256,10 @@ export default function VideoTuYTuongClient({
           // Vị trí đứng chính xác (mask đen/trắng, xem storyLocationReferenceMaskUrl) — mirror đúng cách
           // tải ảnh Bối cảnh ở trên: dùng thẳng nếu đã là URL thật (job khôi phục dở dang), tải lên nếu
           // là data URL PNG vừa sinh ra ở trình duyệt.
-          storyLocationReferenceMaskUrl
-            ? storyLocationReferenceMaskUrl.startsWith("http")
-              ? Promise.resolve(storyLocationReferenceMaskUrl)
-              : uploadOutfitSwapImage(storyLocationReferenceMaskUrl)
+          effectiveLocationMaskSource
+            ? effectiveLocationMaskSource.startsWith("http")
+              ? Promise.resolve(effectiveLocationMaskSource)
+              : uploadOutfitSwapImage(effectiveLocationMaskSource)
             : Promise.resolve(undefined),
         ]);
         characterImageUrls = characterImageUrlsResult;
@@ -3031,6 +3080,28 @@ export default function VideoTuYTuongClient({
         }
       }
 
+      // SỬA (phản hồi thật user: "khi tạo ảnh vị trí trong ảnh không đúng như vị trí đã chọn") — tìm
+      // đúng ảnh Địa điểm đang gắn (nếu có), lấy vị trí đã chọn qua "Chọn vị trí đứng"
+      // (locationPositions), quy đổi thành mask trắng/đen rồi tải lên — CHỈ có tác dụng thật khi model
+      // đang chọn là fal-ai/gpt-image-2/edit (xem buildImageRequestBody), model khác tự bỏ qua, không
+      // lỗi gì cả, nhưng cũng không tốn công tính/tải mask lên vô ích.
+      let maskUrl: string | null = null;
+      const imageModelEntry = storyImageModels.find((m) => m.key === imageModelKey);
+      if (imageModelEntry?.model === "fal-ai/gpt-image-2/edit") {
+        const locationUrl = promptImages.find((u) => promptImageMeta[u]?.type === "location");
+        const positions = locationUrl ? locationPositions[locationUrl] : undefined;
+        if (locationUrl && positions && Object.keys(positions).length > 0) {
+          try {
+            const { w, h } = await loadImageNaturalSize(locationUrl);
+            const maskDataUrl = generatePositionMaskDataUrl(Object.values(positions), w, h);
+            maskUrl = await uploadOutfitSwapImage(maskDataUrl);
+          } catch {
+            // Lỗi tạo/tải mask không chặn tạo ảnh -- rơi về không có mask, giống hành vi cũ trước khi
+            // có tính năng này, vẫn tạo được ảnh bình thường (chỉ không đúng vị trí đã chọn).
+          }
+        }
+      }
+
       const res = await fetch("/api/prompt-image/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -3041,6 +3112,7 @@ export default function VideoTuYTuongClient({
           aspectRatio: storyAspectRatio,
           resolutionKey: storyResolutionKey,
           projectId: activeProjectId,
+          maskUrl,
         }),
       });
       const data = await res.json();
@@ -3626,6 +3698,24 @@ export default function VideoTuYTuongClient({
                   </div>
                 </div>
               </div>
+
+              {/* SỬA (phản hồi thật user: "khi tạo ảnh vị trí trong ảnh không đúng như vị trí đã chọn")
+                  — cảnh báo khi khách ĐÃ chọn vị trí đứng cho ảnh Địa điểm đang gắn nhưng model ảnh đang
+                  chọn không hỗ trợ mask_url (chỉ fal-ai/gpt-image-2/edit hỗ trợ thật — xem
+                  buildImageRequestBody) — để khách biết cần đổi model mới có tác dụng, tránh thắc mắc
+                  "sao chọn vị trí rồi mà vẫn sai" lần nữa. */}
+              {(() => {
+                const locationUrl = promptImages.find((u) => promptImageMeta[u]?.type === "location");
+                const hasPositions = locationUrl && Object.keys(locationPositions[locationUrl] ?? {}).length > 0;
+                const modelSupportsMask = storyImageModels.find((m) => m.key === storyImageModelKey)?.model === "fal-ai/gpt-image-2/edit";
+                if (!hasPositions || modelSupportsMask) return null;
+                return (
+                  <p className="-mt-2 text-xs text-amber-400">
+                    ⚠ Đã chọn vị trí đứng nhưng model ảnh đang chọn không hỗ trợ đặt đúng vị trí — đổi model sang
+                    "GPT Image 2 Edit" để vị trí có tác dụng.
+                  </p>
+                );
+              })()}
 
               {/* KHỐI 2/2 tab "hình ảnh" — ô "viết prompt", không viền tím (đúng tab video); nút "Tạo"
                   dính liền cuối khối, có viền tím đậm + nền tím nhạt. */}

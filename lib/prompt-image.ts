@@ -61,7 +61,12 @@ export async function submitPromptImageJob(
   resolutionKey: string | undefined,
   idempotencyKey: string,
   // SỬA (phản hồi thật user: tính năng "Dự án") — tuỳ chọn, null/undefined = không gán dự án nào.
-  projectId?: number | null
+  projectId?: number | null,
+  // SỬA (phản hồi thật user: "khi tạo ảnh vị trí trong ảnh không đúng như vị trí đã chọn" — luồng tạo
+  // ảnh đơn trước đây hoàn toàn không nhận vị trí đã chọn ở "Chọn vị trí đứng") — mask đen/trắng sinh từ
+  // locationPositions ở client (xem generatePositionMaskDataUrl), CHỈ có tác dụng thật khi model đang
+  // chọn là "fal-ai/gpt-image-2/edit" (buildImageRequestBody tự bỏ qua với model khác, không throw lỗi).
+  maskUrl?: string | null
 ): Promise<{ jobId: number; newBalance: number }> {
   if (!prompt.trim()) throw new Error("Thiếu câu lệnh mô tả");
 
@@ -109,7 +114,15 @@ export async function submitPromptImageJob(
     const falApiKey = process.env.FAL_KEY;
     if (!falApiKey) throw new Error("Chưa cấu hình FAL_KEY trong .env.local");
 
-    const body = buildImageRequestBody(imageEntry.model, prompt, imageUrls, imageEntry.multi_image, aspectRatio, resolvedResolutionKey);
+    const body = buildImageRequestBody(
+      imageEntry.model,
+      prompt,
+      imageUrls,
+      imageEntry.multi_image,
+      aspectRatio,
+      resolvedResolutionKey,
+      maskUrl ?? undefined
+    );
     const webhookUrl = `${SITE_URL}/api/prompt-image/webhook?jobId=${job.id}`;
     const requestId = await submitFalJob(imageEntry.model, body, webhookUrl);
     await supabase.from("prompt_image_jobs").update({ fal_request_id: requestId }).eq("id", job.id);
