@@ -27,6 +27,30 @@ function loadManModel(): Promise<THREE.Group> {
   return manModelPromise;
 }
 
+// SỬA (phản hồi thật user: kéo nhân vật ra xa trong ô 3D làm chấm trên ảnh 2D bị đẩy vọt lên TRỜI, vượt
+// quá cả đường chân trời thật của ảnh) — công thức cũ quy đổi độ sâu 3D -> toạ độ y ảnh 2D TUYẾN TÍNH
+// (coi "xa vô hạn" luôn tiến thẳng tới mép TRÊN cùng, y=0), không biết chân trời thật nằm đâu trong ảnh.
+// Đổi sang công thức "mặt phẳng nền" kiểu pinhole camera: độ sâu 0 (ngay trước camera) -> y=1 (mép dưới,
+// như cũ), độ sâu tiến ra xa -> y tụ dần về ĐÚNG horizonY (vị trí chân trời thật, do AI ước lượng riêng
+// cho từng ảnh — xem lib/story-video.ts estimateLocationHorizon), không bao giờ vượt qua nó nữa.
+// DEPTH_SCALE là hằng số định hình tốc độ tụ (không phải thông số camera thật đo được, chỉ là xấp xỉ
+// cảm quan) — chọn bằng nửa SPREAD_Z=5 hiện có để ở độ sâu tối đa (5) vẫn còn cách chân trời 1 khoảng rõ
+// rệt (y vẫn cách horizonY một đoạn ~1/3 còn lại), tránh dính sát chân trời ngay cả khi đã kéo hết cỡ.
+const DEPTH_SCALE = 2.5;
+
+function depthToY2D(depth: number, horizonY: number): number {
+  const d = Math.max(0, depth);
+  return horizonY + (1 - horizonY) * (DEPTH_SCALE / (DEPTH_SCALE + d));
+}
+
+// Chiều ngược: từ điểm bấm trên ảnh 2D (y 0..1) suy ra độ sâu 3D tương ứng. Bấm đúng hoặc phía TRÊN
+// đường chân trời (vùng trời/quá xa) không có độ sâu hữu hạn thật — trả về độ sâu tối đa cho phép.
+function y2DToDepth(y2D: number, horizonY: number, maxDepth: number): number {
+  if (y2D <= horizonY) return maxDepth;
+  const depth = ((1 - horizonY) * DEPTH_SCALE) / (y2D - horizonY) - DEPTH_SCALE;
+  return Math.min(maxDepth, Math.max(0, depth));
+}
+
 export type PositionedCharacter = {
   url: string;
   name: string;
@@ -72,6 +96,9 @@ type Props = {
   // objectChange bắn ra và tại đúng thời điểm pointerUp(null) được gọi, để xác nhận fix "kẹt kéo" ở
   // commit 2c22105 có thực sự chạy đúng trên domain deploy thật hay không.
   onDebugLog?: (msg: string) => void;
+  // Vị trí đường chân trời ước lượng cho ảnh này (0..1, 0=mép trên, 1=mép dưới) — xem depthToY2D/
+  // y2DToDepth phía trên. Mặc định 0.5 (giữa ảnh) nếu chưa có dữ liệu (ảnh chưa "Dựng khối 3D" lần nào).
+  horizonY?: number;
 };
 
 function loadImageEl(url: string): Promise<HTMLImageElement> {
@@ -387,6 +414,7 @@ export function LocationPositionStage3D({
   testPoints = [],
   onCharacterMove,
   onDebugLog,
+  horizonY = 0.5,
 }: Props) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -438,6 +466,10 @@ export function LocationPositionStage3D({
   // chính (deps []), không re-run effect mỗi khi component cha truyền hàm mới.
   const onDebugLogRef = useRef<typeof onDebugLog>(onDebugLog);
   onDebugLogRef.current = onDebugLog;
+  // Đọc horizonY mới nhất trong objectChange handler (effect setup chính có deps []) mà không cần re-run
+  // toàn bộ effect (tạo lại renderer/scene) mỗi khi horizonY đổi.
+  const horizonYRef = useRef(horizonY);
+  horizonYRef.current = horizonY;
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -553,8 +585,12 @@ export function LocationPositionStage3D({
       // ở bước sau — lệch rõ nhất ở trục Z vì biên hẹp hơn X (-5..0 so với -2.5..2.5) nên bị ghi đè
       // thường xuyên hơn. SỬA: không đụng vào obj.position nữa trong lúc kéo — chỉ ĐỌC (không ghi), kẹp
       // biên cho dữ liệu x,y gửi SANG 2D thôi, để nguyên vị trí 3D thật cho thư viện tự quản lý.
+      // SỬA LẦN 2 (phản hồi thật user: chấm 2D bay lên trời khi kéo xa) — y không còn tính tuyến tính
+      // theo obj.position.z nữa, dùng depthToY2D (công thức phối cảnh tụ về horizonY) — xem ghi chú ở
+      // đầu file.
       const x = Math.min(1, Math.max(0, obj.position.x / 5 + 0.5));
-      const y = Math.min(1, Math.max(0, 1 + obj.position.z / 5));
+      const depth = Math.min(5, Math.max(0, -obj.position.z));
+      const y = depthToY2D(depth, horizonYRef.current);
       onCharacterMove(url, { x, y });
     });
 
@@ -650,8 +686,11 @@ export function LocationPositionStage3D({
         ring.position.y = 0.015;
         group.add(ring);
 
+        // SỬA (phản hồi thật user: chấm 2D bay lên trời khi kéo nhân vật ra xa) — worldZ không còn tính
+        // tuyến tính theo ch.y nữa, dùng y2DToDepth (chiều ngược của depthToY2D, công thức phối cảnh tụ
+        // về horizonY) để điểm bấm trên ảnh 2D chuyển đúng sang độ sâu 3D tương ứng.
         const worldX = (ch.x - 0.5) * SPREAD_X;
-        const worldZ = -(1 - ch.y) * SPREAD_Z;
+        const worldZ = -y2DToDepth(ch.y, horizonY, SPREAD_Z);
         group.position.set(worldX, 0, worldZ);
         sc.add(group);
         if (ch.url === attachedCharacterUrlRef.current) justAttachedGroup = group;
@@ -678,7 +717,7 @@ export function LocationPositionStage3D({
     return () => {
       cancelled = true;
     };
-  }, [characters]);
+  }, [characters, horizonY]);
 
   // SỬA (phản hồi thật user: muốn kiểm chứng điểm 2D nào ứng điểm nào trong 3D, không cần gắn nhân vật
   // thật) — chấm đỏ đánh số, dùng ĐÚNG công thức world-mapping như mannequin thật ở trên (SPREAD_X/Z=5,
@@ -692,7 +731,7 @@ export function LocationPositionStage3D({
     const SPREAD_Z = 5;
     testPoints.forEach((p, i) => {
       const worldX = (p.x - 0.5) * SPREAD_X;
-      const worldZ = -(1 - p.y) * SPREAD_Z;
+      const worldZ = -y2DToDepth(p.y, horizonY, SPREAD_Z);
 
       const dot = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 16), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
       dot.position.set(worldX, 0.12, worldZ);
@@ -723,7 +762,7 @@ export function LocationPositionStage3D({
       scene.add(sprite);
     });
     forceRerender((n) => n + 1);
-  }, [testPoints]);
+  }, [testPoints, horizonY]);
 
   // Dựng lưới địa hình (heightmap) từ ảnh độ sâu — thay cho khối hộp vuông vức trước đây, cho hình
   // dạng lồi lõm giống địa hình thật (núi/vách đá nhô ra, chỗ xa lõm vào) thay vì khối chữ nhật phẳng

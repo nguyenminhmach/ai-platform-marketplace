@@ -18,7 +18,7 @@ export async function GET(req: Request) {
 
   try {
     const cached = await getLocationBlockout(userId, imageUrl);
-    return Response.json(cached ?? { depthImageUrl: null, groundMaskUrl: null, isNaturalTerrain: true });
+    return Response.json(cached ?? { depthImageUrl: null, groundMaskUrl: null, isNaturalTerrain: true, horizonY: 0.5 });
   } catch (err) {
     return Response.json({ error: err instanceof Error ? err.message : "Có lỗi xảy ra" }, { status: 500 });
   }

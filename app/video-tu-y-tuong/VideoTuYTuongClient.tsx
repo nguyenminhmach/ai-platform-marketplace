@@ -2330,6 +2330,7 @@ export default function VideoTuYTuongClient({
         depthImageUrl?: string | null;
         groundMaskUrl?: string | null;
         isNaturalTerrain?: boolean;
+        horizonY?: number;
         error?: string;
       }
     >
@@ -2353,6 +2354,7 @@ export default function VideoTuYTuongClient({
           depthImageUrl: data.depthImageUrl,
           groundMaskUrl: data.groundMaskUrl,
           isNaturalTerrain: data.isNaturalTerrain,
+          horizonY: data.horizonY,
         },
       }));
     } catch (err) {
@@ -2388,6 +2390,7 @@ export default function VideoTuYTuongClient({
                   depthImageUrl: data.depthImageUrl,
                   groundMaskUrl: data.groundMaskUrl,
                   isNaturalTerrain: data.isNaturalTerrain,
+                  horizonY: data.horizonY,
                 },
               }
         );
@@ -3893,6 +3896,7 @@ export default function VideoTuYTuongClient({
                         depthImageUrl={locationBlockout[zoomedPromptImage]?.depthImageUrl}
                         groundMaskUrl={locationBlockout[zoomedPromptImage]?.groundMaskUrl}
                         isNaturalTerrain={locationBlockout[zoomedPromptImage]?.isNaturalTerrain ?? true}
+                        horizonY={locationBlockout[zoomedPromptImage]?.horizonY ?? 0.5}
                         testPoints={testPoints}
                         onCharacterMove={(characterUrl, pos) => {
                           pushDebugLog(`[3D gizmo] characterUrl=${characterUrl.slice(-20)} -> x=${pos.x.toFixed(3)} y=${pos.y.toFixed(3)}`);
