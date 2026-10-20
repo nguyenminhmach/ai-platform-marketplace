@@ -561,6 +561,17 @@ export function LocationPositionStage3D({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // SỬA (phản hồi thật user: gizmo "Di chuyển" kẹt ở trạng thái "đang kéo" mãi mãi, tự trôi vị trí) —
+  // "an toàn kép" thứ 2: ngoài việc gọi pointerUp(null) ở handlePointerUp của chính khung 3D (bắt được
+  // hầu hết trường hợp), lắng nghe THÊM pointerup trên CẢ CỬA SỔ (window) — phòng trường hợp khách thả
+  // chuột HẲN RA NGOÀI khung 3D (ra cả phần ảnh 2D, hoặc ngoài trình duyệt) khiến cả canvas lẫn div bọc
+  // ngoài đều không bắt được sự kiện thả chuột, this.dragging kẹt true vĩnh viễn.
+  useEffect(() => {
+    const onWindowPointerUp = () => transformControlsRef.current?.pointerUp(null);
+    window.addEventListener("pointerup", onWindowPointerUp);
+    return () => window.removeEventListener("pointerup", onWindowPointerUp);
+  }, []);
+
   // Dựng lại mannequin mỗi khi danh sách nhân vật/vị trí đổi — xoá hết group cũ, thêm lại từ đầu (đơn
   // giản hơn diff từng người, số lượng tối đa 5 nên không đáng lo hiệu năng — xem mục 18.4).
   useEffect(() => {
@@ -872,6 +883,16 @@ export function LocationPositionStage3D({
     dragRef.current.dragging = false;
     draggedMannequinRef.current = null;
     orbitDragRef.current.dragging = false;
+    // SỬA (phản hồi thật user: gizmo "Di chuyển" tự bắn vị trí liên tục không ngừng, đè lên mọi cú bấm
+    // 2D sau đó) — TransformControls tự quản lý trạng thái "đang kéo" (this.dragging) bằng listener
+    // RIÊNG của nó gắn thẳng vào canvas (pointerup), độc lập với onPointerUp của React ở div bọc ngoài.
+    // Nếu khách thả chuột ra NGOÀI vùng canvas (rất dễ xảy ra khi kéo gần mép khung), listener riêng đó
+    // không nhận được sự kiện thả chuột — this.dragging bị KẸT MÃI MÃI ở true, khiến MỌI rung tay nhỏ
+    // nhất sau đó cũng bị hiểu nhầm thành "đang kéo tiếp", bắn objectChange liên tục trôi dần vị trí.
+    // Gọi thẳng pointerUp(null) ép tắt trạng thái kéo mỗi khi React nhận được pointerup/pointerleave ở
+    // ĐÂY (vùng bắt sự kiện rộng hơn hẳn canvas, luôn nhận được dù thả chuột ở đâu trong khung 3D) —
+    // "an toàn kép" đảm bảo this.dragging không bao giờ bị kẹt, kể cả khi canvas tự nó bỏ lỡ sự kiện.
+    transformControlsRef.current?.pointerUp(null);
   }
 
   return (
