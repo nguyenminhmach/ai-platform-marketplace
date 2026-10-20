@@ -3357,40 +3357,29 @@ export default function VideoTuYTuongClient({
               <div className="flex flex-col gap-3 rounded-[28px] bg-zinc-800 p-4">
                 {promptImages.length > 0 && (
                   <div className="flex flex-wrap gap-2">
-                    {/* SỬA (phản hồi thật user: muốn tên nhân vật/địa điểm/đạo cụ hiện NGAY DƯỚI ảnh,
-                        không chỉ gộp chung thành dòng @mention bên dưới cả khối) — tên lấy từ
-                        promptImageMeta (gắn lúc chọn qua modal "@", xem onAddElementMeta ở
-                        ReferencePickerModal) — ảnh tải thô qua "+" (không qua kho tham chiếu) không có
-                        meta, không hiện nhãn gì, đúng bản chất "chỉ là ảnh rời". */}
+                    {/* SỬA (phản hồi thật user: "chỉ cho tên hiện trong phần viết prompt" — bỏ nhãn
+                        dưới từng ảnh, tên/mention chỉ cần hiện đúng 1 chỗ trong ô prompt qua @element_id
+                        đã chèn, không lặp lại dưới ảnh nữa). */}
                     {promptImages.map((url, i) => (
-                      <div key={i} className="flex w-14 flex-col items-center gap-1">
-                        <div
+                      <div
+                        key={i}
+                        role="button"
+                        onClick={() => setZoomedPromptImage(url)}
+                        className="group relative h-14 w-14 cursor-pointer overflow-hidden rounded-lg border border-zinc-700"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={url} alt="" className="h-full w-full object-cover" />
+                        <span
                           role="button"
-                          onClick={() => setZoomedPromptImage(url)}
-                          className="group relative h-14 w-14 cursor-pointer overflow-hidden rounded-lg border border-zinc-700"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPromptImages((prev) => prev.filter((_, idx) => idx !== i));
+                          }}
+                          title="Xoá"
+                          className="absolute right-1 top-1 hidden rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white hover:bg-red-600 group-hover:flex"
                         >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={url} alt="" className="h-full w-full object-cover" />
-                          <span
-                            role="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setPromptImages((prev) => prev.filter((_, idx) => idx !== i));
-                            }}
-                            title="Xoá"
-                            className="absolute right-1 top-1 hidden rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white hover:bg-red-600 group-hover:flex"
-                          >
-                            ✕
-                          </span>
-                        </div>
-                        {promptImageMeta[url]?.elementId && (
-                          <span
-                            className="w-full truncate text-center text-[10px] text-zinc-400"
-                            title={`@${promptImageMeta[url].elementId} — ${promptImageMeta[url].name}`}
-                          >
-                            @{promptImageMeta[url].elementId}
-                          </span>
-                        )}
+                          ✕
+                        </span>
                       </div>
                     ))}
                     <button
@@ -3625,40 +3614,29 @@ export default function VideoTuYTuongClient({
               <div className="flex flex-col gap-3 rounded-[28px] bg-zinc-800 p-4">
                 {promptImages.length > 0 && (
                   <div className="flex flex-wrap gap-2">
-                    {/* SỬA (phản hồi thật user: muốn tên nhân vật/địa điểm/đạo cụ hiện NGAY DƯỚI ảnh,
-                        không chỉ gộp chung thành dòng @mention bên dưới cả khối) — tên lấy từ
-                        promptImageMeta (gắn lúc chọn qua modal "@", xem onAddElementMeta ở
-                        ReferencePickerModal) — ảnh tải thô qua "+" (không qua kho tham chiếu) không có
-                        meta, không hiện nhãn gì, đúng bản chất "chỉ là ảnh rời". */}
+                    {/* SỬA (phản hồi thật user: "chỉ cho tên hiện trong phần viết prompt" — bỏ nhãn
+                        dưới từng ảnh, tên/mention chỉ cần hiện đúng 1 chỗ trong ô prompt qua @element_id
+                        đã chèn, không lặp lại dưới ảnh nữa). */}
                     {promptImages.map((url, i) => (
-                      <div key={i} className="flex w-14 flex-col items-center gap-1">
-                        <div
+                      <div
+                        key={i}
+                        role="button"
+                        onClick={() => setZoomedPromptImage(url)}
+                        className="group relative h-14 w-14 cursor-pointer overflow-hidden rounded-lg border border-zinc-700"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={url} alt="" className="h-full w-full object-cover" />
+                        <span
                           role="button"
-                          onClick={() => setZoomedPromptImage(url)}
-                          className="group relative h-14 w-14 cursor-pointer overflow-hidden rounded-lg border border-zinc-700"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPromptImages((prev) => prev.filter((_, idx) => idx !== i));
+                          }}
+                          title="Xoá"
+                          className="absolute right-1 top-1 hidden rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white hover:bg-red-600 group-hover:flex"
                         >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={url} alt="" className="h-full w-full object-cover" />
-                          <span
-                            role="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setPromptImages((prev) => prev.filter((_, idx) => idx !== i));
-                            }}
-                            title="Xoá"
-                            className="absolute right-1 top-1 hidden rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white hover:bg-red-600 group-hover:flex"
-                          >
-                            ✕
-                          </span>
-                        </div>
-                        {promptImageMeta[url]?.elementId && (
-                          <span
-                            className="w-full truncate text-center text-[10px] text-zinc-400"
-                            title={`@${promptImageMeta[url].elementId} — ${promptImageMeta[url].name}`}
-                          >
-                            @{promptImageMeta[url].elementId}
-                          </span>
-                        )}
+                          ✕
+                        </span>
                       </div>
                     ))}
                     <button
