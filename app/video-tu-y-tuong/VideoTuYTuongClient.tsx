@@ -2329,7 +2329,6 @@ export default function VideoTuYTuongClient({
         status: "loading" | "done" | "error";
         depthImageUrl?: string | null;
         groundMaskUrl?: string | null;
-        isNaturalTerrain?: boolean;
         horizonY?: number;
         error?: string;
       }
@@ -2353,7 +2352,6 @@ export default function VideoTuYTuongClient({
           status: "done",
           depthImageUrl: data.depthImageUrl,
           groundMaskUrl: data.groundMaskUrl,
-          isNaturalTerrain: data.isNaturalTerrain,
           horizonY: data.horizonY,
         },
       }));
@@ -2389,7 +2387,6 @@ export default function VideoTuYTuongClient({
                   status: "done",
                   depthImageUrl: data.depthImageUrl,
                   groundMaskUrl: data.groundMaskUrl,
-                  isNaturalTerrain: data.isNaturalTerrain,
                   horizonY: data.horizonY,
                 },
               }
@@ -3875,13 +3872,7 @@ export default function VideoTuYTuongClient({
                   </div>
                   {isLocationEditor && show3DPanel && (
                     <div className="flex flex-col gap-1.5">
-                      <span className="text-xs text-zinc-400">
-                        Xem 3D — kéo chuột để xoay:
-                        {locationBlockout[zoomedPromptImage]?.status === "done" &&
-                          locationBlockout[zoomedPromptImage]?.isNaturalTerrain === false && (
-                            <span className="ml-1 text-zinc-500">(ảnh phố/kiến trúc — chỉ hiện sàn phẳng)</span>
-                          )}
-                      </span>
+                      <span className="text-xs text-zinc-400">Xem 3D — kéo chuột để xoay:</span>
                       <LocationPositionStage3D
                         locationUrl={zoomedPromptImage}
                         characters={characters
@@ -3895,7 +3886,6 @@ export default function VideoTuYTuongClient({
                           .map((c) => ({ url: c.url, name: c.name, color: c.color, x: c.pos.x, y: c.pos.y }))}
                         depthImageUrl={locationBlockout[zoomedPromptImage]?.depthImageUrl}
                         groundMaskUrl={locationBlockout[zoomedPromptImage]?.groundMaskUrl}
-                        isNaturalTerrain={locationBlockout[zoomedPromptImage]?.isNaturalTerrain ?? true}
                         horizonY={locationBlockout[zoomedPromptImage]?.horizonY ?? 0.5}
                         testPoints={testPoints}
                         onCharacterMove={(characterUrl, pos) => {

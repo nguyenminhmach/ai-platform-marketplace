@@ -1044,12 +1044,6 @@ async function callFalSync(model: string, body: Record<string, unknown>): Promis
 export type LocationBlockoutResult = {
   depthImageUrl: string | null;
   groundMaskUrl: string | null;
-  // SỬA lần 4 (phản hồi thật user: ảnh phố/kiến trúc có điểm hội tụ phối cảnh — biến độ sâu thành độ
-  // cao luôn ra hình "phễu/xoáy" méo mó, KHÔNG phải lỗi tham số, mà là giới hạn thật của kỹ thuật
-  // heightmap-từ-độ-sâu với ảnh có phối cảnh hội tụ 1 điểm). Kỹ thuật này chỉ hợp với cảnh THIÊN NHIÊN
-  // ngoài trời (núi/vách đá/rừng — có cao độ thật kiểu địa hình). true = nên dựng địa hình gồ ghề, false
-  // = ảnh phố/kiến trúc/nội thất, chỉ nên hiện sàn phẳng cho nhân vật đứng, không cố dựng khối dễ méo.
-  isNaturalTerrain: boolean;
   // SỬA (phản hồi thật user: kéo nhân vật ra xa trong ô 3D thì chấm trên ảnh 2D bị đẩy vọt lên TRỜI,
   // vượt quá cả đường chân trời thật của ảnh) — nguyên nhân: công thức quy đổi độ sâu 3D -> toạ độ y
   // trên ảnh 2D trước đây TUYẾN TÍNH (coi "càng xa" luôn tiến thẳng tới mép TRÊN cùng ảnh, y=0), không
@@ -1061,21 +1055,10 @@ export type LocationBlockoutResult = {
   horizonY: number;
 };
 
-const LOCATION_SCENE_TYPE_PROMPT = `Bạn phân loại 1 ảnh bối cảnh để quyết định có nên dựng mô hình 3D địa hình gồ ghề (núi/đồi/vách đá) từ ảnh này hay không.
-Trả lời ĐÚNG 1 từ duy nhất, không thêm chữ nào khác:
-"natural" — nếu ảnh là cảnh THIÊN NHIÊN ngoài trời có cao độ/địa hình thật (núi, đồi, vách đá, rừng, bờ biển có đá/dốc...).
-"flat" — nếu ảnh là phố, nhà cửa, kiến trúc, nội thất, phòng, đường thẳng có điểm hội tụ phối cảnh, bãi biển/cánh đồng phẳng, hoặc bất kỳ cảnh nào không có địa hình gồ ghề thật.`;
-
-// Phân loại cảnh TRƯỚC khi quyết định dựng địa hình — Gemini Flash rẻ (~18đ/lượt, cùng model/giá dùng
-// cho classifyCharacterImage và các bước kiểm tra ảnh khác trong file này).
-async function classifyLocationSceneType(imageUrl: string): Promise<boolean> {
-  try {
-    const { output } = await callOpenRouter("google/gemini-3-flash-preview", 10, LOCATION_SCENE_TYPE_PROMPT, "Phân loại ảnh này.", imageUrl);
-    return output.trim().toLowerCase().includes("natural");
-  } catch {
-    return true; // lỗi phân loại -- mặc định vẫn dựng địa hình như hành vi cũ, không chặn gì cả
-  }
-}
+// SỬA (phản hồi thật user: quyết định bỏ hẳn việc dựng lưới địa hình gồ ghề — kỹ thuật heightmap-từ-độ-
+// sâu liên tục gây lỗi qua nhiều vòng sửa, trong khi lưới đó chỉ mang tính hiển thị, không ảnh hưởng gì
+// tới độ chính xác đặt vị trí nhân vật — LUÔN dùng sàn phẳng cho mọi ảnh) — đã xoá
+// classifyLocationSceneType (bước phân loại "tự nhiên/phẳng" không còn cần thiết nữa, đỡ luôn ~18đ/ảnh).
 
 const LOCATION_HORIZON_PROMPT = `Bạn ước lượng vị trí đường chân trời (hoặc điểm hội tụ phối cảnh chính, nếu không thấy chân trời rõ như ảnh nội thất/đường phố) trong 1 bức ảnh bối cảnh.
 Trả lời ĐÚNG 1 số thập phân từ 0 đến 1, không thêm chữ nào khác: 0 = sát mép TRÊN cùng ảnh, 1 = sát mép DƯỚI cùng ảnh, 0.5 = chính giữa ảnh theo chiều dọc.
@@ -1096,21 +1079,20 @@ async function estimateLocationHorizon(imageUrl: string): Promise<number> {
   }
 }
 
-// Dựng "địa hình 3D thô" cho 1 ảnh bối cảnh — gọi 4 model AI nhẹ song song (ước lượng độ sâu + phân
-// vùng mặt đất + phân loại cảnh + ước lượng chân trời), KHÔNG phải model tạo ảnh/video (rẻ hơn rất
-// nhiều — depth gần như miễn phí, sam-3 khoảng $0.005/ảnh, 2 bước Gemini ~18đ/lượt mỗi bước, xem phân
-// tích chi phí đã lưu memory). Hàm này chỉ gọi AI lấy số liệu thô, tách riêng để test/gọi lại độc lập
-// không tốn thêm tiền — việc dựng lưới địa hình thật từ các kết quả này nằm ở LocationPositionStage3D.tsx.
+// Dựng dữ liệu vị trí 3D thô cho 1 ảnh bối cảnh — gọi 3 model AI nhẹ song song (ước lượng độ sâu + phân
+// vùng mặt đất + ước lượng chân trời), KHÔNG phải model tạo ảnh/video (rẻ hơn rất nhiều — depth gần như
+// miễn phí, sam-3 khoảng $0.005/ảnh, Gemini ~18đ/lượt, xem phân tích chi phí đã lưu memory). Hàm này chỉ
+// gọi AI lấy số liệu thô, tách riêng để test/gọi lại độc lập không tốn thêm tiền — việc hiệu chuẩn vị
+// trí 2D<->3D thật từ các kết quả này nằm ở LocationPositionStage3D.tsx (buildGroundDepthCalibration).
 export async function generateLocationBlockout(imageUrl: string): Promise<LocationBlockoutResult> {
-  const [depthResult, groundResult, isNaturalTerrain, horizonY] = await Promise.all([
+  const [depthResult, groundResult, horizonY] = await Promise.all([
     callFalSync("fal-ai/imageutils/depth", { image_url: imageUrl }).catch(() => null),
     callFalSync("fal-ai/sam-3/image", { image_url: imageUrl, prompt: "ground", include_mask: true, max_masks: 1 }).catch(() => null),
-    classifyLocationSceneType(imageUrl),
     estimateLocationHorizon(imageUrl),
   ]);
   const img = depthResult?.image as { url?: string } | undefined;
   const masks = groundResult?.masks as { url?: string }[] | undefined;
-  return { depthImageUrl: img?.url ?? null, groundMaskUrl: masks?.[0]?.url ?? null, isNaturalTerrain, horizonY };
+  return { depthImageUrl: img?.url ?? null, groundMaskUrl: masks?.[0]?.url ?? null, horizonY };
 }
 
 export function extractImageUrl(falPayload: Record<string, unknown>): string | undefined {
