@@ -3901,6 +3901,7 @@ export default function VideoTuYTuongClient({
                             [zoomedPromptImage as string]: { ...(prev[zoomedPromptImage as string] ?? {}), [characterUrl]: pos },
                           }));
                         }}
+                        onDebugLog={pushDebugLog}
                       />
                     </div>
                   )}

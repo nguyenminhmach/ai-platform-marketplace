@@ -68,6 +68,10 @@ type Props = {
   // locationPositions giữ đồng bộ với chấm đánh dấu trên ảnh 2D. Không bắt buộc — thiếu thì nút "Di
   // chuyển" vẫn hiện nhưng kéo xong không lưu lại vị trí mới.
   onCharacterMove?: (characterUrl: string, pos: { x: number; y: number }) => void;
+  // DEBUG TẠM THỜI — truy vết trực tiếp cờ `dragging` nội bộ của TransformControls tại đúng thời điểm
+  // objectChange bắn ra và tại đúng thời điểm pointerUp(null) được gọi, để xác nhận fix "kẹt kéo" ở
+  // commit 2c22105 có thực sự chạy đúng trên domain deploy thật hay không.
+  onDebugLog?: (msg: string) => void;
 };
 
 function loadImageEl(url: string): Promise<HTMLImageElement> {
@@ -382,6 +386,7 @@ export function LocationPositionStage3D({
   isNaturalTerrain = true,
   testPoints = [],
   onCharacterMove,
+  onDebugLog,
 }: Props) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -429,6 +434,10 @@ export function LocationPositionStage3D({
   const draggingTransformRef = useRef(false);
   const attachedCharacterUrlRef = useRef<string | null>(null);
   const [, forceRerender] = useState(0);
+  // DEBUG TẠM THỜI — giữ bản mới nhất của onDebugLog trong ref để đọc được từ bên trong effect setup
+  // chính (deps []), không re-run effect mỗi khi component cha truyền hàm mới.
+  const onDebugLogRef = useRef<typeof onDebugLog>(onDebugLog);
+  onDebugLogRef.current = onDebugLog;
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -530,6 +539,12 @@ export function LocationPositionStage3D({
     transformControls.addEventListener("objectChange", () => {
       const obj = transformControls.object;
       const url = attachedCharacterUrlRef.current;
+      // DEBUG TẠM THỜI — in thẳng trạng thái dragging THẬT của thư viện ngay tại thời điểm objectChange
+      // bắn ra, để xác nhận trực tiếp (không suy luận qua đọc code) liệu fix pointerUp(null) ở commit
+      // 2c22105 có đang chạy đúng trên domain deploy thật hay không.
+      onDebugLogRef.current?.(
+        `[TC objectChange] dragging=${transformControls.dragging} axis=${transformControls.axis}`
+      );
       if (!obj || !url || !onCharacterMove) return;
       // SỬA (phản hồi thật user: "kéo về trục Z thì ảnh 2D vị trí sai") — bản trước GHI ĐÈ NGƯỢC LẠI
       // obj.position ngay trong lúc đang kéo (để kẹp biên) — TransformControls tự theo dõi vị trí nội
@@ -567,7 +582,13 @@ export function LocationPositionStage3D({
   // chuột HẲN RA NGOÀI khung 3D (ra cả phần ảnh 2D, hoặc ngoài trình duyệt) khiến cả canvas lẫn div bọc
   // ngoài đều không bắt được sự kiện thả chuột, this.dragging kẹt true vĩnh viễn.
   useEffect(() => {
-    const onWindowPointerUp = () => transformControlsRef.current?.pointerUp(null);
+    const onWindowPointerUp = () => {
+      const tc = transformControlsRef.current;
+      // DEBUG TẠM THỜI — xác nhận trực tiếp listener này THỰC SỰ có chạy và dragging THỰC SỰ về false.
+      onDebugLogRef.current?.(`[window pointerup] before dragging=${tc?.dragging}`);
+      tc?.pointerUp(null);
+      onDebugLogRef.current?.(`[window pointerup] after dragging=${tc?.dragging}`);
+    };
     window.addEventListener("pointerup", onWindowPointerUp);
     return () => window.removeEventListener("pointerup", onWindowPointerUp);
   }, []);
@@ -892,7 +913,11 @@ export function LocationPositionStage3D({
     // Gọi thẳng pointerUp(null) ép tắt trạng thái kéo mỗi khi React nhận được pointerup/pointerleave ở
     // ĐÂY (vùng bắt sự kiện rộng hơn hẳn canvas, luôn nhận được dù thả chuột ở đâu trong khung 3D) —
     // "an toàn kép" đảm bảo this.dragging không bao giờ bị kẹt, kể cả khi canvas tự nó bỏ lỡ sự kiện.
-    transformControlsRef.current?.pointerUp(null);
+    const tc = transformControlsRef.current;
+    // DEBUG TẠM THỜI — xác nhận trực tiếp handler này THỰC SỰ chạy và dragging THỰC SỰ về false.
+    onDebugLogRef.current?.(`[panel pointerup] before dragging=${tc?.dragging}`);
+    tc?.pointerUp(null);
+    onDebugLogRef.current?.(`[panel pointerup] after dragging=${tc?.dragging}`);
   }
 
   return (
