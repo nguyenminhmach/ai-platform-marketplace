@@ -3696,18 +3696,13 @@ export default function VideoTuYTuongClient({
               return;
             }
             if (!activeChar) return;
-            setLocationPositions((prev) => {
-              const next = {
-                ...prev,
-                [zoomedPromptImage as string]: { ...(prev[zoomedPromptImage as string] ?? {}), [activeChar]: { x, y } },
-              };
-              // DEBUG TẠM THỜI — in thẳng giá trị VỪA GHI vào state, không suy luận gì thêm.
-              setDebugClickInfo(
-                (prevDebug) =>
-                  `${prevDebug} || JUST SET: zoomedPromptImage=${zoomedPromptImage} activeChar=${activeChar} -> {x:${x.toFixed(3)}, y:${y.toFixed(3)}} | next[img][activeChar]=${JSON.stringify(next[zoomedPromptImage as string]?.[activeChar])}`
-              );
-              return next;
-            });
+            const imgKey = zoomedPromptImage as string;
+            const charKey = activeChar;
+            const newPos = { x, y };
+            setLocationPositions((prev) => ({
+              ...prev,
+              [imgKey]: { ...(prev[imgKey] ?? {}), [charKey]: newPos },
+            }));
           }
 
           return (
@@ -3785,6 +3780,12 @@ export default function VideoTuYTuongClient({
                 {debugClickInfo && (
                   <div className="rounded bg-yellow-900/40 p-1.5 text-[10px] text-yellow-300">DEBUG: {debugClickInfo}</div>
                 )}
+                {/* DEBUG TẠM THỜI — đọc thẳng locationPositions NGAY TẠI THỜI ĐIỂM RENDER (không qua
+                    handler/updater nào) — nếu dòng này SAI thì chắc chắn lỗi nằm ở chính state
+                    locationPositions, không phải ở chỗ hiển thị marker. XOÁ sau khi tìm ra nguyên nhân. */}
+                <div className="rounded bg-cyan-900/40 p-1.5 text-[10px] text-cyan-300">
+                  LIVE STATE: assignments={JSON.stringify(assignments)}
+                </div>
                 {/* Phương án A — 2 khung song song (2D trái, 3D phải), đồng bộ real-time — thay cho bản
                     tab-chuyển-qua-lại trước đó (user phản hồi không thấy/khó nhận ra). Khung 3D hiện khi
                     đã có địa hình (depthImageUrl) HOẶC đã có ít nhất 1 vị trí nhân vật — không bắt buộc
