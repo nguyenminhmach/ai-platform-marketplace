@@ -153,12 +153,31 @@ export default function VideoTuYTuongClient({
       if (prev) setContentProjects((items) => items.map((p) => (p.id === id ? { ...p, name: prev } : p)));
     }
   }
-  async function handleDeleteProject(id: number) {
+  // SỬA (phản hồi thật user: lo ngại ảnh/video trong dự án bị xoá cứ tích rác dung lượng Supabase) —
+  // confirm() đơn giản chỉ cho 1 lựa chọn, không đủ để phân biệt "chỉ xoá nhãn" (an toàn, giữ nguyên dữ
+  // liệu) với "xoá cả nội dung bên trong" (vĩnh viễn, giải phóng dung lượng thật) — dùng modal riêng.
+  const [confirmDeleteProject, setConfirmDeleteProject] = useState<ContentProjectItem | null>(null);
+  const [deletingProject, setDeletingProject] = useState(false);
+  function handleDeleteProject(id: number) {
     setOpenProjectMenuId(null);
-    if (!confirm("Xoá dự án này? Nội dung đã tạo trong dự án vẫn còn, chỉ mất nhãn gom nhóm.")) return;
-    setContentProjects((items) => items.filter((p) => p.id !== id));
-    if (activeProjectId === id) setActiveProjectId(null);
-    await fetch(`/api/content-projects/${id}`, { method: "DELETE" }).catch(() => {});
+    const p = contentProjects.find((x) => x.id === id);
+    if (p) setConfirmDeleteProject(p);
+  }
+  async function confirmDeleteProjectAction(deleteContent: boolean) {
+    const p = confirmDeleteProject;
+    if (!p) return;
+    setDeletingProject(true);
+    try {
+      await fetch(`/api/content-projects/${p.id}${deleteContent ? "?deleteContent=true" : ""}`, { method: "DELETE" });
+      setContentProjects((items) => items.filter((x) => x.id !== p.id));
+      if (activeProjectId === p.id) setActiveProjectId(null);
+      if (deleteContent) setAppHistory((items) => items.filter(() => activeProjectId !== p.id));
+    } catch {
+      // best-effort, không chặn đóng modal -- khách vẫn thấy lỗi nếu tải lại trang mà dự án còn đó
+    } finally {
+      setDeletingProject(false);
+      setConfirmDeleteProject(null);
+    }
   }
   async function handleDeleteAppHistory(id: number) {
     if (!user) return;
@@ -3182,20 +3201,29 @@ export default function VideoTuYTuongClient({
               ) : (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   {appHistory.map((item) => (
-                    <a
-                      key={item.id}
-                      href={item.outputUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block aspect-square overflow-hidden rounded-xl bg-zinc-900"
-                    >
-                      {item.outputType === "video" ? (
-                        <video src={item.outputUrl} className="h-full w-full object-cover" muted />
-                      ) : (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={item.outputUrl} alt="" className="h-full w-full object-cover" />
-                      )}
-                    </a>
+                    <div key={item.id} className="group relative aspect-square overflow-hidden rounded-xl bg-zinc-900">
+                      <a href={item.outputUrl} target="_blank" rel="noreferrer" className="block h-full w-full">
+                        {item.outputType === "video" ? (
+                          <video src={item.outputUrl} className="h-full w-full object-cover" muted />
+                        ) : (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={item.outputUrl} alt="" className="h-full w-full object-cover" />
+                        )}
+                      </a>
+                      {/* SỬA (phản hồi thật user: lo ngại Storage đầy, muốn xoá được từng ảnh/video) —
+                          nút xoá hiện khi di chuột qua, xoá CẢ file thật (xem /api/history/[id]). */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          if (confirm("Xoá ảnh/video này? Xoá file thật, vĩnh viễn, không hoàn tác được.")) handleDeleteAppHistory(item.id);
+                        }}
+                        className="absolute right-1.5 top-1.5 rounded-full bg-black/60 p-1.5 text-white opacity-0 hover:bg-red-600 group-hover:opacity-100"
+                        aria-label="Xoá"
+                      >
+                        🗑️
+                      </button>
+                    </div>
                   ))}
                 </div>
               )}
@@ -3707,6 +3735,52 @@ export default function VideoTuYTuongClient({
           onInsertMention={pickerModal.forMention ? insertMentionAtCursor : undefined}
           selectedUrls={promptImages}
         />
+      )}
+
+      {/* Modal xác nhận xoá dự án — 2 lựa chọn rõ ràng thay vì confirm() 1 nút, vì mức rủi ro khác hẳn
+          nhau (chỉ xoá nhãn = an toàn, xoá cả nội dung = vĩnh viễn, giải phóng dung lượng thật). */}
+      {confirmDeleteProject && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+          onClick={() => !deletingProject && setConfirmDeleteProject(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border border-zinc-700 bg-zinc-900 p-6 text-zinc-100 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-2 text-base font-semibold">Xoá dự án "{confirmDeleteProject.name}"?</h3>
+            <p className="mb-5 text-sm text-zinc-400">
+              Chọn cách xoá — "Xoá cả nội dung bên trong" xoá luôn ảnh/video thật đã tạo trong dự án, vĩnh viễn, không
+              hoàn tác được.
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                disabled={deletingProject}
+                onClick={() => confirmDeleteProjectAction(false)}
+                className="w-full rounded-full border border-zinc-600 py-2.5 text-sm font-medium text-zinc-200 hover:bg-zinc-800 disabled:opacity-60"
+              >
+                Chỉ xoá nhãn (giữ nguyên ảnh/video)
+              </button>
+              <button
+                type="button"
+                disabled={deletingProject}
+                onClick={() => confirmDeleteProjectAction(true)}
+                className="w-full rounded-full border border-red-500/60 bg-red-500/10 py-2.5 text-sm font-medium text-red-400 hover:bg-red-500/20 disabled:opacity-60"
+              >
+                {deletingProject ? "Đang xoá..." : "Xoá cả nội dung bên trong"}
+              </button>
+              <button
+                type="button"
+                disabled={deletingProject}
+                onClick={() => setConfirmDeleteProject(null)}
+                className="w-full py-2 text-sm text-zinc-500 hover:text-zinc-300"
+              >
+                Huỷ
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Modal "Dự án mới" — đặt tên dự án để gom nội dung tạo ở panel nhanh phía trên, xem

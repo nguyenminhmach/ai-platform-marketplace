@@ -1,5 +1,5 @@
-import { getSupabaseAdmin } from "@/lib/supabase";
 import { getAuthenticatedUserId } from "@/lib/auth-server";
+import { deleteGenerationHistoryItem } from "@/lib/generation-history";
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -7,11 +7,12 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   const userId = await getAuthenticatedUserId();
   if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
 
-  const supabase = getSupabaseAdmin();
-
-  // Chỉ xoá được dòng thuộc đúng chủ tài khoản — chặn xoá hộ người khác
-  const { error } = await supabase.from("generation_history").delete().eq("id", id).eq("user_id", userId);
-  if (error) return Response.json({ error: error.message }, { status: 500 });
-
-  return Response.json({ success: true });
+  try {
+    // SỬA (phản hồi thật user: lo ngại tích rác dung lượng Supabase) — giờ xoá CẢ file thật trong
+    // Storage (video/ảnh tải lên), không chỉ xoá bản ghi DB như trước — xem lib/generation-history.ts.
+    await deleteGenerationHistoryItem(userId, Number(id));
+    return Response.json({ success: true });
+  } catch (err) {
+    return Response.json({ error: err instanceof Error ? err.message : "Có lỗi xảy ra" }, { status: 500 });
+  }
 }
