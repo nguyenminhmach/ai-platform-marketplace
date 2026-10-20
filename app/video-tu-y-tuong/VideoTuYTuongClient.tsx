@@ -123,6 +123,43 @@ export default function VideoTuYTuongClient({
       setCreatingProject(false);
     }
   }
+  // SỬA (phản hồi thật user: menu 3 chấm cạnh tên dự án — chỉ làm đúng 2 mục thật sự cần, "Biên tập"
+  // đổi tên + "Xóa bỏ") — openProjectMenuId: dự án nào đang mở menu (null = không mở); editingProjectId:
+  // dự án nào đang ở chế độ sửa tên inline (input thay cho tên tĩnh).
+  const [openProjectMenuId, setOpenProjectMenuId] = useState<number | null>(null);
+  const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
+  const [editingProjectName, setEditingProjectName] = useState("");
+  function startEditProject(p: ContentProjectItem) {
+    setEditingProjectId(p.id);
+    setEditingProjectName(p.name);
+    setOpenProjectMenuId(null);
+  }
+  async function handleRenameProject(id: number) {
+    const name = editingProjectName.trim();
+    setEditingProjectId(null);
+    if (!name) return;
+    const prev = contentProjects.find((p) => p.id === id)?.name;
+    if (prev === name) return;
+    setContentProjects((items) => items.map((p) => (p.id === id ? { ...p, name } : p)));
+    try {
+      const res = await fetch(`/api/content-projects/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) throw new Error();
+    } catch {
+      // Lỗi lưu tên mới -- trả lại tên cũ, không âm thầm giữ sai lệch giữa giao diện và DB.
+      if (prev) setContentProjects((items) => items.map((p) => (p.id === id ? { ...p, name: prev } : p)));
+    }
+  }
+  async function handleDeleteProject(id: number) {
+    setOpenProjectMenuId(null);
+    if (!confirm("Xoá dự án này? Nội dung đã tạo trong dự án vẫn còn, chỉ mất nhãn gom nhóm.")) return;
+    setContentProjects((items) => items.filter((p) => p.id !== id));
+    if (activeProjectId === id) setActiveProjectId(null);
+    await fetch(`/api/content-projects/${id}`, { method: "DELETE" }).catch(() => {});
+  }
   async function handleDeleteAppHistory(id: number) {
     if (!user) return;
     setAppHistory((items) => items.filter((item) => item.id !== id));
@@ -3006,21 +3043,72 @@ export default function VideoTuYTuongClient({
           {/* SỬA (phản hồi thật user: dự án mới tạo xuất hiện NGAY TRÊN "trang chủ") — danh sách dự án
               đã tạo, mỗi dòng bấm vào để lọc "Tạo" + lịch sử theo đúng dự án đó (activeProjectId). Bấm
               lại đúng dự án đang chọn thì bỏ chọn (quay về xem toàn bộ, không lọc). */}
-          {contentProjects.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => setActiveProjectId((cur) => (cur === p.id ? null : p.id))}
-              className={`block w-full truncate rounded-lg px-3 py-2 text-left ${
-                activeProjectId === p.id
-                  ? "border border-fuchsia-500/60 bg-zinc-700 font-medium text-fuchsia-400"
-                  : "text-zinc-300 hover:bg-zinc-900 hover:text-white"
-              }`}
-              title={p.name}
-            >
-              {p.name}
-            </button>
-          ))}
+          {contentProjects.map((p) =>
+            editingProjectId === p.id ? (
+              <input
+                key={p.id}
+                type="text"
+                value={editingProjectName}
+                onChange={(e) => setEditingProjectName(e.target.value)}
+                onBlur={() => handleRenameProject(p.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleRenameProject(p.id);
+                  if (e.key === "Escape") setEditingProjectId(null);
+                }}
+                autoFocus
+                className="block w-full rounded-lg border border-fuchsia-500/60 bg-zinc-700 px-3 py-2 text-fuchsia-400 focus:outline-none"
+              />
+            ) : (
+              <div key={p.id} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setActiveProjectId((cur) => (cur === p.id ? null : p.id))}
+                  className={`block w-full truncate rounded-lg px-3 py-2 pr-9 text-left ${
+                    activeProjectId === p.id
+                      ? "border border-fuchsia-500/60 bg-zinc-700 font-medium text-fuchsia-400"
+                      : "text-zinc-300 hover:bg-zinc-900 hover:text-white"
+                  }`}
+                  title={p.name}
+                >
+                  {p.name}
+                </button>
+                {/* SỬA (phản hồi thật user: "tại tên của dự án có dấu 3 chấm khi bấm vào xổ ra các dòng
+                    ứng dụng") — menu 3 chấm, chỉ 2 mục thật sự cần: Biên tập (đổi tên) + Xóa bỏ. */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpenProjectMenuId((cur) => (cur === p.id ? null : p.id));
+                  }}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+                  aria-label="Tuỳ chọn dự án"
+                >
+                  ⋮
+                </button>
+                {openProjectMenuId === p.id && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setOpenProjectMenuId(null)} />
+                    <div className="absolute right-0 top-full z-20 mt-1 w-40 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-800 py-1 text-sm shadow-xl">
+                      <button
+                        type="button"
+                        onClick={() => startEditProject(p)}
+                        className="block w-full px-3 py-2 text-left text-zinc-200 hover:bg-zinc-700"
+                      >
+                        ✏️ Biên tập
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteProject(p.id)}
+                        className="block w-full px-3 py-2 text-left text-red-400 hover:bg-zinc-700"
+                      >
+                        🗑️ Xóa bỏ
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )
+          )}
           <Link href="/" className="block rounded-lg px-3 py-2 text-zinc-300 hover:bg-zinc-900 hover:text-white">
             trang chủ
           </Link>
