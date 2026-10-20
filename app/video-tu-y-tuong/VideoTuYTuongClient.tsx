@@ -2741,6 +2741,24 @@ export default function VideoTuYTuongClient({
     });
   }
 
+  // SỬA (phản hồi thật user: "khi xóa ảnh chữ phải mất" — bấm ✕ trên 1 chip chỉ xoá khỏi promptImages
+  // trước đây, @mention tương ứng vẫn còn sót lại trong ô prompt) — xoá đồng thời cả chip LẪN đúng
+  // "@element_id " của nó trong input (nếu chip đó đến từ kho tham chiếu, có elementId — ảnh tải thô
+  // không có mention gì để xoá). Dùng regex xoá CHÍNH XÁC "@id " (kèm 1 khoảng trắng theo sau, đúng
+  // định dạng insertMentionAtCursor luôn chèn) để không xoá nhầm phần câu chữ khác trùng tên.
+  function removePromptImage(url: string, index: number) {
+    setPromptImages((prev) => prev.filter((_, idx) => idx !== index));
+    const elementId = promptImageMeta[url]?.elementId;
+    setPromptImageMeta((prev) => {
+      const next = { ...prev };
+      delete next[url];
+      return next;
+    });
+    if (elementId) {
+      setInput((prev) => prev.replace(new RegExp(`@${elementId}\\s?`), ""));
+    }
+  }
+
   // Quét "@element_id" trong prompt (mirror extractMentionedElementIds ở lib/reference-elements.ts —
   // không import thẳng module đó vì nó kéo theo getSupabaseAdmin/service-role key vào bundle client,
   // dù hàm này không gọi tới, không nên đưa code server-only vào "use client").
@@ -3373,7 +3391,7 @@ export default function VideoTuYTuongClient({
                           role="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setPromptImages((prev) => prev.filter((_, idx) => idx !== i));
+                            removePromptImage(url, i);
                           }}
                           title="Xoá"
                           className="absolute right-1 top-1 hidden rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white hover:bg-red-600 group-hover:flex"
@@ -3630,7 +3648,7 @@ export default function VideoTuYTuongClient({
                           role="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setPromptImages((prev) => prev.filter((_, idx) => idx !== i));
+                            removePromptImage(url, i);
                           }}
                           title="Xoá"
                           className="absolute right-1 top-1 hidden rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white hover:bg-red-600 group-hover:flex"
