@@ -3154,7 +3154,15 @@ export default function VideoTuYTuongClient({
       });
 
       const MAX_REFERENCE_IMAGES_CLIENT = 20; // đúng MAX_CHARACTER_IMAGES ở lib/story-video.ts
-      const elementImageUrls = mentionedElements.flatMap((el) => el.image_urls);
+      // SỬA (phản hồi thật user: "sai vị trí sai người" — 1 phần tử trong kho tham chiếu (vd "Mai") có
+      // thể có NHIỀU ảnh (nhiều góc/trang phục, xem NewElementModal.tsx — image_urls là mảng), nhưng
+      // chip hiển thị trên giao diện chỉ hiện ĐÚNG 1 ảnh đại diện (image_urls[0], xem handlePickElement
+      // ở ReferencePickerModal.tsx: chỉ gọi onAddImages([el.image_urls[0]])). Trước đây dùng .flatMap
+      // gộp TẤT CẢ ảnh của mọi phần tử được mention — model nhận nhiều ảnh hơn hẳn số chip khách thấy
+      // trên màn hình (vd Mai có 3 ảnh thì gửi cả 3, dù khách chỉ thấy 1 chip "Mai"), dễ gây lẫn người
+      // vì model không biết ảnh nào mới là "đúng" ảnh cần dùng. Giờ CHỈ lấy đúng ảnh đại diện mỗi phần
+      // tử (image_urls[0]) — khớp 1:1 với đúng số ảnh/chip khách nhìn thấy trên giao diện.
+      const elementImageUrls = mentionedElements.map((el) => el.image_urls[0]);
       const uploadedPromptImages = await Promise.all(
         promptImages.map((img) => (img.startsWith("http") ? Promise.resolve(img) : uploadOutfitSwapImage(img)))
       );
