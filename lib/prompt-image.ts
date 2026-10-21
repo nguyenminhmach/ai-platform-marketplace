@@ -1,3 +1,11 @@
+// LEGACY (2026-10-21): tab "hình ảnh" KHÔNG còn gọi submitPromptImageJob để tạo ảnh mới nữa — đã
+// chuyển sang dùng chung pipeline Character/chia cảnh/ảnh phân cảnh với tab "video" (lib/story-video.ts,
+// qua handlePromptCreate({quickImage:true}) ở client), vì pipeline đó đã chứng minh chạy đúng bối cảnh
+// còn pipeline riêng ở file này thì không. File này + bảng prompt_image_jobs vẫn giữ nguyên CHỈ để đọc
+// lại ảnh cũ đã tạo trước khi chuyển (gallery "Dự án" đọc gộp cả nguồn cũ này lẫn story_video_jobs mới,
+// xem lib/content-projects.ts) — sweepAbandonedPromptImageJobs/webhook/status vẫn chạy cho các job cũ
+// còn dang dở, nhưng không còn job MỚI nào được tạo qua submitPromptImageJob từ nay về sau.
+//
 // Sinh ẢNH TRỰC TIẾP từ ô prompt ở tab "hình ảnh" (app/video-tu-y-tuong/page.tsx) — KHÁC hẳn luồng
 // "Character sheet -> ảnh phân cảnh -> video" cũ (lib/story-video.ts): đây chỉ 1 lần gọi, ra ĐÚNG 1
 // ảnh, không qua kịch bản/phân cảnh gì cả. Mô hình 1-bảng-1-job đơn giản hơn outfit-swap (không cần
@@ -238,6 +246,7 @@ export async function sweepAbandonedPromptImageJobs(): Promise<number> {
 
 export type PromptImageJobSummary = {
   id: number;
+  kind: "prompt_image";
   prompt: string;
   status: string;
   outputUrl: string | null;
@@ -262,6 +271,7 @@ export async function listPromptImageJobsByProject(userId: string, projectId: nu
   if (error) throw new Error(error.message);
   return (data ?? []).map((row) => ({
     id: row.id,
+    kind: "prompt_image" as const,
     prompt: row.prompt,
     status: row.status,
     outputUrl: row.output_url,

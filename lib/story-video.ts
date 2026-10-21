@@ -4205,6 +4205,92 @@ export async function deleteStoryCharacter(userId: string, characterId: number):
   if (error) throw new Error(error.message);
 }
 
+export type StoryVideoJobSummary = {
+  id: number;
+  kind: "story_video";
+  prompt: string;
+  status: string;
+  outputUrl: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+};
+
+// SỬA (phản hồi thật user: "tách tab hình ảnh/video dùng chung pipeline, Dự án phải gắn đúng sản phẩm
+// của cả 2 phần") — lưới nội dung "Dự án" panel nhanh (content_projects) cần đọc được CẢ job tạo qua
+// pipeline này (submitStoryVideoJob, gắn qua content_project_id -- xem migration-story-video-jobs-
+// content-project-link.sql), không chỉ prompt_image_jobs cũ (xem listPromptImageJobsByProject). Trả về
+// cùng hình dạng summary (prompt/status/outputUrl/errorMessage/createdAt) để gộp chung 1 lưới hiển thị.
+//
+// "Kết thúc" mỗi job cho mục đích hiển thị khác nhau tuỳ tab tạo ra nó:
+// - Tab "hình ảnh" (numScenes=1, không có video): dừng hẳn ở "images_ready" -- coi đó là XONG, ảnh hiện
+//   ra là ảnh của cảnh #1 (position=0).
+// - Tab "video": chỉ XONG thật khi status="done" (video đã ghép), ảnh/video hiện ra là output_url.
+// Mọi trạng thái trung gian khác (pending/generating_character/character_ready/splitting_story/
+// scenes_ready/generating_images/generating_videos/stitching) hiển thị như "đang tạo" (status trả về
+// nguyên văn, UI client tự coi khác "done"/"failed" là đang chạy).
+export async function listStoryVideoJobsByContentProject(userId: string, projectId: number): Promise<StoryVideoJobSummary[]> {
+  const supabase = getSupabaseAdmin();
+  const { data: jobs, error } = await supabase
+    .from("story_video_jobs")
+    .select("id, story_description, status, output_url, error_message, created_at")
+    .eq("user_id", userId)
+    .eq("content_project_id", projectId)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) throw new Error(error.message);
+  if (!jobs || jobs.length === 0) return [];
+
+  // Ảnh cảnh #1 cho các job đang/đã ở "images_ready" (tab "hình ảnh") mà chưa có output_url riêng (chỉ
+  // job "video" mới có output_url là video đã ghép) -- 1 lượt query gộp cho cả trang, tránh N+1.
+  const imagesReadyIds = jobs.filter((j) => j.status === "images_ready" && !j.output_url).map((j) => j.id);
+  const firstSceneByJob = new Map<number, string>();
+  if (imagesReadyIds.length > 0) {
+    const { data: scenes } = await supabase
+      .from("story_video_scenes")
+      .select("job_id, image_url")
+      .in("job_id", imagesReadyIds)
+      .eq("position", 0);
+    for (const s of scenes ?? []) {
+      if (s.image_url) firstSceneByJob.set(s.job_id, s.image_url);
+    }
+  }
+
+  return jobs.map((j) => ({
+    id: j.id,
+    kind: "story_video" as const,
+    prompt: j.story_description ?? "",
+    status: j.status === "images_ready" ? "done" : j.status,
+    outputUrl: j.output_url ?? firstSceneByJob.get(j.id) ?? null,
+    errorMessage: j.error_message,
+    createdAt: j.created_at,
+  }));
+}
+
+// Xoá 1 job khỏi lưới "Dự án" (mirror đúng deletePromptImageJob ở lib/prompt-image.ts cho job nguồn
+// story_video_jobs) -- chỉ cho xoá job đã dừng hẳn (done/images_ready/failed/cancelled), không cho xoá
+// job còn đang chạy ngầm (webhook Fal.ai có thể còn ghi vào job đó). Video thật (nếu có) nằm trong
+// Supabase Storage bucket "videos" -- xoá file đó + dòng generation_history trùng output_url, giống hệt
+// cách stitchAndFinish ghi nó vào lúc job xong. Ảnh phân cảnh (CDN Fal.ai) không cần dọn Storage.
+export async function deleteStoryVideoJobFromContentProject(userId: string, jobId: number): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const { data: job } = await supabase
+    .from("story_video_jobs")
+    .select("user_id, status, output_url")
+    .eq("id", jobId)
+    .single();
+  if (!job || job.user_id !== userId) throw new Error("Không tìm thấy job này");
+  const stillRunning = !["done", "images_ready", "failed", "cancelled"].includes(job.status);
+  if (stillRunning) throw new Error("Job đang chạy, chưa xoá được");
+
+  if (job.output_url) {
+    await supabase.from("generation_history").delete().eq("user_id", userId).eq("output_url", job.output_url);
+    const match = job.output_url.match(/\/videos\/(.+)$/);
+    if (match) await supabase.storage.from("videos").remove([decodeURIComponent(match[1])]).catch(() => {});
+  }
+  const { error } = await supabase.from("story_video_jobs").delete().eq("id", jobId).eq("user_id", userId);
+  if (error) throw new Error(error.message);
+}
+
 // refund_credit (RPC) tự chặn hoàn credit trùng qua unique constraint trên idempotency_key
 // "{txId}-refund" — nếu 2 lượt gọi failJob() gần như đồng thời cùng hoàn 1 tx (vd Fal.ai gửi trùng
 // webhook báo lỗi cho cùng 1 cảnh), lượt thua sẽ nhận lỗi 23505 (duplicate key). Đây KHÔNG phải lỗi
@@ -4596,9 +4682,20 @@ export async function applyImageStageResult(
   }
   if (!becameReady) return; // hoặc chưa đủ cảnh, hoặc job khác đã chuyển status trước rồi
 
-  const { data: job } = await supabase.from("story_video_jobs").select("auto_video").eq("id", jobId).single();
+  const { data: job } = await supabase
+    .from("story_video_jobs")
+    .select("auto_video, user_id, mini_app_id, content_project_id")
+    .eq("id", jobId)
+    .single();
   if (job?.auto_video) {
     await proceedToVideoStage(jobId, scenes);
+    return;
+  }
+  // Tab "hình ảnh" (job dừng hẳn ở "images_ready", không tạo video) -- ghi lại ảnh đầu tiên vào
+  // generation_history ngay tại đây, giống hệt cách stitchAndFinish ghi video khi job đi tới "done".
+  // Thiếu bước này trước đây khiến ảnh tạo qua tab "hình ảnh" không hiện ở lịch sử chung/gallery "Dự án".
+  if (job && scenes[0]?.image_url) {
+    await recordGenerationHistory(job.user_id, job.mini_app_id, "image", scenes[0].image_url, job.content_project_id);
   }
 }
 
@@ -5799,7 +5896,11 @@ async function xfadeMergeTwo(
 
 async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
   const supabase = getSupabaseAdmin();
-  const { data: job } = await supabase.from("story_video_jobs").select("user_id, mini_app_id, aspect_ratio, project_id").eq("id", jobId).single();
+  const { data: job } = await supabase
+    .from("story_video_jobs")
+    .select("user_id, mini_app_id, aspect_ratio, content_project_id")
+    .eq("id", jobId)
+    .single();
   if (!job) return;
   const canvas = STITCH_CANVAS_BY_ASPECT_RATIO[job.aspect_ratio ?? "9:16"] ?? STITCH_CANVAS_BY_ASPECT_RATIO["9:16"];
 
@@ -5858,10 +5959,12 @@ async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
     await supabase.from("story_video_jobs").update({ status: "done", output_url: publicUrlData.publicUrl }).eq("id", jobId);
     // SỬA (phản hồi thật user: "video này nằm trong dự án sao xoá dự án mà video vẫn còn") — thiếu
     // project_id ở đây khiến generation_history LUÔN ghi project_id=null cho video story-video, dù job
-    // đã được attachJobToProject() gắn vào đúng dự án lúc submit -- deleteGenerationHistoryByProject
+    // đã được gắn đúng vào "Dự án" (content_projects) lúc submit -- deleteGenerationHistoryByProject
     // (xoá "cả nội dung bên trong" khi xoá dự án, lib/generation-history.ts) lọc theo đúng cột
-    // project_id nên không bao giờ tìm thấy/xoá được video này, dù hiện trong dự án đó.
-    await recordGenerationHistory(job.user_id, job.mini_app_id, "video", publicUrlData.publicUrl, job.project_id);
+    // project_id nên không bao giờ tìm thấy/xoá được video này, dù hiện trong dự án đó. Đọc đúng cột
+    // content_project_id (xem migration-story-video-jobs-content-project-link.sql) -- KHÔNG phải cột
+    // project_id cũ, cột đó thuộc hệ thống "video nhiều chương" đã xoá hẳn.
+    await recordGenerationHistory(job.user_id, job.mini_app_id, "video", publicUrlData.publicUrl, job.content_project_id);
   } catch (err) {
     // failJob() chỉ lưu lỗi vào DB (job.error_message), không throw/log — log riêng ra đây để lỗi ghép
     // video còn xuất hiện trong Vercel error tracking, tránh lặp lại việc dò lỗi mù như lần ffmpeg ENOENT.

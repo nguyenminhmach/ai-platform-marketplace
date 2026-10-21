@@ -82,7 +82,18 @@ export default function VideoTuYTuongClient({
   // đọc THẲNG prompt_image_jobs (đủ pending/processing/done/failed, xem /api/content-projects/[id]/jobs)
   // để lưới dự án hiện ĐÚNG mọi lượt đã thử, kể cả lượt lỗi.
   const [activeProjectId, setActiveProjectId] = useState<number | null>(null);
-  type ProjectJobItem = { id: number; prompt: string; status: string; outputUrl: string | null; errorMessage: string | null; createdAt: string };
+  // kind phân biệt nguồn thật của mỗi mục (bảng khác nhau -- prompt_image_jobs LEGACY vs story_video_jobs
+  // MỚI, xem app/api/content-projects/[id]/jobs/route.ts) -- cần để xoá đúng job ở đúng bảng, vì 2 bảng
+  // có 2 dãy id riêng (trùng số id hoàn toàn có thể xảy ra, không phải lỗi).
+  type ProjectJobItem = {
+    id: number;
+    kind: "prompt_image" | "story_video";
+    prompt: string;
+    status: string;
+    outputUrl: string | null;
+    errorMessage: string | null;
+    createdAt: string;
+  };
   const [projectJobs, setProjectJobs] = useState<ProjectJobItem[]>([]);
   function loadProjectJobs() {
     if (!activeProjectId) {
@@ -95,18 +106,21 @@ export default function VideoTuYTuongClient({
       .catch(() => {});
   }
   useEffect(loadProjectJobs, [activeProjectId]);
-  // Còn job pending/processing trong dự án đang xem -- tự tải lại định kỳ để trạng thái (done/failed)
-  // cập nhật mà không cần khách tự bấm lại hay tải trang.
+  // Còn job CHƯA XONG trong dự án đang xem -- tự tải lại định kỳ để trạng thái cập nhật mà không cần
+  // khách tự bấm lại hay tải trang. story_video_jobs có nhiều trạng thái trung gian hơn hẳn
+  // pending/processing cũ (generating_character/character_ready/splitting_story/scenes_ready/
+  // generating_images/generating_videos/stitching) -- coi mọi trạng thái KHÁC "done"/"failed" là
+  // "chưa xong" thay vì liệt kê cứng từng giá trị.
   useEffect(() => {
     if (!activeProjectId) return;
-    if (!projectJobs.some((j) => j.status === "pending" || j.status === "processing")) return;
+    if (!projectJobs.some((j) => j.status !== "done" && j.status !== "failed")) return;
     const timer = setTimeout(loadProjectJobs, 3000);
     return () => clearTimeout(timer);
   }, [activeProjectId, projectJobs]);
-  async function handleDeleteProjectJob(jobId: number) {
+  async function handleDeleteProjectJob(jobId: number, kind: ProjectJobItem["kind"]) {
     if (!activeProjectId) return;
     setProjectJobs((items) => items.filter((j) => j.id !== jobId));
-    await fetch(`/api/content-projects/${activeProjectId}/jobs/${jobId}`, { method: "DELETE" }).catch(() => {});
+    await fetch(`/api/content-projects/${activeProjectId}/jobs/${jobId}?kind=${kind}`, { method: "DELETE" }).catch(() => {});
   }
 
   // Danh sách "Dự án" của khách (gom nội dung đã tạo theo tên riêng) — tải 1 lần khi đăng nhập, cập
@@ -654,13 +668,16 @@ export default function VideoTuYTuongClient({
   const [storyResult, setStoryResult] = useState<string | null>(null);
   const [storyError, setStoryError] = useState<string | null>(null);
   const storyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Sinh ảnh trực tiếp từ prompt bar ở tab "hình ảnh" (lib/prompt-image.ts) — TÁCH RIÊNG hẳn khỏi
-  // storyRunning/storyResult (luồng video kịch bản cũ) vì đây là 1 job hoàn toàn khác (1 prompt -> 1
-  // ảnh, không qua Character/phân cảnh), submit xong poll /api/prompt-image/status tới khi xong.
-  const [promptImageRunning, setPromptImageRunning] = useState(false);
-  const [promptImageResult, setPromptImageResult] = useState<string | null>(null);
-  const [promptImageError, setPromptImageError] = useState<string | null>(null);
-  const promptImagePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // SỬA (phản hồi thật user: "tách đoạn code tạo ảnh/tạo video cho đúng chức năng từng tab, dùng lại
+  // đúng pipeline đã chạy ổn định") — tab "hình ảnh" TRƯỚC ĐÂY gọi hẳn 1 pipeline riêng (lib/prompt-
+  // image.ts), yếu hơn hẳn luồng Character/chia cảnh/ảnh phân cảnh đã chứng minh chạy đúng ở tab
+  // "video" (lib/story-video.ts) — đây chính là lý do ảnh tab "hình ảnh" sai bối cảnh dù tab "video"
+  // ra đúng. Bỏ hẳn pipeline riêng đó cho luồng tạo mới — giờ CẢ 2 TAB dùng chung handlePromptCreate
+  // (gọi submitStoryVideoJob), chỉ khác: tab "hình ảnh" ép numScenes=1 và dừng lại ở "images_ready"
+  // (không hiện nút "Tạo video"), đánh dấu qua storyQuickImageMode. lib/prompt-image.ts + bảng
+  // prompt_image_jobs vẫn giữ nguyên, CHỈ để đọc lại dữ liệu ảnh cũ đã tạo trước khi sửa (gallery "Dự
+  // án"), không còn job mới nào ghi vào đó nữa.
+  const [storyQuickImageMode, setStoryQuickImageMode] = useState(false);
   const storyCharacterPreviewRef = useRef<HTMLDivElement | null>(null);
   const storyScenesPreviewRef = useRef<HTMLDivElement | null>(null);
   const storyScenePreviewSectionRef = useRef<HTMLDivElement | null>(null);
@@ -955,7 +972,6 @@ export default function VideoTuYTuongClient({
   useEffect(() => {
     return () => {
       if (storyPollRef.current) clearInterval(storyPollRef.current);
-      if (promptImagePollRef.current) clearInterval(promptImagePollRef.current);
     };
   }, []);
 
@@ -2679,9 +2695,14 @@ export default function VideoTuYTuongClient({
   // handleRunStoryVideo cũ (không qua các bước Character/kịch bản riêng, đi thẳng "autoVideo"): đọc
   // @mention trong prompt -> tra kho tham chiếu (/api/reference-elements) -> gộp thành
   // characterImageUrls/characters/locationReferenceUrl/itemReferenceUrls -> submit.
-  async function handlePromptCreate() {
+  // quickImage=true ứng với nút "Tạo" tab "hình ảnh" (gọi qua handlePromptImageCreate bên dưới) — dùng
+  // chung TOÀN BỘ logic bên dưới (Character/chia cảnh/ảnh phân cảnh, đã chứng minh chạy đúng ở tab
+  // "video"), chỉ khác: ép numScenes=1, không cần chọn model video, và job dừng hẳn ở "images_ready"
+  // (storyQuickImageMode điều khiển khối JSX ẩn nút "Tạo video" — xem phần hiện images_ready bên dưới).
+  async function handlePromptCreate(opts?: { quickImage?: boolean }) {
+    const quickImage = opts?.quickImage === true;
     if (!user) {
-      setCreateToast("Vui lòng đăng nhập trước khi tạo video");
+      setCreateToast(quickImage ? "Vui lòng đăng nhập trước khi tạo ảnh" : "Vui lòng đăng nhập trước khi tạo video");
       setTimeout(() => setCreateToast(null), 3500);
       router.push("/login");
       return;
@@ -2693,12 +2714,13 @@ export default function VideoTuYTuongClient({
       setTimeout(() => setCreateToast(null), 3500);
       return;
     }
-    if (!storyVideoModelKey) {
+    if (!quickImage && !storyVideoModelKey) {
       setCreateToast("Chưa chọn model video");
       setTimeout(() => setCreateToast(null), 3500);
       return;
     }
 
+    setStoryQuickImageMode(quickImage);
     setStoryRunning(true);
     setStoryResult(null);
     setStoryError(null);
@@ -2823,10 +2845,14 @@ export default function VideoTuYTuongClient({
         }
       }
 
-      // 8) Số cảnh — để Agent tự gợi ý theo nội dung truyện đã bỏ @mention, mặc định 3 nếu gợi ý lỗi.
-      setStoryStatusText("Đang tính số phân cảnh...");
-      const suggested = await fetchSuggestedSceneCount();
-      const resolvedNumScenes = suggested ?? 3;
+      // 8) Số cảnh — tab "hình ảnh" luôn ép đúng 1 (1 câu -> 1 ảnh, không chia cảnh); tab "video" để
+      // Agent tự gợi ý theo nội dung truyện đã bỏ @mention, mặc định 3 nếu gợi ý lỗi.
+      let resolvedNumScenes = 1;
+      if (!quickImage) {
+        setStoryStatusText("Đang tính số phân cảnh...");
+        const suggested = await fetchSuggestedSceneCount();
+        resolvedNumScenes = suggested ?? 3;
+      }
 
       // 9) Submit job thật.
       // SỬA (phản hồi thật user: "chưa thấy ảnh phân cảnh đã tạo vì video, video không đúng bối cảnh")
@@ -2857,6 +2883,10 @@ export default function VideoTuYTuongClient({
           itemReferenceUrls: itemReferenceUrls.length > 0 ? itemReferenceUrls : undefined,
           existingCharacterSheetUrl,
           characterReferenceElementId,
+          // SỬA (phản hồi thật user: gắn đúng vào "Dự án" ở panel nhanh) — contentProjectId là cột MỚI,
+          // riêng (xem migration-story-video-jobs-content-project-link.sql), không đụng cột project_id
+          // cũ (đã thuộc hệ thống "video nhiều chương" vừa xoá). Gửi cho CẢ 2 tab khi đang trong 1 dự án.
+          contentProjectId: activeProjectId ?? undefined,
         }),
       });
       const data = await res.json();
@@ -2868,6 +2898,7 @@ export default function VideoTuYTuongClient({
       }
 
       window.dispatchEvent(new Event("balance-updated"));
+      if (activeProjectId) loadProjectJobs();
       setStoryJobId(data.jobId);
       setStoryStatusText("Đang xử lý ảnh Character...");
       pollStoryVideoStatus(data.jobId);
@@ -2878,200 +2909,12 @@ export default function VideoTuYTuongClient({
     }
   }
 
-  function pollPromptImageStatus(jobId: number) {
-    promptImagePollRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/prompt-image/status?jobId=${jobId}`);
-        const data = await res.json();
-
-        if (data.status === "done" && data.outputUrl) {
-          if (promptImagePollRef.current) clearInterval(promptImagePollRef.current);
-          setPromptImageResult(data.outputUrl);
-          setPromptImageRunning(false);
-          window.dispatchEvent(new Event("balance-updated"));
-        } else if (data.status === "failed") {
-          if (promptImagePollRef.current) clearInterval(promptImagePollRef.current);
-          setPromptImageError(data.errorMessage ?? "Có lỗi xảy ra");
-          setPromptImageRunning(false);
-          window.dispatchEvent(new Event("balance-updated")); // credit đã hoàn lại
-        }
-      } catch {
-        // lỗi mạng tạm thời — vòng poll tiếp theo thử lại, không dừng hẳn
-      }
-    }, 3000);
-  }
-
-  // Nút "tạo" ở tab "hình ảnh" — sinh 1 ảnh TRỰC TIẾP từ prompt (khác hẳn handlePromptCreate ở trên,
-  // vốn luôn tạo VIDEO qua luồng kịch bản/phân cảnh). Dùng đúng cùng 1 ô prompt + ảnh tham chiếu đã
-  // tải ở "+" (promptImages), nhưng gửi tới job sinh ảnh riêng (lib/prompt-image.ts).
-  //
-  // Trước đây tab này KHÔNG tra @mention trong prompt — gõ "@mai" chỉ đi thẳng dạng chữ, không lấy
-  // được ảnh thật của Mai. Giờ mirror đúng bước 1-2 trong handlePromptCreate ở trên: quét @mention ->
-  // tra kho tham chiếu -> thay @id bằng tên thật trong câu + gộp ảnh của element đó vào imageUrls gửi
-  // cho model (prompt-image.ts không phân biệt nhân vật/địa điểm/vật phẩm như story-video, chỉ 1 mảng
-  // imageUrls duy nhất, nên gộp chung tất cả loại element được mention).
+  // Nút "tạo" ở tab "hình ảnh" — giờ CHỈ còn là lớp mỏng gọi lại handlePromptCreate với quickImage=true,
+  // dùng chung đúng 1 pipeline (Character/chia cảnh/ảnh phân cảnh, lib/story-video.ts) với tab "video",
+  // thay vì pipeline riêng yếu hơn trước đây (lib/prompt-image.ts, vẫn giữ nguyên để đọc dữ liệu cũ cho
+  // gallery "Dự án", không còn job mới nào ghi vào đó).
   async function handlePromptImageCreate() {
-    if (!user) {
-      setCreateToast("Vui lòng đăng nhập trước khi tạo ảnh");
-      setTimeout(() => setCreateToast(null), 3500);
-      router.push("/login");
-      return;
-    }
-    const rawText = input.trim();
-    if (!rawText) {
-      setCreateToast("Nhập prompt trước đã");
-      setTimeout(() => setCreateToast(null), 3500);
-      return;
-    }
-
-    setPromptImageRunning(true);
-    setPromptImageResult(null);
-    setPromptImageError(null);
-
-    try {
-      const mentionedIds = extractMentionedElementIdsClient(rawText);
-      let elements: ReferenceElement[] = [];
-      if (mentionedIds.length > 0) {
-        const res = await fetch("/api/reference-elements");
-        const data = await res.json();
-        if (res.ok && Array.isArray(data.elements)) elements = data.elements;
-      }
-      const mentionedElements = elements.filter((el) => mentionedIds.includes(el.element_id));
-      const foundById = new Map(mentionedElements.map((el) => [el.element_id, el]));
-      const mentionStrippedText = rawText.replace(/@([a-z0-9_]+)/g, (full, id) => {
-        const el = foundById.get(id);
-        return el ? el.name : full;
-      });
-
-      // SỬA LẠI TOÀN BỘ (phản hồi thật user: "đây là bức ảnh để trong thảm cỏ chứ không phải nhân vật
-      // đứng trong thảm cỏ" rồi "trước đây mình vẫn làm với model này mà" — Flux Kontext Pro Multi ĐÃ
-      // ghép đúng trước khi giao diện được làm lại). Xác nhận qua đọc lại lib/story-video.ts
-      // (submitSceneImageForRow, hàm đã CHẠY THẬT cho đúng model này trước đây): bí quyết không nằm ở
-      // model mà ở CÁCH VIẾT PROMPT — luôn đánh số rõ "Reference image #N" khớp CHÍNH XÁC thứ tự ảnh
-      // thật sự gửi trong image_urls, nói rõ ảnh #N là người cần giữ nguyên mặt/dáng/trang phục, ảnh #N
-      // là địa điểm thật cần đặt cảnh vào, v.v. Bản sửa trước của em chỉ nhắc TÊN ảnh (không đánh số thứ
-      // tự) — không đủ để model tự khớp đúng ảnh nào ứng với vai trò nào khi có nhiều ảnh. Sửa lại đúng
-      // theo khuôn mẫu đã dùng thật trong story-video.ts, áp cho luồng tạo ảnh nhanh 1-câu-1-ảnh này.
-      type RefImageEntry = { url: string; type: "character" | "location" | "prop"; name: string };
-      // SỬA RỒI SỬA LẠI — thử đổi sang chỉ lấy ảnh đại diện (image_urls[0]) mỗi phần tử, nghi đây là
-      // nguyên nhân "sai vị trí sai người", nhưng user xác nhận gửi NHIỀU GÓC ảnh của 1 nhân vật là CHỦ
-      // ĐÍCH (character sheet nhiều góc giúp model tham khảo, tránh biến dạng khuôn mặt/dáng người) —
-      // đúng tinh thần luồng "Character sheet" đã dùng cho story-video. Revert lại .flatMap như cũ,
-      // không phải lỗi.
-      const elementImageEntries: RefImageEntry[] = mentionedElements.flatMap((el) =>
-        el.image_urls.map((url) => ({ url, type: el.type, name: el.name }))
-      );
-      const uploadedPromptImages = await Promise.all(
-        promptImages.map((img) => (img.startsWith("http") ? Promise.resolve(img) : uploadOutfitSwapImage(img)))
-      );
-      const uploadedPromptImageEntries: RefImageEntry[] = promptImages.map((originalUrl, i) => {
-        const meta = promptImageMeta[originalUrl];
-        return { url: uploadedPromptImages[i], type: meta?.type ?? "prop", name: meta?.name ?? "ảnh đính kèm" };
-      });
-
-      const MAX_REFERENCE_IMAGES_CLIENT = 20; // đúng MAX_CHARACTER_IMAGES ở lib/story-video.ts
-      let refEntries = [...elementImageEntries, ...uploadedPromptImageEntries].slice(0, MAX_REFERENCE_IMAGES_CLIENT);
-
-      // >1 ảnh tham chiếu gộp lại -> cần model hỗ trợ multi_image, mirror đúng điều kiện ở
-      // handlePromptCreate (dòng ~2614-2621) để không bị lỗi khi model đang chọn chỉ nhận 1 ảnh.
-      let imageModelKey = storyImageModelKey ?? storyImageModels[0]?.key ?? undefined;
-      if (refEntries.length > 1 && imageModelKey) {
-        const current = storyImageModels.find((m) => m.key === imageModelKey);
-        if (!current?.multi_image) {
-          const fallback = storyImageModels.find((m) => m.multi_image);
-          if (fallback) imageModelKey = fallback.key;
-        }
-      }
-
-      // Mask vị trí đứng — CHỈ model fal-ai/gpt-image-2/edit hỗ trợ mask_url thật (xem
-      // buildImageRequestBody). API thật của model này (đã tra lại qua docs) nhận image_urls nhiều ảnh
-      // VÀ mask_url cùng lúc — không xung đột như giả định cũ. NHƯNG Fal.ai yêu cầu mask_url phải cùng
-      // kích thước với ẢNH ĐẦU TIÊN trong image_urls (xác nhận qua lỗi 422 thật job #413 bên
-      // story-video.ts, comment ở submitSceneImageForRow dòng ~2069) — nên khi có mask, PHẢI đẩy ảnh
-      // Địa điểm lên vị trí ĐẦU TIÊN của mảng, y hệt leadingOffset đã làm bên đó. Thiếu bước này trước
-      // đây là 1 nguyên nhân rất có thể gây lỗi 422 khi dùng GPT Image 2 Edit + mask + nhiều ảnh khác.
-      const imageModelEntry = storyImageModels.find((m) => m.key === imageModelKey);
-      let maskUrl: string | null = null;
-      if (imageModelEntry?.model === "fal-ai/gpt-image-2/edit") {
-        const locationChipIndex = promptImages.findIndex((u) => promptImageMeta[u]?.type === "location");
-        const locationUrl = locationChipIndex !== -1 ? promptImages[locationChipIndex] : undefined;
-        const positions = locationUrl ? locationPositions[locationUrl] : undefined;
-        // uploadedPromptImageEntries được nối NGAY SAU elementImageEntries theo đúng thứ tự promptImages
-        // -- cùng chỉ số locationChipIndex vẫn khớp đúng phần tử trong refEntries trước khi bị cắt bớt
-        // (MAX_REFERENCE_IMAGES_CLIENT) hay xáo vị trí (chưa xáo lúc này).
-        const locationEntryIndex = locationChipIndex !== -1 ? elementImageEntries.length + locationChipIndex : -1;
-        if (locationUrl && locationEntryIndex !== -1 && locationEntryIndex < refEntries.length && positions && Object.keys(positions).length > 0) {
-          try {
-            const { w, h } = await loadImageNaturalSize(locationUrl);
-            const maskDataUrl = generatePositionMaskDataUrl(Object.values(positions), w, h);
-            maskUrl = await uploadOutfitSwapImage(maskDataUrl);
-            if (locationEntryIndex > 0) {
-              const [locationEntry] = refEntries.splice(locationEntryIndex, 1);
-              refEntries = [locationEntry, ...refEntries];
-            }
-          } catch {
-            // Lỗi tạo/tải mask không chặn tạo ảnh -- rơi về không có mask, giống hành vi cũ trước khi
-            // có tính năng này, vẫn tạo được ảnh bình thường (chỉ không đúng vị trí đã chọn).
-          }
-        }
-      }
-
-      const imageUrls = refEntries.map((e) => e.url);
-
-      // Câu chỉ dẫn phân vai từng ảnh tham chiếu theo đúng số thứ tự THẬT trong imageUrls — mirror đúng
-      // văn phong đã CHẠY THẬT trong lib/story-video.ts (submitSceneImageForRow) cho cùng các model này.
-      const roleParts: string[] = [];
-      refEntries.forEach((entry, i) => {
-        const ord = `Reference image #${i + 1}`;
-        if (entry.type === "character") {
-          roleParts.push(
-            `${ord} shows ${entry.name} — keep the exact same face, hairstyle, body proportions, and outfit as shown. Do not change identity or clothing.`
-          );
-        } else if (entry.type === "location") {
-          roleParts.push(
-            maskUrl && i === 0
-              ? `${ord} shows a REAL physical location, together with an inpainting mask (provided via mask_url) that marks EXACTLY where to place the character within that location: the WHITE area of the mask is where the character must stand/be positioned, the BLACK area must remain pixel-identical to ${ord} — do not alter, redraw, move, or crop anything outside the white masked area. Preserve the real location's appearance (layout, colors, decor, lighting) accurately everywhere outside the masked area.`
-              : `${ord} shows a REAL physical location ("${entry.name}") — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`
-          );
-        } else {
-          roleParts.push(
-            `${ord} is a REAL photo of ${entry.name} — keep its exact real appearance: color, shape, pattern, and material, not a generic substitute.`
-          );
-        }
-      });
-      if (roleParts.length > 0) {
-        roleParts.push(
-          "Compose all of this into ONE single photorealistic photograph, shot on a real camera — not an illustration, painting, drawing, anime, or digital art, and not a collage or flat sticker/cutout of the reference images. Correct scale, pose, perspective, and lighting for every element combined. Sharp, perfect focus on the subject, commercial-grade production quality."
-        );
-      }
-      const finalPrompt = roleParts.length > 0 ? `${mentionStrippedText} ${roleParts.join(" ")}` : mentionStrippedText;
-
-      const res = await fetch("/api/prompt-image/submit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: finalPrompt,
-          imageUrls,
-          modelKey: imageModelKey,
-          aspectRatio: storyAspectRatio,
-          resolutionKey: storyResolutionKey,
-          projectId: activeProjectId,
-          maskUrl,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setPromptImageError(data.error ?? "Có lỗi xảy ra");
-        setPromptImageRunning(false);
-        return;
-      }
-      window.dispatchEvent(new Event("balance-updated"));
-      if (activeProjectId) loadProjectJobs(); // hiện ngay ô "đang tạo" trong lưới dự án, không cần chờ vòng poll đầu
-      pollPromptImageStatus(data.jobId);
-    } catch (err) {
-      setPromptImageError(err instanceof Error ? err.message : "Không kết nối được tới server");
-      setPromptImageRunning(false);
-    }
+    await handlePromptCreate({ quickImage: true });
   }
 
   return (
@@ -3283,7 +3126,7 @@ export default function VideoTuYTuongClient({
                           type="button"
                           onClick={(e) => {
                             e.preventDefault();
-                            if (confirm("Xoá mục này? Vĩnh viễn, không hoàn tác được.")) handleDeleteProjectJob(job.id);
+                            if (confirm("Xoá mục này? Vĩnh viễn, không hoàn tác được.")) handleDeleteProjectJob(job.id, job.kind);
                           }}
                           className="absolute right-1.5 top-1.5 rounded-full bg-black/60 p-1.5 text-white opacity-0 hover:bg-red-600 group-hover:opacity-100"
                           aria-label="Xoá"
@@ -3558,7 +3401,7 @@ export default function VideoTuYTuongClient({
                   ĐẬM (border dày, màu rõ) + nền màu tím NHẠT hơn viền (không phải đen/zinc-950 nữa). */}
               <button
                 type="button"
-                onClick={handlePromptCreate}
+                onClick={() => handlePromptCreate()}
                 disabled={storyRunning}
                 style={{ boxShadow: "0 0 32px -3px rgba(217,70,239,0.8)" }}
                 className="w-full rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 py-3.5 text-base font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
@@ -3744,11 +3587,11 @@ export default function VideoTuYTuongClient({
                 <button
                   type="button"
                   onClick={handlePromptImageCreate}
-                  disabled={promptImageRunning}
+                  disabled={storyRunning}
                   style={{ boxShadow: "0 0 32px -3px rgba(217,70,239,0.8)" }}
                   className="w-full rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 py-3.5 text-base font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {promptImageRunning ? "Đang tạo..." : "Tạo"}
+                  {storyRunning ? "Đang tạo..." : "Tạo"}
                 </button>
               </div>
             </div>
@@ -3834,7 +3677,9 @@ export default function VideoTuYTuongClient({
 
               {storyStatus === "images_ready" && storyScenes && (
                 <div className="flex flex-col items-center gap-4">
-                  <p className="text-sm text-zinc-300">Ảnh phân cảnh đã xong — xem kỹ trước khi tạo video.</p>
+                  <p className="text-sm text-zinc-300">
+                    {storyQuickImageMode ? "Ảnh đã xong." : "Ảnh phân cảnh đã xong — xem kỹ trước khi tạo video."}
+                  </p>
                   <div className="grid w-full grid-cols-2 gap-3 sm:grid-cols-3">
                     {storyScenes
                       .filter((s) => !!s.imageUrl)
@@ -3843,47 +3688,33 @@ export default function VideoTuYTuongClient({
                         <img key={s.id} src={s.imageUrl as string} alt="" className="aspect-[9/16] w-full rounded-xl object-cover" />
                       ))}
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleContinueToVideo}
-                    disabled={storyContinuing}
-                    className="rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 px-5 py-2 text-sm font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {storyContinuing ? "Đang xử lý..." : "Tạo video"}
-                  </button>
+                  {/* Tab "hình ảnh" (storyQuickImageMode) dừng hẳn ở đây -- chỉ tải ảnh, không có bước
+                      tạo video nào tiếp theo. Tab "video" mới hiện nút "Tạo video" đi tiếp. */}
+                  {storyQuickImageMode ? (
+                    storyScenes[0]?.imageUrl && (
+                      <a
+                        href={storyScenes[0].imageUrl}
+                        download
+                        className="rounded-full bg-zinc-800 px-4 py-2 text-xs font-medium text-zinc-200 hover:bg-zinc-700"
+                      >
+                        Tải ảnh
+                      </a>
+                    )
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleContinueToVideo}
+                      disabled={storyContinuing}
+                      className="rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 px-5 py-2 text-sm font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {storyContinuing ? "Đang xử lý..." : "Tạo video"}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
           )}
 
-          {/* Khu vực tiến trình/kết quả cho tab "hình ảnh" — TÁCH RIÊNG khối trên (promptImageRunning/
-              promptImageResult/promptImageError, không phải storyRunning/storyResult/storyError). */}
-          {(promptImageRunning || promptImageResult || promptImageError) && (
-            <div className="mt-8 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6">
-              {promptImageRunning && (
-                <div className="flex items-center justify-center gap-3 py-6 text-sm text-zinc-300">
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-600 border-t-amber-400" />
-                  <span>Đang tạo ảnh...</span>
-                </div>
-              )}
-
-              {!promptImageRunning && promptImageError && <p className="text-center text-sm text-red-400">{promptImageError}</p>}
-
-              {!promptImageRunning && promptImageResult && (
-                <div className="flex flex-col items-center gap-3">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={promptImageResult} alt="" className="max-h-[480px] w-full max-w-sm rounded-xl bg-black object-contain" />
-                  <a
-                    href={promptImageResult}
-                    download
-                    className="rounded-full bg-zinc-800 px-4 py-2 text-xs font-medium text-zinc-200 hover:bg-zinc-700"
-                  >
-                    Tải ảnh
-                  </a>
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </main>
 

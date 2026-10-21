@@ -17,6 +17,7 @@ import {
 } from "@/lib/story-video";
 import { InsufficientCreditError } from "@/lib/credit-system";
 import { getAuthenticatedUserId } from "@/lib/auth-server";
+import { getSupabaseAdmin } from "@/lib/supabase";
 
 const STORY_MAX_LENGTH = 2000;
 const CHARACTER_APPEARANCE_DESCRIPTION_MAX_LENGTH = 500;
@@ -86,6 +87,9 @@ export async function POST(req: Request) {
     characterAppearanceDescription,
     existingCharacterSheetUrl,
     characterReferenceElementId,
+    // "Dự án" ở panel nhanh (content_projects) -- cột RIÊNG, không liên quan tới story_video_jobs.project_id
+    // cũ (hệ thống "video nhiều chương" đã xoá) -- xem migration-story-video-jobs-content-project-link.sql.
+    contentProjectId,
   } = await req.json();
 
   const userId = await getAuthenticatedUserId();
@@ -235,6 +239,17 @@ export async function POST(req: Request) {
       typeof existingCharacterSheetUrl === "string" && existingCharacterSheetUrl ? existingCharacterSheetUrl : undefined,
       typeof characterReferenceElementId === "number" ? characterReferenceElementId : undefined
     );
+    // Gắn job vào "Dự án" panel nhanh (content_projects) nếu đang mở 1 dự án — lỗi ở đây không làm
+    // hỏng job (credit đã trừ, job đã chạy), chỉ log lại để không mất kết quả vì 1 lỗi phụ.
+    if (typeof contentProjectId === "number") {
+      await getSupabaseAdmin()
+        .from("story_video_jobs")
+        .update({ content_project_id: contentProjectId })
+        .eq("id", result.jobId)
+        .then(({ error }) => {
+          if (error) console.error("[story-video] Không gắn được job vào Dự án:", error.message);
+        });
+    }
     return Response.json({ success: true, jobId: result.jobId, newBalance: result.newBalance });
   } catch (err) {
     if (err instanceof InsufficientCreditError) {
