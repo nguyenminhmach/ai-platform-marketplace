@@ -2823,13 +2823,6 @@ export default function VideoTuYTuongClient({
       // nhiều hơn 1 địa điểm thì chỉ lấy cái đầu tiên, bỏ qua các cái sau.
       const locationReferenceUrl = locationElements[0]?.image_urls[0] || undefined;
 
-      // DEBUG TẠM THỜI (xoá sau khi xác định xong lỗi "bối cảnh không được gửi cho model") — hiện thẳng
-      // trên màn hình để user chụp màn hình gửi lại, không cần mở DevTools.
-      setCreateToast(
-        `[debug] locationElements=${locationElements.length} locationReferenceUrl=${locationReferenceUrl ? locationReferenceUrl.slice(-40) : "KHÔNG CÓ"}`
-      );
-      setTimeout(() => setCreateToast(null), 15000);
-
       // SỬA (phản hồi thật user: gộp 2 tab về chung handlePromptCreate làm RỚT MẤT tính năng "Chọn vị
       // trí đứng" 3D -- trước đây CHỈ đúng 1 chỗ nối locationPositions -> mask thật là
       // handlePromptImageCreate cũ (đã xoá, dùng lib/prompt-image.ts), hàm handlePromptCreate này chưa
