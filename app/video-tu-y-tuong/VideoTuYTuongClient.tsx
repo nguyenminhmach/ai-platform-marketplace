@@ -2823,6 +2823,30 @@ export default function VideoTuYTuongClient({
       // nhiều hơn 1 địa điểm thì chỉ lấy cái đầu tiên, bỏ qua các cái sau.
       const locationReferenceUrl = locationElements[0]?.image_urls[0] || undefined;
 
+      // SỬA (phản hồi thật user: gộp 2 tab về chung handlePromptCreate làm RỚT MẤT tính năng "Chọn vị
+      // trí đứng" 3D -- trước đây CHỈ đúng 1 chỗ nối locationPositions -> mask thật là
+      // handlePromptImageCreate cũ (đã xoá, dùng lib/prompt-image.ts), hàm handlePromptCreate này chưa
+      // từng có logic đó, hàm có logic tương tự (handleRunStoryVideo) lại là code CHẾT không ai gọi.
+      // locationPositions key bằng chính URL ảnh trong promptImages (xem isLocationEditor/zoomedPromptImage
+      // ở khối JSX modal 3D) -- trùng đúng locationReferenceUrl khi ảnh đó đến từ cùng 1 element được
+      // mention (ReferencePickerModal gắn thẳng el.image_urls[0] vào promptImages lúc chọn). mask đen/
+      // trắng chỉ thật sự có tác dụng với model fal-ai/gpt-image-2/edit (xem hasLocationMask trong
+      // lib/story-video.ts, submitSceneImageForRow) -- model khác server tự bỏ qua, không cần lọc ở đây.
+      let locationReferenceMaskUrl: string | undefined;
+      if (locationReferenceUrl) {
+        const positionsForLocation = locationPositions[locationReferenceUrl];
+        if (positionsForLocation && Object.keys(positionsForLocation).length > 0) {
+          try {
+            const { w, h } = await loadImageNaturalSize(locationReferenceUrl);
+            const maskDataUrl = generatePositionMaskDataUrl(Object.values(positionsForLocation), w, h);
+            locationReferenceMaskUrl = await uploadOutfitSwapImage(maskDataUrl);
+          } catch {
+            // Lỗi tạo/tải mask không chặn tạo ảnh/video -- rơi về không có mask, vẫn tạo bình thường
+            // (chỉ không đúng vị trí đã chọn).
+          }
+        }
+      }
+
       // 6) Vật phẩm — tối đa 3 (MAX_ITEM_REFERENCES).
       const itemReferenceUrls = propElements
         .map((el) => el.image_urls[0])
@@ -2880,6 +2904,7 @@ export default function VideoTuYTuongClient({
           resolutionKey: storyResolutionKey,
           durationKey: storyDurationKey,
           locationReferenceUrl,
+          locationReferenceMaskUrl,
           itemReferenceUrls: itemReferenceUrls.length > 0 ? itemReferenceUrls : undefined,
           existingCharacterSheetUrl,
           characterReferenceElementId,
