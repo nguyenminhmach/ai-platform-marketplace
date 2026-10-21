@@ -2472,6 +2472,67 @@ export default function VideoTuYTuongClient({
   const [promptImageMeta, setPromptImageMeta] = useState<Record<string, { type: "character" | "location" | "prop"; name: string; elementId: string }>>(
     {}
   );
+  // SỬA (phản hồi thật user: "khi khách nhập dữ liệu vào dự án là lưu luôn ... tránh tình trạng khi máy
+  // hoạt động lại mở ra lại phải làm lại từ đầu" — máy tắt/khởi động lại giữa chừng lúc đang gõ prompt/
+  // chọn ảnh/chọn model, TRƯỚC khi bấm "Tạo", mất hết phải gõ lại) — tự lưu "bản nháp" (prompt + ảnh +
+  // model/tỉ lệ/độ phân giải đang chọn) vào localStorage trình duyệt, keyed theo ĐÚNG dự án đang mở —
+  // không cần DB/server mới, localStorage sống sót qua cả việc tắt/khởi động lại máy (ghi xuống đĩa thật,
+  // khác RAM). Khôi phục tự động khi mở lại đúng dự án đó.
+  type ProjectDraft = {
+    input: string;
+    promptImages: string[];
+    promptImageMeta: Record<string, { type: "character" | "location" | "prop"; name: string; elementId: string }>;
+    promptMediaTab: "hinh-anh" | "video";
+    storyImageModelKey: string | null;
+    storyVideoModelKey: string | null;
+    storyAspectRatio: string;
+    storyResolutionKey: string | null;
+  };
+  function draftStorageKey(projectId: number) {
+    return `video-tu-y-tuong-draft-project-${projectId}`;
+  }
+  function buildCurrentDraft(): ProjectDraft {
+    return { input, promptImages, promptImageMeta, promptMediaTab, storyImageModelKey, storyVideoModelKey, storyAspectRatio, storyResolutionKey };
+  }
+  function saveDraftFor(projectId: number) {
+    try {
+      localStorage.setItem(draftStorageKey(projectId), JSON.stringify(buildCurrentDraft()));
+    } catch {
+      // localStorage đầy/bị chặn (chế độ ẩn danh...) -- bỏ qua, không chặn thao tác của khách vì 1 tính
+      // năng phụ trợ (an toàn mất nháp vẫn tốt hơn crash cả trang).
+    }
+  }
+  // Lưu định kỳ (debounce 500ms) mỗi khi bản nháp đổi, miễn đang ở trong 1 dự án — không lưu gì khi
+  // đang ở workspace chung (activeProjectId=null), vì chưa rõ nháp đó "thuộc về" dự án nào.
+  useEffect(() => {
+    if (!activeProjectId) return;
+    const timer = setTimeout(() => saveDraftFor(activeProjectId), 500);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProjectId, input, promptImages, promptImageMeta, promptMediaTab, storyImageModelKey, storyVideoModelKey, storyAspectRatio, storyResolutionKey]);
+  // Khôi phục bản nháp khi MỞ (chuyển sang) 1 dự án — chỉ khôi phục 1 LẦN cho mỗi dự án mỗi lần mở (nhờ
+  // restoredProjectIdRef), không ghi đè liên tục lên những gì khách đang gõ tiếp sau khi đã khôi phục.
+  const restoredProjectIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!activeProjectId || restoredProjectIdRef.current === activeProjectId) return;
+    restoredProjectIdRef.current = activeProjectId;
+    try {
+      const raw = localStorage.getItem(draftStorageKey(activeProjectId));
+      if (!raw) return;
+      const draft = JSON.parse(raw) as Partial<ProjectDraft>;
+      if (typeof draft.input === "string") setInput(draft.input);
+      if (Array.isArray(draft.promptImages)) setPromptImages(draft.promptImages);
+      if (draft.promptImageMeta) setPromptImageMeta(draft.promptImageMeta);
+      if (draft.promptMediaTab) setPromptMediaTab(draft.promptMediaTab);
+      if (draft.storyImageModelKey !== undefined) setStoryImageModelKey(draft.storyImageModelKey);
+      if (draft.storyVideoModelKey !== undefined) setStoryVideoModelKey(draft.storyVideoModelKey);
+      if (draft.storyAspectRatio) setStoryAspectRatio(draft.storyAspectRatio);
+      if (draft.storyResolutionKey !== undefined) setStoryResolutionKey(draft.storyResolutionKey);
+    } catch {
+      // nháp lỗi định dạng/hỏng -- bỏ qua, khách gõ lại từ đầu cho đúng dự án đó, không crash trang.
+    }
+  }, [activeProjectId]);
+
   const [zoomedPromptImage, setZoomedPromptImage] = useState<string | null>(null);
   // Vị trí đứng của từng nhân vật trên 1 ảnh địa điểm cụ thể — keyed theo [locationUrl][characterUrl],
   // toạ độ chuẩn hoá 0..1 (x/y tính từ góc trên-trái ảnh). Cài 1 lần, dùng lại mọi lần sau khi cùng
@@ -3216,7 +3277,12 @@ export default function VideoTuYTuongClient({
               <div key={p.id} className="relative">
                 <button
                   type="button"
-                  onClick={() => setActiveProjectId((cur) => (cur === p.id ? null : p.id))}
+                  onClick={() => {
+                    // Lưu nháp của dự án ĐANG mở (nếu có) trước khi rời đi — không chờ debounce 500ms,
+                    // tránh mất vài trăm ms gõ cuối cùng nếu khách bấm chuyển dự án ngay sau khi gõ.
+                    if (activeProjectId) saveDraftFor(activeProjectId);
+                    setActiveProjectId((cur) => (cur === p.id ? null : p.id));
+                  }}
                   className={`block w-full truncate rounded-lg px-3 py-2 pr-9 text-left ${
                     activeProjectId === p.id
                       ? "border border-fuchsia-500/60 bg-zinc-700 font-medium text-fuchsia-400"
