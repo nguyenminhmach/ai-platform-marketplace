@@ -3153,6 +3153,47 @@ export default function VideoTuYTuongClient({
         return el ? el.name : full;
       });
 
+      // SỬA (phản hồi thật user: "đây là bức ảnh để trong thảm cỏ chứ không phải nhân vật đứng trong
+      // thảm cỏ" — ảnh ra kết quả giống dán phẳng ảnh nhân vật lên ảnh bối cảnh, không phải ghép tự
+      // nhiên) — nguyên nhân: luồng tạo ảnh nhanh này chỉ gửi đúng câu khách gõ + danh sách ảnh, không
+      // hề có câu chỉ dẫn nào về CÁCH ghép (model tự đoán, chọn cách "dán" đơn giản nhất). Khác hẳn
+      // luồng tạo video nhiều cảnh (lib/story-video.ts, buildSceneImagePrompt) vốn LUÔN thêm câu chỉ
+      // dẫn phân vai rõ ràng cho từng ảnh tham chiếu (ảnh nào là nhân vật giữ nguyên mặt/dáng/trang
+      // phục, ảnh nào là địa điểm thật cần đặt đúng bối cảnh) + câu ép ảnh chụp thật. Thêm đúng cùng
+      // kiểu chỉ dẫn đó ở đây, dựa theo type (character/location/prop) của từng ảnh đã gắn.
+      const chipMetas = promptImages.map((u) => promptImageMeta[u]).filter((m): m is NonNullable<typeof m> => !!m);
+      const characterNames = Array.from(new Set(chipMetas.filter((m) => m.type === "character").map((m) => m.name)));
+      const locationMeta = chipMetas.find((m) => m.type === "location");
+      const propNames = Array.from(new Set(chipMetas.filter((m) => m.type === "prop").map((m) => m.name)));
+      let compositionClause = "";
+      if (characterNames.length > 0 || locationMeta || propNames.length > 0) {
+        const parts: string[] = [];
+        if (characterNames.length > 0) {
+          parts.push(
+            `The reference photo(s) for ${characterNames.join(", ")} show exactly how ${
+              characterNames.length > 1 ? "each of them looks" : "this person looks"
+            } (face, hairstyle, body proportions, outfit) — keep ${
+              characterNames.length > 1 ? "them" : "it"
+            } exactly the same, do not change identity or clothing.`
+          );
+        }
+        if (locationMeta) {
+          parts.push(
+            `The reference photo for "${locationMeta.name}" is a REAL physical location — place the scene at that exact real location, matching its real layout, decor, lighting direction, and camera perspective. Do not invent a different place.`
+          );
+        }
+        if (propNames.length > 0) {
+          parts.push(
+            `Keep ${propNames.join(", ")} exactly as shown in their reference photo(s) — same color, style, and material, not a generic substitute.`
+          );
+        }
+        parts.push(
+          "Compose all of this into ONE single photorealistic photograph, as if captured by a real camera in one real moment — correct scale, pose, perspective, and lighting for every element combined. Never paste a reference photo in as a flat sticker/cutout or leave mismatched lighting or perspective between elements."
+        );
+        compositionClause = " " + parts.join(" ");
+      }
+      const finalPrompt = mentionStrippedText + compositionClause;
+
       const MAX_REFERENCE_IMAGES_CLIENT = 20; // đúng MAX_CHARACTER_IMAGES ở lib/story-video.ts
       // SỬA RỒI SỬA LẠI — thử đổi sang chỉ lấy ảnh đại diện (image_urls[0]) mỗi phần tử, nghi đây là
       // nguyên nhân "sai vị trí sai người", nhưng user xác nhận gửi NHIỀU GÓC ảnh của 1 nhân vật là CHỦ
@@ -3205,7 +3246,7 @@ export default function VideoTuYTuongClient({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: mentionStrippedText,
+          prompt: finalPrompt,
           imageUrls,
           modelKey: imageModelKey,
           aspectRatio: storyAspectRatio,
