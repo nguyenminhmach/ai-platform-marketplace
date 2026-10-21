@@ -258,6 +258,43 @@ export default function AdminPage() {
       setGrantingUserId(null);
     }
   }
+  // SỬA (phản hồi thật user: "thu credit các người này thì làm thế nào" — chiều ngược của cấp credit ở
+  // trên) — dùng chung input số credit (grantAmountDrafts), chỉ khác hành động gọi API trừ thay vì cộng.
+  const [deductingUserId, setDeductingUserId] = useState<string | null>(null);
+  const [deductedUserId, setDeductedUserId] = useState<string | null>(null);
+  async function handleDeductCredit(userId: string) {
+    const amount = Number(grantAmountDrafts[userId]);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setGrantError("Nhập số credit hợp lệ (lớn hơn 0)");
+      return;
+    }
+    setDeductingUserId(userId);
+    setGrantError(null);
+    try {
+      const res = await fetch("/api/admin/deduct-credit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, amount }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Có lỗi xảy ra");
+      setStats((prev) =>
+        prev
+          ? {
+              ...prev,
+              recentUsers: prev.recentUsers.map((u) => (u.user_id === userId ? { ...u, credit_balance: data.newBalance } : u)),
+            }
+          : prev
+      );
+      setGrantAmountDrafts((prev) => ({ ...prev, [userId]: "" }));
+      setDeductedUserId(userId);
+      setTimeout(() => setDeductedUserId((cur) => (cur === userId ? null : cur)), 2000);
+    } catch (err) {
+      setGrantError(err instanceof Error ? err.message : "Có lỗi xảy ra");
+    } finally {
+      setDeductingUserId(null);
+    }
+  }
   const [settings, setSettings] = useState<Settings | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(false);
@@ -2163,10 +2200,18 @@ export default function AdminPage() {
                               <button
                                 type="button"
                                 onClick={() => handleGrantCredit(u.user_id)}
-                                disabled={grantingUserId === u.user_id}
+                                disabled={grantingUserId === u.user_id || deductingUserId === u.user_id}
                                 className="rounded-lg bg-zinc-900 px-3 py-1 text-xs font-medium text-white disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
                               >
                                 {grantingUserId === u.user_id ? "..." : grantedUserId === u.user_id ? "✓ Đã cấp" : "Cấp"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeductCredit(u.user_id)}
+                                disabled={grantingUserId === u.user_id || deductingUserId === u.user_id}
+                                className="rounded-lg border border-red-300 px-3 py-1 text-xs font-medium text-red-600 disabled:opacity-50 dark:border-red-900 dark:text-red-400"
+                              >
+                                {deductingUserId === u.user_id ? "..." : deductedUserId === u.user_id ? "✓ Đã thu" : "Thu"}
                               </button>
                             </div>
                           </td>

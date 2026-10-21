@@ -69,6 +69,27 @@ export async function grantCreditAdmin(userId: string, amount: number): Promise<
   if (error) throw new Error(error.message);
 }
 
+// SỬA (phản hồi thật user: "thu credit các người này thì làm thế nào" — cần chiều ngược lại của
+// grantCreditAdmin) — tái dùng đúng RPC deduct_credit() đã có sẵn (an toàn, chống race condition, tự
+// chặn không cho số dư âm — trả success=false thay vì trừ âm), KHÔNG gọi qua hàm deductCredit() ở trên
+// vì hàm đó tự bỏ qua việc trừ cho user đang có gói subscription không giới hạn (đúng cho luồng user tự
+// dùng app, nhưng SAI cho hành động admin chủ động thu hồi — admin thu thì phải trừ thật bất kể gói gì).
+export async function deductCreditAdmin(userId: string, amount: number): Promise<number> {
+  if (amount <= 0) throw new Error("Số credit phải lớn hơn 0");
+  const supabase = getSupabaseAdmin();
+  const { randomUUID } = await import("crypto");
+  const { data, error } = await supabase.rpc("deduct_credit", {
+    p_user_id: userId,
+    p_amount: amount,
+    p_mini_app_id: "admin",
+    p_idempotency_key: `admin-deduct-${randomUUID()}`,
+  });
+  if (error) throw new Error(error.message);
+  const row = data?.[0];
+  if (!row?.success) throw new Error("Số dư không đủ để thu");
+  return row.new_balance;
+}
+
 export async function getCreditBalance(userId: string): Promise<number> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
