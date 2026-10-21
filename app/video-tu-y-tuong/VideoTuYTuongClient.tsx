@@ -2992,6 +2992,14 @@ export default function VideoTuYTuongClient({
         | { imageUrls: string[]; label?: string; itemReferenceUrls?: string[] }[]
         | undefined;
 
+      // SỬA (phản hồi thật user: "đã có ảnh character rồi vẫn tạo lại") — element @mention đã có sẵn
+      // 1 sheet từ lần tạo trước (character_sheet_url, xem migration-reference-element-character-
+      // sheet-cache.sql) thì dùng thẳng, không gửi ảnh thô + không tạo mới; chưa có thì gửi kèm id của
+      // element để backend ghi ngược sheet vừa tạo xong về lại nó (applyCharacterStageResult). Chỉ áp
+      // dụng nhánh ĐÚNG 1 nhân vật -- nhánh nhiều nhân vật (characters[]) chưa có cache này.
+      let existingCharacterSheetUrl: string | undefined;
+      let characterReferenceElementId: number | undefined;
+
       if (characterElements.length >= 2) {
         // 2+ nhân vật -> luồng nhiều nhân vật, mỗi người 1 entry riêng. Ảnh "+" tải rời gộp hết vào
         // nhân vật ĐẦU TIÊN được mention (không rõ thuộc về ai nếu chia đều, gán vậy dễ hiểu hơn).
@@ -3000,7 +3008,13 @@ export default function VideoTuYTuongClient({
           label: el.name,
         }));
       } else if (characterElements.length === 1) {
-        characterImageUrls = [...characterElements[0].image_urls, ...uploadedPromptImages].slice(0, MAX_CHARACTER_IMAGES_CLIENT);
+        if (characterElements[0].character_sheet_url) {
+          existingCharacterSheetUrl = characterElements[0].character_sheet_url;
+          characterImageUrls = [existingCharacterSheetUrl];
+        } else {
+          characterReferenceElementId = characterElements[0].id;
+          characterImageUrls = [...characterElements[0].image_urls, ...uploadedPromptImages].slice(0, MAX_CHARACTER_IMAGES_CLIENT);
+        }
       } else {
         // Không @mention nhân vật nào -> coi ảnh "+" tải rời là ảnh nhân vật (luồng cũ "tải ảnh trực
         // tiếp"), có thể rỗng (job không cần nhân vật).
@@ -3046,8 +3060,14 @@ export default function VideoTuYTuongClient({
       const suggested = await fetchSuggestedSceneCount();
       const resolvedNumScenes = suggested ?? 3;
 
-      // 9) Submit job thật — autoVideo=true (prompt bar mới là luồng "gõ rồi bấm tạo" 1 lượt, đi thẳng
-      // tới video, không dừng ở bước xem ảnh phân cảnh như wizard cũ).
+      // 9) Submit job thật.
+      // SỬA (phản hồi thật user: "chưa thấy ảnh phân cảnh đã tạo vì video, video không đúng bối cảnh")
+      // — xác nhận qua đọc applyImageStageResult: auto_video=true khiến job chuyển THẲNG sang tạo video
+      // ngay khi ảnh phân cảnh vừa xong, không dừng lại cho khách xem/soát trước — nên trước đây job
+      // luôn "biến mất" rồi ra thẳng video (có khi sai bối cảnh) mà không ai kịp thấy/dừng lại ở bước
+      // ảnh. Đổi false để job LUÔN dừng ở "images_ready" (khối JSX mới thêm ở trên sẽ hiện ảnh phân
+      // cảnh + nút "Tạo video" riêng) — giống hệt cách 2 điểm dừng kia (character_ready/scenes_ready)
+      // đã hoạt động, khách chủ động bấm tiếp khi ảnh ổn, không tốn credit video một cách mù quáng.
       setStoryStatusText("Đang gửi yêu cầu tạo video...");
       const res = await fetch("/api/story-video/submit", {
         method: "POST",
@@ -3061,12 +3081,14 @@ export default function VideoTuYTuongClient({
           characters,
           imageModelKey,
           videoModelKey: storyVideoModelKey,
-          autoVideo: true,
+          autoVideo: false,
           aspectRatio: storyAspectRatio,
           resolutionKey: storyResolutionKey,
           durationKey: storyDurationKey,
           locationReferenceUrl,
           itemReferenceUrls: itemReferenceUrls.length > 0 ? itemReferenceUrls : undefined,
+          existingCharacterSheetUrl,
+          characterReferenceElementId,
         }),
       });
       const data = await res.json();

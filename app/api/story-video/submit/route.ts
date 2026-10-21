@@ -87,6 +87,8 @@ export async function POST(req: Request) {
     characterAppearanceDescription,
     projectId,
     chapterIndex,
+    existingCharacterSheetUrl,
+    characterReferenceElementId,
   } = await req.json();
 
   const userId = await getAuthenticatedUserId();
@@ -232,7 +234,9 @@ export async function POST(req: Request) {
       parseItemReferenceUrls(itemReferenceUrls),
       parsedPreplannedActions,
       parsedPreplannedActionsMulti,
-      hasAppearanceDescription ? trimmedAppearanceDescription : undefined
+      hasAppearanceDescription ? trimmedAppearanceDescription : undefined,
+      typeof existingCharacterSheetUrl === "string" && existingCharacterSheetUrl ? existingCharacterSheetUrl : undefined,
+      typeof characterReferenceElementId === "number" ? characterReferenceElementId : undefined
     );
     // Video nhiều chương: gắn job vào dự án ở đúng chương. Lỗi ở đây không làm hỏng job (credit đã trừ, job đã chạy).
     if (typeof projectId === "number" && typeof chapterIndex === "number") {

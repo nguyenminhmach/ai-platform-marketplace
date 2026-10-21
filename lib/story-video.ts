@@ -2845,7 +2845,16 @@ export async function submitStoryVideoJob(
   // Chế độ "Mô tả bằng chữ" — CHỈ áp dụng nhánh 1 nhân vật (characters rỗng/1 phần tử), khách không có
   // ảnh thật, để AI tự bịa hẳn nhân vật từ mô tả này (xem CHARACTER_TEXT_TO_IMAGE_MODEL bên dưới). Khi
   // có giá trị, bỏ qua hoàn toàn yêu cầu characterImageUrls.length >= MIN_CHARACTER_IMAGES.
-  characterAppearanceDescription?: string
+  characterAppearanceDescription?: string,
+  // SỬA (phản hồi thật user: "đã có ảnh character rồi vẫn tạo lại") — cache sheet đã tạo xong gắn
+  // trên chính reference_elements (xem migration-reference-element-character-sheet-cache.sql), tách
+  // riêng khỏi reuseCharacterId (vốn trỏ tới bảng story_characters, thư viện lưu THỦ CÔNG). Chỉ áp
+  // dụng nhánh 1 nhân vật (CHỈ gọi từ app/api/story-video/submit khi characterElements.length === 1).
+  // - existingCharacterSheetUrl: element đã có sẵn sheet từ lần tạo trước -> dùng thẳng, bỏ qua tạo mới.
+  // - characterReferenceElementId: element CHƯA có sheet -> sau khi tạo sheet mới xong (webhook), ghi
+  //   ngược URL vừa tạo về lại element này để lần @mention sau tái sử dụng (applyCharacterStageResult).
+  existingCharacterSheetUrl?: string,
+  characterReferenceElementId?: number
 ): Promise<{ jobId: number; newBalance: number }> {
   const resolvedNumScenes = preplannedActions ? preplannedActions.length : numScenes;
   if (resolvedNumScenes < MIN_SCENES || resolvedNumScenes > MAX_SCENES) {
@@ -2901,6 +2910,12 @@ export async function submitStoryVideoJob(
     if (!saved || saved.user_id !== userId) throw new Error("Không tìm thấy Character đã lưu");
     reusedImageUrl = saved.image_url;
     reusedAngleUrls = (saved.angle_urls as CharacterAngleUrls | null) ?? null;
+  } else if (existingCharacterSheetUrl) {
+    // Element @mention đã có sẵn sheet từ lần tạo trước (xem migration-reference-element-character-
+    // sheet-cache.sql) -- dùng thẳng, không cần phân loại/tạo mới gì cả. Không có angle_urls đã cắt sẵn
+    // ở đây (khác story_characters) -- runSceneSplitStage/runSceneStage bên dưới tự cắt khi cần qua
+    // cropCharacterSheetIntoAngles, giống nhánh "uploaded_sheet"/"generated".
+    reusedImageUrl = existingCharacterSheetUrl;
   } else if (characterAppearanceDescription?.trim()) {
     // Chế độ "Mô tả bằng chữ" — không cần ảnh, bỏ qua hẳn yêu cầu MIN_CHARACTER_IMAGES.
   } else if (characterImageUrls.length < MIN_CHARACTER_IMAGES || characterImageUrls.length > MAX_CHARACTER_IMAGES) {
@@ -2920,6 +2935,10 @@ export async function submitStoryVideoJob(
       num_scenes: resolvedNumScenes,
       character_image_urls: characterImageUrls,
       character_appearance_description: characterAppearanceDescription?.trim() || null,
+      // Chỉ set khi job này SẼ tạo sheet MỚI cho đúng element này (existingCharacterSheetUrl rỗng) --
+      // applyCharacterStageResult đọc cột này để ghi ngược sheet vừa tạo xong về lại element (xem
+      // migration-reference-element-character-sheet-cache.sql).
+      character_reference_element_id: !existingCharacterSheetUrl ? characterReferenceElementId ?? null : null,
       image_model: imageEntry.model,
       video_model: videoEntry.model,
       auto_video: autoVideo,
@@ -4446,13 +4465,27 @@ export async function applyCharacterStageResult(
     return;
   }
 
-  const { data: jobRow } = await supabase.from("story_video_jobs").select("user_id").eq("id", jobId).single();
+  const { data: jobRow } = await supabase
+    .from("story_video_jobs")
+    .select("user_id, character_reference_element_id")
+    .eq("id", jobId)
+    .single();
   const angleUrls = jobRow ? await cropCharacterSheetIntoAngles(imageUrl, jobRow.user_id) : null;
 
   await supabase
     .from("story_video_jobs")
     .update({ status: "character_ready", character_sheet_url: imageUrl, character_angle_urls: angleUrls })
     .eq("id", jobId);
+
+  // SỬA (phản hồi thật user: "đã có ảnh character rồi vẫn tạo lại") — sheet vừa tạo xong MỚI (không
+  // phải reused/text_described, 2 trường hợp đó không set character_reference_element_id lúc insert)
+  // ghi ngược về lại reference_elements để lần @mention sau tái sử dụng, không tạo mới nữa.
+  if (jobRow?.character_reference_element_id) {
+    await supabase
+      .from("reference_elements")
+      .update({ character_sheet_url: imageUrl })
+      .eq("id", jobRow.character_reference_element_id);
+  }
 }
 
 // Gọi khi 1 ảnh giữ nhân vật (bước 1) của 1 cảnh tạo xong. Khi TẤT CẢ cảnh xong: nếu job bật

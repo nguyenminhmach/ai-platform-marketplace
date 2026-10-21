@@ -21,6 +21,10 @@ export type ReferenceElement = {
   description: string | null;
   image_urls: string[];
   created_at: string;
+  // Tấm character sheet 6 góc đã tạo xong gần nhất cho element này (chỉ có nghĩa với type="character")
+  // — cache để luồng tạo video không phải tạo lại sheet mới mỗi lần @mention cùng 1 nhân vật (xem
+  // migration-reference-element-character-sheet-cache.sql). null = chưa từng tạo sheet cho element này.
+  character_sheet_url?: string | null;
 };
 
 export const TYPE_LABEL: Record<ElementType, string> = {

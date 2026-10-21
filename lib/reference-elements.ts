@@ -19,6 +19,7 @@ export type ReferenceElement = {
   description: string | null;
   image_urls: string[];
   created_at: string;
+  character_sheet_url?: string | null;
 };
 
 // @tên chỉ cho phép chữ thường/số/gạch dưới, không dấu, không khoảng trắng — để match an toàn bằng
