@@ -216,6 +216,47 @@ export default function AdminPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
+  // SỬA (phản hồi thật user: "cấp credit cho anh" — bảng "Người dùng gần đây" trước đây chỉ hiển thị số
+  // dư, không có cách nào cộng thêm) — số credit đang nhập cho từng user (keyed theo user_id) + trạng
+  // thái đang gửi/đã cấp, để hiện phản hồi ngay trên đúng dòng vừa bấm.
+  const [grantAmountDrafts, setGrantAmountDrafts] = useState<Record<string, string>>({});
+  const [grantingUserId, setGrantingUserId] = useState<string | null>(null);
+  const [grantedUserId, setGrantedUserId] = useState<string | null>(null);
+  const [grantError, setGrantError] = useState<string | null>(null);
+  async function handleGrantCredit(userId: string) {
+    const amount = Number(grantAmountDrafts[userId]);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setGrantError("Nhập số credit hợp lệ (lớn hơn 0)");
+      return;
+    }
+    setGrantingUserId(userId);
+    setGrantError(null);
+    try {
+      const res = await fetch("/api/admin/grant-credit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, amount }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Có lỗi xảy ra");
+      // Cập nhật ngay số dư hiển thị, không cần tải lại cả trang thống kê.
+      setStats((prev) =>
+        prev
+          ? {
+              ...prev,
+              recentUsers: prev.recentUsers.map((u) => (u.user_id === userId ? { ...u, credit_balance: u.credit_balance + amount } : u)),
+            }
+          : prev
+      );
+      setGrantAmountDrafts((prev) => ({ ...prev, [userId]: "" }));
+      setGrantedUserId(userId);
+      setTimeout(() => setGrantedUserId((cur) => (cur === userId ? null : cur)), 2000);
+    } catch (err) {
+      setGrantError(err instanceof Error ? err.message : "Có lỗi xảy ra");
+    } finally {
+      setGrantingUserId(null);
+    }
+  }
   const [settings, setSettings] = useState<Settings | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(false);
@@ -2086,12 +2127,13 @@ export default function AdminPage() {
                       <th className="px-4 py-3 font-medium">User ID</th>
                       <th className="px-4 py-3 font-medium">Ngày tham gia</th>
                       <th className="px-4 py-3 text-right font-medium">Số dư credit</th>
+                      <th className="px-4 py-3 text-right font-medium">Cấp credit</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                     {stats.recentUsers.length === 0 ? (
                       <tr>
-                        <td colSpan={3} className="px-4 py-6 text-center text-zinc-500 dark:text-zinc-400">
+                        <td colSpan={4} className="px-4 py-6 text-center text-zinc-500 dark:text-zinc-400">
                           Chưa có người dùng nào.
                         </td>
                       </tr>
@@ -2103,12 +2145,33 @@ export default function AdminPage() {
                           <td className="px-4 py-3 text-right font-medium text-zinc-900 dark:text-zinc-50">
                             {u.credit_balance.toLocaleString("vi-VN")}
                           </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-end gap-2">
+                              <input
+                                type="number"
+                                min={1}
+                                placeholder="Số credit"
+                                value={grantAmountDrafts[u.user_id] ?? ""}
+                                onChange={(e) => setGrantAmountDrafts((prev) => ({ ...prev, [u.user_id]: e.target.value }))}
+                                className="w-24 rounded-lg border border-zinc-300 px-2 py-1 text-right text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleGrantCredit(u.user_id)}
+                                disabled={grantingUserId === u.user_id}
+                                className="rounded-lg bg-zinc-900 px-3 py-1 text-xs font-medium text-white disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
+                              >
+                                {grantingUserId === u.user_id ? "..." : grantedUserId === u.user_id ? "✓ Đã cấp" : "Cấp"}
+                              </button>
+                            </div>
+                          </td>
                         </tr>
                       ))
                     )}
                   </tbody>
                 </table>
               </div>
+              {grantError && <p className="mt-2 text-sm text-red-500">{grantError}</p>}
             </section>
           </>
         )}

@@ -58,6 +58,17 @@ export async function refundCredit(txId: number): Promise<void> {
   }
 }
 
+// SỬA (phản hồi thật user: trang /admin trước đây chỉ HIỂN THỊ số dư credit, không có cách nào cộng
+// thêm cho 1 user cụ thể — mọi credit đều phải qua nạp tiền thật) — cấp credit thủ công, dùng type
+// "bonus" đã có sẵn (không cần đổi CHECK constraint của credit_transactions), atomic qua RPC
+// grant_credit_admin (xem supabase/migration-admin-grant-credit.sql).
+export async function grantCreditAdmin(userId: string, amount: number): Promise<void> {
+  if (amount <= 0) throw new Error("Số credit phải lớn hơn 0");
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase.rpc("grant_credit_admin", { p_user_id: userId, p_amount: amount });
+  if (error) throw new Error(error.message);
+}
+
 export async function getCreditBalance(userId: string): Promise<number> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
