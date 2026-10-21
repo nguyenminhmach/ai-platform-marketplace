@@ -271,26 +271,6 @@ export default function VideoTuYTuongClient({
     characters?: number[];
   };
   type StoryScriptScene = StoryScriptAction & { duration_key: string | null; provider_cost_vnd: number };
-  // Video NHIỀU CHƯƠNG — mỗi chương là 1 lượt chạy đầy đủ của form (job riêng) ra 1 video ngắn; cuối cùng
-  // "Kết thúc" ghép video các chương (xem lib/story-video-projects.ts). Chỉ giữ 1 form duy nhất: xong chương N
-  // thì "chốt" gọn (mã job + video + ý tưởng) rồi reset form sang chương N+1 — luồng vốn tuần tự.
-  type StoryProjectChapter = { chapterIndex: number; jobId: number; outputUrl: string; title: string };
-  const STORY_MAX_CHAPTERS = 10; // đúng MAX_PROJECT_CHAPTERS ở lib/story-video-projects.ts
-  const [storyMultiChapter, setStoryMultiChapter] = useState(false);
-  const [storyProjectId, setStoryProjectId] = useState<number | null>(null);
-  const [storyProjectChapters, setStoryProjectChapters] = useState<StoryProjectChapter[]>([]);
-  const [storyActiveChapter, setStoryActiveChapter] = useState(0);
-  const [storyLockedAspectRatio, setStoryLockedAspectRatio] = useState<string | null>(null);
-  const [storyProjectFinalizing, setStoryProjectFinalizing] = useState(false);
-  const [storyProjectFinalUrl, setStoryProjectFinalUrl] = useState<string | null>(null);
-  // Kiểu chuyển cảnh (cắt cứng/hoà mờ) khách chọn riêng cho TỪNG điểm nối giữa 2 chương liên tiếp —
-  // storyChapterTransitions[i] ứng với điểm nối Chương (i+1) → Chương (i+2). Không chọn gì thì mặc định
-  // "cut" (giữ đúng hành vi cũ, xem finalize route). Reset khi bắt đầu dự án mới (handleNewProject).
-  const [storyChapterTransitions, setStoryChapterTransitions] = useState<("cut" | "crossfade")[]>([]);
-  const [storyProjectError, setStoryProjectError] = useState<string | null>(null);
-  const [storyViewChapter, setStoryViewChapter] = useState<number | null>(null);
-  const storyFormTopRef = useRef<HTMLDivElement | null>(null);
-  const storyProjectFinalRef = useRef<HTMLDivElement | null>(null);
   const [storyScriptActions, setStoryScriptActions] = useState<StoryScriptAction[] | null>(null);
   const [storyScriptScenes, setStoryScriptScenes] = useState<StoryScriptScene[] | null>(null);
   const [storyScriptTotalSeconds, setStoryScriptTotalSeconds] = useState<number | null>(null);
@@ -1053,7 +1033,6 @@ export default function VideoTuYTuongClient({
       .then(async (data) => {
         const job = data.job;
         if (!job) return;
-        if (data.project) restoreStoryProject(data.project, data.chapterIndex ?? null);
         setStoryJobId(job.id);
         if (job.storyDescription) setInput(job.storyDescription);
         if (Array.isArray(job.characterImageUrls) && job.characterImageUrls.length > 0) {
@@ -1938,205 +1917,6 @@ export default function VideoTuYTuongClient({
     }
   }
 
-  // ================= Video NHIỀU CHƯƠNG (dự án) =================
-  // Model không hỗ trợ tỉ lệ đã khoá theo chương 1 thì ẩn khỏi dropdown (không thì đổi model sẽ phá khoá).
-  function modelSupportsLockedRatio(m: { aspect_ratios?: string[] }): boolean {
-    return !storyLockedAspectRatio || !m.aspect_ratios || m.aspect_ratios.includes(storyLockedAspectRatio);
-  }
-  async function handleToggleMultiChapter(enabled: boolean) {
-    setStoryProjectError(null);
-    if (!enabled) {
-      setStoryMultiChapter(false);
-      return;
-    }
-    setStoryMultiChapter(true);
-    setStoryActiveChapter(0);
-    try {
-      let projectId = storyProjectId;
-      if (projectId === null) {
-        const res = await fetch("/api/story-video/projects", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ miniAppId: app!.id }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Không tạo được dự án");
-        projectId = data.projectId as number;
-        setStoryProjectId(projectId);
-      }
-      // Trang đã có sẵn 1 job (vd job vừa khôi phục sau khi tải lại trang, hoặc đang chạy dở) — gắn luôn làm
-      // Chương 1 để khách không phải bỏ nó đi làm lại từ đầu.
-      if (storyJobId !== null) {
-        const res = await fetch("/api/story-video/projects/attach", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ projectId, jobId: storyJobId, chapterIndex: 0 }),
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.error ?? "Không gắn được video hiện tại vào dự án");
-        }
-      }
-    } catch (err) {
-      setStoryMultiChapter(false);
-      setStoryProjectError(err instanceof Error ? err.message : "Không tạo được dự án");
-    }
-  }
-  // Đưa MỌI ô của form về trạng thái trống cho chương mới. GIỮ LẠI (khách vẫn sửa được): model ảnh/video, độ
-  // phân giải/thời lượng, model chat, thể loại, tự động tạo video, chuyển động liên tục/frame-chain, tỉ lệ khung
-  // hình (khoá theo chương 1). Ảnh nhân vật, ảnh bối cảnh, vật phẩm, ý tưởng, kịch bản, cảnh, video: xoá hết.
-  function resetStoryFormForNextChapter() {
-    if (storyPollRef.current) clearInterval(storyPollRef.current);
-    setInput("");
-    setNumScenes(3);
-    setSceneCountChosen(false);
-    setStoryScriptActions(null);
-    setStoryScriptScenes(null);
-    setStoryScriptTotalSeconds(null);
-    setStoryScriptVideoCreditCost(null);
-    setStoryScriptLoading(false);
-    setStoryScriptError(null);
-    setStorySpeedDrafts({});
-    setStorySpeedFinalized(false);
-    setStorySpeedLoading(false);
-    setStoryCharacterImages([]);
-    setStoryExtraCharacters([]);
-    setStoryPrimaryCharacterLabel("");
-    setStoryCharacterInputMode("photo");
-    setStoryCharacterAppearanceDescription("");
-    setStoryLocationReference(null);
-    setStoryLocationReferenceMaskUrl(null);
-    setStoryLocationMaskRect(null);
-    setStoryLocationMaskEditorOpen(false);
-    setStoryLocationImageNaturalSize(null);
-    setStoryLocationMaskAssignments([]);
-    setStoryLocationMaskActiveCharacter(0);
-    setStoryPrimaryItemReferences([]);
-    setStorySkipCharacterCreation(false);
-    setStoryUseOwnSceneImages(false);
-    setStorySceneImages([]);
-    setStorySceneHints([]);
-    setStoryCharacterSheetUrl(null);
-    setStoryCharacterSource(null);
-    setStoryRegeneratingCharacter(false);
-    setStoryJobCharacters(null);
-    setStoryRegeneratingJobCharacterPosition(null);
-    setStoryContinuingScenes(false);
-    setStorySavingCharacter(false);
-    setStorySavedCharacterMsg(null);
-    setStorySelectedSavedCharacterId(null);
-    setStoryCheckingImage(false);
-    setStoryImageCheckResult(null);
-    setStoryRunning(false);
-    setStoryContinuing(false);
-    setStoryFinalizingPartial(false);
-    setStoryCancelling(false);
-    setStoryActiveButton(null);
-    setStoryStatusText(null);
-    setStoryStatus(null);
-    setStoryJobId(null);
-    setStoryScenes(null);
-    setStoryRegeneratingSceneId(null);
-    setStoryRegeneratingContinuousPosition(null);
-    setStoryAnatomyChecking({});
-    setStoryAnatomyResults({});
-    setStoryContinuityChecking({});
-    setStoryContinuityResults({});
-    setStoryRegeneratingVideoSceneId(null);
-    setStoryEditingPromptSceneId(null);
-    setStoryEditedPrompt("");
-    setStoryResult(null);
-    setStoryError(null);
-    setStoryQuickZoomUrl(null);
-    setSuggestingScenes(false);
-    setSceneSuggestError(null);
-  }
-  async function handleNextChapter() {
-    if (storyProjectId === null || !storyJobId || !storyResult) return;
-    if (storyActiveChapter + 1 >= STORY_MAX_CHAPTERS) return;
-    const finished: StoryProjectChapter = {
-      chapterIndex: storyActiveChapter,
-      jobId: storyJobId,
-      outputUrl: storyResult,
-      title: input.trim().slice(0, 80),
-    };
-    // Tỉ lệ khoá theo chương 1 — lấy từ server (tỉ lệ job chương 1 THỰC SỰ dùng), lỗi mạng thì dùng tỉ lệ đang chọn.
-    let locked = storyLockedAspectRatio ?? storyAspectRatio;
-    try {
-      const res = await fetch(`/api/story-video/projects?projectId=${storyProjectId}`);
-      const data = await res.json();
-      if (res.ok && data.project?.aspectRatio) locked = data.project.aspectRatio;
-    } catch {}
-    setStoryProjectChapters((prev) => [...prev.filter((c) => c.chapterIndex !== finished.chapterIndex), finished]);
-    setStoryLockedAspectRatio(locked);
-    setStoryAspectRatio(locked);
-    resetStoryFormForNextChapter();
-    setStoryActiveChapter(finished.chapterIndex + 1);
-    setStoryViewChapter(null);
-    setTimeout(() => storyFormTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
-  }
-  async function handleFinishProject() {
-    if (storyProjectId === null || storyProjectFinalizing) return;
-    setStoryProjectFinalizing(true);
-    setStoryProjectError(null);
-    try {
-      const res = await fetch("/api/story-video/projects/finalize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId: storyProjectId, transitions: storyChapterTransitions }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Không ghép được video");
-      setStoryProjectFinalUrl(data.finalOutputUrl);
-      setTimeout(() => storyProjectFinalRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
-    } catch (err) {
-      setStoryProjectError(err instanceof Error ? err.message : "Không ghép được video");
-    } finally {
-      setStoryProjectFinalizing(false);
-    }
-  }
-  // Dự án đã kết thúc -> bắt đầu dự án mới (form trống, quay về chế độ thường; khách bật lại nếu muốn nhiều chương).
-  function handleNewProject() {
-    resetStoryFormForNextChapter();
-    setStoryProjectChapters([]);
-    setStoryProjectFinalUrl(null);
-    setStoryLockedAspectRatio(null);
-    setStoryViewChapter(null);
-    setStoryActiveChapter(0);
-    setStoryProjectId(null);
-    setStoryMultiChapter(false);
-    setStoryProjectError(null);
-    setStoryChapterTransitions([]);
-    setTimeout(() => storyFormTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
-  }
-  // Khôi phục dự án dở dang sau khi tải lại trang — dựng lại tab chương từ database (chương đang soạn dở mà
-  // chưa bấm chạy thì không có gì để khôi phục, giống hành vi 1 job đơn hiện tại).
-  function restoreStoryProject(
-    project: {
-      id: number;
-      status: string;
-      aspectRatio: string | null;
-      finalOutputUrl: string | null;
-      chapters: { chapterIndex: number; jobId: number; status: string; outputUrl: string | null; storyDescription: string | null }[];
-    },
-    activeIndex: number | null
-  ) {
-    const active = activeIndex ?? project.chapters.length;
-    setStoryMultiChapter(true);
-    setStoryProjectId(project.id);
-    setStoryActiveChapter(active);
-    setStoryProjectChapters(
-      project.chapters
-        .filter((c) => c.chapterIndex !== active && c.status === "done" && c.outputUrl)
-        .map((c) => ({ chapterIndex: c.chapterIndex, jobId: c.jobId, outputUrl: c.outputUrl as string, title: (c.storyDescription ?? "").slice(0, 80) }))
-    );
-    if (active > 0 && project.aspectRatio) {
-      setStoryLockedAspectRatio(project.aspectRatio);
-      setStoryAspectRatio(project.aspectRatio);
-    }
-    if (project.status === "done" && project.finalOutputUrl) setStoryProjectFinalUrl(project.finalOutputUrl);
-  }
-
   async function handleRunStoryVideo() {
     const images = storyCharacterImages;
     const reuseId = storySelectedSavedCharacterId;
@@ -2151,10 +1931,6 @@ export default function VideoTuYTuongClient({
     const usesAppearanceDescription = storyCharacterInputMode === "text" && !!storyCharacterAppearanceDescription.trim();
     if (!user || (!reuseId && !usesAppearanceDescription && images.length === 0) || !storyImageModelKey || !storyVideoModelKey) return;
     if (reuseId && !input.trim()) return;
-    if (storyMultiChapter && storyProjectId === null) {
-      setStoryError("Chưa tạo được dự án nhiều chương — bỏ tick rồi tick lại ô \"Video nhiều chương\"");
-      return;
-    }
     if (
       hasMultipleCharacters &&
       storyExtraCharacters.some(
@@ -2361,8 +2137,6 @@ export default function VideoTuYTuongClient({
           preplannedActions: storyUsesScriptFlow && !hasMultipleCharacters ? storyScriptActions : undefined,
           preplannedActionsMulti: storyUsesScriptFlow && hasMultipleCharacters ? storyScriptActions : undefined,
           characterAppearanceDescription: usesAppearanceDescription ? storyCharacterAppearanceDescription.trim() : undefined,
-          projectId: storyMultiChapter ? (storyProjectId ?? undefined) : undefined,
-          chapterIndex: storyMultiChapter ? storyActiveChapter : undefined,
         }),
       });
       const data = await res.json();
@@ -2389,10 +2163,6 @@ export default function VideoTuYTuongClient({
   // credit video. Agent tự viết mô tả chuyển động cho từng ảnh (gợi ý của khách chỉ là hỗ trợ thêm).
   async function handleRunStoryVideoWithOwnImages(forceAutoVideo?: boolean) {
     if (!user || !input.trim() || !storyVideoModelKey || storySceneImages.length < STORY_MIN_SCENES) return;
-    if (storyMultiChapter && storyProjectId === null) {
-      setStoryError("Chưa tạo được dự án nhiều chương — bỏ tick rồi tick lại ô \"Video nhiều chương\"");
-      return;
-    }
     setStoryActiveButton("video");
     setStoryRunning(true);
     setStoryResult(null);
@@ -2433,8 +2203,6 @@ export default function VideoTuYTuongClient({
           aspectRatio: storyAspectRatio,
           durationKey: storyDurationKey,
           modelChatKey: storyModelChatKey,
-          projectId: storyMultiChapter ? (storyProjectId ?? undefined) : undefined,
-          chapterIndex: storyMultiChapter ? storyActiveChapter : undefined,
         }),
       });
       const data = await res.json();

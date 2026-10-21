@@ -17,7 +17,6 @@ import {
 } from "@/lib/story-video";
 import { InsufficientCreditError } from "@/lib/credit-system";
 import { getAuthenticatedUserId } from "@/lib/auth-server";
-import { attachJobToProject } from "@/lib/story-video-projects";
 
 const STORY_MAX_LENGTH = 2000;
 const CHARACTER_APPEARANCE_DESCRIPTION_MAX_LENGTH = 500;
@@ -85,8 +84,6 @@ export async function POST(req: Request) {
     preplannedActions,
     preplannedActionsMulti,
     characterAppearanceDescription,
-    projectId,
-    chapterIndex,
     existingCharacterSheetUrl,
     characterReferenceElementId,
   } = await req.json();
@@ -238,12 +235,6 @@ export async function POST(req: Request) {
       typeof existingCharacterSheetUrl === "string" && existingCharacterSheetUrl ? existingCharacterSheetUrl : undefined,
       typeof characterReferenceElementId === "number" ? characterReferenceElementId : undefined
     );
-    // Video nhiều chương: gắn job vào dự án ở đúng chương. Lỗi ở đây không làm hỏng job (credit đã trừ, job đã chạy).
-    if (typeof projectId === "number" && typeof chapterIndex === "number") {
-      await attachJobToProject(userId, projectId, result.jobId, chapterIndex).catch((e) =>
-        console.error("[story-video] Không gắn được job vào dự án:", e)
-      );
-    }
     return Response.json({ success: true, jobId: result.jobId, newBalance: result.newBalance });
   } catch (err) {
     if (err instanceof InsufficientCreditError) {
