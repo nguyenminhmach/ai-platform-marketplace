@@ -8,6 +8,7 @@ type Stats = {
   totalRevenueVnd: number;
   totalCreditsSold: number;
   totalCreditsUsed: number;
+  totalCreditsOutstanding: number;
   paidOrderCount: number;
   recentTransactions: {
     id: number;
@@ -1044,6 +1045,10 @@ export default function AdminPage() {
               <StatCard label="Doanh thu (đã thanh toán)" value={formatVnd(stats.totalRevenueVnd)} />
               <StatCard label="Credit đã bán" value={stats.totalCreditsSold.toLocaleString("vi-VN")} />
               <StatCard label="Credit đã dùng" value={stats.totalCreditsUsed.toLocaleString("vi-VN")} />
+              {/* SỬA (phản hồi thật user: "vậy tổng số credit của app đâu") — tổng số dư credit đang có
+                  trong MỌI tài khoản cộng lại (gồm cả credit admin cấp tay, "Credit đã bán" ở trên
+                  không tính phần này vì chỉ lấy từ nạp tiền thật qua Sepay). */}
+              <StatCard label="Tổng credit đang có (mọi user)" value={stats.totalCreditsOutstanding.toLocaleString("vi-VN")} />
             </section>
 
             <section className="mb-10 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
