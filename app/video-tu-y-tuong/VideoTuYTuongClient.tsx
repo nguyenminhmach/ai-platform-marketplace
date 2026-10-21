@@ -67,19 +67,47 @@ export default function VideoTuYTuongClient({
   // trang /wallet vốn gộp chung lịch sử mọi app cho khách xem tổng quan toàn tài khoản).
   type HistoryItem = { id: number; outputType: string; outputUrl: string; createdAt: string };
   const [appHistory, setAppHistory] = useState<HistoryItem[]>([]);
-  // SỬA (phản hồi thật user: muốn "Dự án" gom nội dung đã tạo ở panel nhanh này theo từng dự án đặt tên
-  // riêng) — activeProjectId khác null thì lọc đúng nội dung của dự án đó (xem content_projects/
-  // generation_history.project_id), null = xem toàn bộ lịch sử app như trước (hành vi cũ không đổi).
-  const [activeProjectId, setActiveProjectId] = useState<number | null>(null);
   function loadAppHistory() {
     if (!user || !app) return;
-    const projectQuery = activeProjectId ? `&projectId=${activeProjectId}` : "";
-    fetch(`/api/history?userId=${user.id}&miniAppId=${app.id}${projectQuery}`)
+    fetch(`/api/history?userId=${user.id}&miniAppId=${app.id}`)
       .then((res) => res.json())
       .then((data) => setAppHistory(data.items ?? []))
       .catch(() => {});
   }
-  useEffect(loadAppHistory, [user, app?.id, activeProjectId]);
+  useEffect(loadAppHistory, [user, app?.id]);
+
+  // SỬA (phản hồi thật user: "mọi thao tác phải lưu trong dự án không cần khởi tạo thành công mới lưu"
+  // — lưới dự án trước đây đọc generation_history, bảng CHỈ ghi khi job thành công, nên lượt lỗi/đang
+  // chạy "biến mất", dù job đó vẫn được gắn đúng project_id lúc submit) — activeProjectId khác null thì
+  // đọc THẲNG prompt_image_jobs (đủ pending/processing/done/failed, xem /api/content-projects/[id]/jobs)
+  // để lưới dự án hiện ĐÚNG mọi lượt đã thử, kể cả lượt lỗi.
+  const [activeProjectId, setActiveProjectId] = useState<number | null>(null);
+  type ProjectJobItem = { id: number; prompt: string; status: string; outputUrl: string | null; errorMessage: string | null; createdAt: string };
+  const [projectJobs, setProjectJobs] = useState<ProjectJobItem[]>([]);
+  function loadProjectJobs() {
+    if (!activeProjectId) {
+      setProjectJobs([]);
+      return;
+    }
+    fetch(`/api/content-projects/${activeProjectId}/jobs`)
+      .then((res) => res.json())
+      .then((data) => setProjectJobs(data.jobs ?? []))
+      .catch(() => {});
+  }
+  useEffect(loadProjectJobs, [activeProjectId]);
+  // Còn job pending/processing trong dự án đang xem -- tự tải lại định kỳ để trạng thái (done/failed)
+  // cập nhật mà không cần khách tự bấm lại hay tải trang.
+  useEffect(() => {
+    if (!activeProjectId) return;
+    if (!projectJobs.some((j) => j.status === "pending" || j.status === "processing")) return;
+    const timer = setTimeout(loadProjectJobs, 3000);
+    return () => clearTimeout(timer);
+  }, [activeProjectId, projectJobs]);
+  async function handleDeleteProjectJob(jobId: number) {
+    if (!activeProjectId) return;
+    setProjectJobs((items) => items.filter((j) => j.id !== jobId));
+    await fetch(`/api/content-projects/${activeProjectId}/jobs/${jobId}`, { method: "DELETE" }).catch(() => {});
+  }
 
   // Danh sách "Dự án" của khách (gom nội dung đã tạo theo tên riêng) — tải 1 lần khi đăng nhập, cập
   // nhật thêm ngay khi tạo dự án mới (không cần tải lại cả danh sách).
@@ -3124,6 +3152,7 @@ export default function VideoTuYTuongClient({
         return;
       }
       window.dispatchEvent(new Event("balance-updated"));
+      if (activeProjectId) loadProjectJobs(); // hiện ngay ô "đang tạo" trong lưới dự án, không cần chờ vòng poll đầu
       pollPromptImageStatus(data.jobId);
     } catch (err) {
       setPromptImageError(err instanceof Error ? err.message : "Không kết nối được tới server");
@@ -3282,10 +3311,10 @@ export default function VideoTuYTuongClient({
           này mới có bo góc + lề ngoài, nền sáng hơn (zinc-800) các khối con bên trong (zinc-900). */}
       <main className="m-3 min-w-0 flex-1 overflow-y-auto rounded-[32px] bg-zinc-700">
         <div className="mx-auto max-w-5xl px-6 py-8">
-          {/* SỬA (phản hồi thật user: bấm vào 1 dự án phải lọc/gom nội dung đã tạo trong đó) — thay
-              carousel placeholder bằng lưới nội dung đã tạo trong dự án đang chọn (appHistory đã lọc
-              theo activeProjectId qua loadAppHistory ở trên). Bấm lại đúng tên dự án trong sidebar để
-              bỏ chọn, quay về giao diện mặc định. */}
+          {/* SỬA (phản hồi thật user: "mọi thao tác phải lưu trong dự án không cần khởi tạo thành công
+              mới lưu" — đổi nguồn từ generation_history (chỉ có job thành công) sang projectJobs (đọc
+              thẳng prompt_image_jobs, đủ trạng thái kể cả lỗi) để lưới dự án hiện ĐÚNG mọi lượt đã thử).
+              Bấm lại đúng tên dự án trong sidebar để bỏ chọn, quay về giao diện mặc định. */}
           {activeProjectId ? (
             <div className="mb-10">
               <div className="mb-4 flex items-center justify-between">
@@ -3300,35 +3329,49 @@ export default function VideoTuYTuongClient({
                   Thoát dự án
                 </button>
               </div>
-              {appHistory.length === 0 ? (
+              {projectJobs.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-zinc-600 p-8 text-center text-sm text-zinc-400">
-                  Dự án này chưa có nội dung nào — tạo ảnh/video bên dưới sẽ tự gom vào đây.
+                  Dự án này chưa có nội dung nào — tạo ảnh bên dưới sẽ tự gom vào đây.
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  {appHistory.map((item) => (
-                    <div key={item.id} className="group relative aspect-square overflow-hidden rounded-xl bg-zinc-900">
-                      <a href={item.outputUrl} target="_blank" rel="noreferrer" className="block h-full w-full">
-                        {item.outputType === "video" ? (
-                          <video src={item.outputUrl} className="h-full w-full object-cover" muted />
-                        ) : (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={item.outputUrl} alt="" className="h-full w-full object-cover" />
-                        )}
-                      </a>
+                  {projectJobs.map((job) => (
+                    <div key={job.id} className="group relative aspect-square overflow-hidden rounded-xl bg-zinc-900">
+                      {job.status === "done" && job.outputUrl ? (
+                        <a href={job.outputUrl} target="_blank" rel="noreferrer" className="block h-full w-full" title={job.prompt}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={job.outputUrl} alt="" className="h-full w-full object-cover" />
+                        </a>
+                      ) : job.status === "failed" ? (
+                        <div
+                          className="flex h-full w-full flex-col items-center justify-center gap-1 border border-red-900/60 bg-red-950/30 p-2 text-center"
+                          title={job.errorMessage ?? "Lỗi không rõ"}
+                        >
+                          <span className="text-lg">⚠️</span>
+                          <span className="line-clamp-3 text-[10px] text-red-300">{job.errorMessage ?? "Có lỗi xảy ra"}</span>
+                        </div>
+                      ) : (
+                        <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-center text-zinc-400">
+                          <span className="animate-pulse text-lg">⏳</span>
+                          <span className="text-[10px]">Đang tạo...</span>
+                        </div>
+                      )}
                       {/* SỬA (phản hồi thật user: lo ngại Storage đầy, muốn xoá được từng ảnh/video) —
-                          nút xoá hiện khi di chuột qua, xoá CẢ file thật (xem /api/history/[id]). */}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          if (confirm("Xoá ảnh/video này? Xoá file thật, vĩnh viễn, không hoàn tác được.")) handleDeleteAppHistory(item.id);
-                        }}
-                        className="absolute right-1.5 top-1.5 rounded-full bg-black/60 p-1.5 text-white opacity-0 hover:bg-red-600 group-hover:opacity-100"
-                        aria-label="Xoá"
-                      >
-                        🗑️
-                      </button>
+                          nút xoá hiện khi di chuột qua — chỉ cho xoá job đã xong (done/failed), job đang
+                          chạy bị chặn ở lib/prompt-image.ts deletePromptImageJob. */}
+                      {job.status !== "pending" && job.status !== "processing" && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            if (confirm("Xoá mục này? Vĩnh viễn, không hoàn tác được.")) handleDeleteProjectJob(job.id);
+                          }}
+                          className="absolute right-1.5 top-1.5 rounded-full bg-black/60 p-1.5 text-white opacity-0 hover:bg-red-600 group-hover:opacity-100"
+                          aria-label="Xoá"
+                        >
+                          🗑️
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>

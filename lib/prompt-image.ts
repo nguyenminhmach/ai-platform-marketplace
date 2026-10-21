@@ -230,3 +230,61 @@ export async function sweepAbandonedPromptImageJobs(): Promise<number> {
   }
   return staleJobs.length;
 }
+
+export type PromptImageJobSummary = {
+  id: number;
+  prompt: string;
+  status: string;
+  outputUrl: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+};
+
+// SỬA (phản hồi thật user: "mọi thao tác phải lưu trong dự án không cần khởi tạo thành công mới lưu" —
+// lưới nội dung của 1 dự án trước đây đọc từ generation_history, bảng CHỈ ghi khi job THÀNH CÔNG — job
+// lỗi/đang chạy không hề xuất hiện, dù đã gắn đúng project_id lúc submit) — đọc THẲNG từ
+// prompt_image_jobs (đã có đủ trạng thái pending/processing/done/failed + error_message), không qua
+// generation_history nữa, để lưới dự án hiện ĐÚNG mọi lượt đã thử trong dự án đó, kể cả lượt lỗi.
+export async function listPromptImageJobsByProject(userId: string, projectId: number): Promise<PromptImageJobSummary[]> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("prompt_image_jobs")
+    .select("id, prompt, status, output_url, error_message, created_at")
+    .eq("user_id", userId)
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    prompt: row.prompt,
+    status: row.status,
+    outputUrl: row.output_url,
+    errorMessage: row.error_message,
+    createdAt: row.created_at,
+  }));
+}
+
+// Xoá 1 job khỏi lưới dự án — chỉ xoá job đã xong (done/failed), không cho xoá job đang chạy
+// (pending/processing, webhook Fal.ai có thể còn ghi vào job đó). Xoá CẢ generation_history trùng
+// output_url (nếu job đã thành công, tránh sót lại 1 dòng mồ côi trong lịch sử chung) lẫn file thật
+// trong Storage nếu có (dùng chung deleteGenerationHistoryItem/deleteStorageFileFromUrl logic — nhưng
+// ảnh tạo ở đây luôn là CDN Fal, không nằm trong Storage của mình, nên thực tế chỉ xoá bản ghi DB).
+export async function deletePromptImageJob(userId: string, jobId: number): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const { data: job } = await supabase
+    .from("prompt_image_jobs")
+    .select("status, output_url")
+    .eq("id", jobId)
+    .eq("user_id", userId)
+    .single();
+  if (!job) throw new Error("Không tìm thấy job này");
+  if (job.status === "pending" || job.status === "processing") {
+    throw new Error("Job đang chạy, chưa xoá được");
+  }
+  if (job.output_url) {
+    await supabase.from("generation_history").delete().eq("user_id", userId).eq("output_url", job.output_url);
+  }
+  const { error } = await supabase.from("prompt_image_jobs").delete().eq("id", jobId).eq("user_id", userId);
+  if (error) throw new Error(error.message);
+}
