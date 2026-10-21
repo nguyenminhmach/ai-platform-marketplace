@@ -3176,18 +3176,20 @@ export default function VideoTuYTuongClient({
         }
       }
 
-      // SỬA (phản hồi thật user: báo lỗi thật "Unexpected status code: 422" khi tạo ảnh có gắn 4 ảnh
-      // tham chiếu + bật mask vị trí cùng lúc) — Fal.ai từ chối request khi gửi CẢ image_urls (nhiều
-      // ảnh ghép — "giày", "mai", "lan"...) LẪN mask_url (vốn chỉ có nghĩa khi sửa/inpaint ĐÚNG 1 ảnh
-      // duy nhất) cùng lúc, 2 tham số này xung đột ngữ nghĩa với nhau. SỬA: chỉ gửi mask_url khi prompt
-      // CHỈ gắn đúng 1 ảnh tham chiếu (chính ảnh Địa điểm đó) — có thêm bất kỳ ảnh nào khác (nhân vật,
-      // đạo cụ...) thì bỏ qua mask, ưu tiên ghép nhiều ảnh thành công hơn là giữ đúng vị trí đã chọn.
+      // SỬA LẠI (2026-10-21): giả định trước đó (mask_url không dùng được cùng nhiều image_urls)
+      // đã bị tra lại và XÁC NHẬN SAI qua schema thật của fal-ai/gpt-image-2/edit — API này nhận
+      // image_urls (list, tối đa 16 ảnh) VÀ mask_url cùng lúc, tài liệu nói rõ đây là cách kết hợp
+      // nhiều ảnh tham chiếu với inpaint chính xác. Bỏ điều kiện imageUrls.length === 1 — gửi mask
+      // bất kể có bao nhiêu ảnh tham chiếu khác, miễn ảnh Địa điểm có trong danh sách và đã đặt vị trí.
+      // Lưu ý: nguyên nhân thật của lỗi 422 trước đây vẫn CHƯA xác định được (Vercel runtime logs bị
+      // từ chối truy cập - 403) — đây là thử lại dựa trên bằng chứng API thật, không phải khẳng định
+      // đã sửa xong lỗi 422.
       let maskUrl: string | null = null;
       const imageModelEntry = storyImageModels.find((m) => m.key === imageModelKey);
-      if (imageModelEntry?.model === "fal-ai/gpt-image-2/edit" && imageUrls.length === 1) {
+      if (imageModelEntry?.model === "fal-ai/gpt-image-2/edit") {
         const locationUrl = promptImages.find((u) => promptImageMeta[u]?.type === "location");
         const positions = locationUrl ? locationPositions[locationUrl] : undefined;
-        if (locationUrl && imageUrls[0] === locationUrl && positions && Object.keys(positions).length > 0) {
+        if (locationUrl && imageUrls.includes(locationUrl) && positions && Object.keys(positions).length > 0) {
           try {
             const { w, h } = await loadImageNaturalSize(locationUrl);
             const maskDataUrl = generatePositionMaskDataUrl(Object.values(positions), w, h);
@@ -3845,17 +3847,6 @@ export default function VideoTuYTuongClient({
                     <p className="-mt-2 text-xs text-amber-400">
                       ⚠ Đã chọn vị trí đứng nhưng model ảnh đang chọn không hỗ trợ đặt đúng vị trí — đổi model sang
                       "GPT Image 2 Edit" để vị trí có tác dụng.
-                    </p>
-                  );
-                }
-                // SỬA (phản hồi thật user: lỗi 422 khi gắn nhiều ảnh tham chiếu + mask cùng lúc) — mask
-                // vị trí CHỈ áp dụng khi prompt đúng 1 ảnh tham chiếu duy nhất (ảnh Địa điểm đó), có
-                // thêm ảnh nhân vật/đạo cụ nào khác thì mask bị bỏ qua để tránh Fal.ai từ chối request.
-                if (promptImages.length > 1) {
-                  return (
-                    <p className="-mt-2 text-xs text-amber-400">
-                      ⚠ Đang gắn thêm {promptImages.length - 1} ảnh tham chiếu khác — vị trí đứng sẽ KHÔNG có tác dụng (chỉ
-                      dùng được khi prompt chỉ có đúng 1 ảnh Địa điểm, không ghép thêm ảnh nào khác).
                     </p>
                   );
                 }
