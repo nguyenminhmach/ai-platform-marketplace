@@ -2448,7 +2448,9 @@ export default function VideoTuYTuongClient({
   // Vị trí đứng của từng nhân vật trên 1 ảnh địa điểm cụ thể — keyed theo [locationUrl][characterUrl],
   // toạ độ chuẩn hoá 0..1 (x/y tính từ góc trên-trái ảnh). Cài 1 lần, dùng lại mọi lần sau khi cùng
   // ảnh địa điểm + nhân vật đó được gắn chung vào 1 prompt (xem mục 18-19 kế hoạch đã lưu memory).
-  const [locationPositions, setLocationPositions] = useState<Record<string, Record<string, { x: number; y: number }>>>({});
+  // SỬA (phản hồi thật user: "di chuyển được nhưng không xoay được") — thêm rotationY tuỳ chọn (radian,
+  // quanh trục đứng), lưu cùng chỗ với x/y để không mất khi dựng lại mannequin 3D.
+  const [locationPositions, setLocationPositions] = useState<Record<string, Record<string, { x: number; y: number; rotationY?: number }>>>({});
   const [positionEditorActiveChar, setPositionEditorActiveChar] = useState<string | null>(null);
   // SỬA (phản hồi thật user: muốn kiểm chứng điểm 2D nào ứng điểm nào trong 3D mà không cần gắn hẳn 1
   // nhân vật thật) — chế độ "đánh dấu điểm test": bật lên thì bấm vào ảnh 2D thêm 1 chấm đỏ đánh số,
@@ -4328,8 +4330,10 @@ export default function VideoTuYTuongClient({
                             color: POSITION_MARKER_COLORS[i % POSITION_MARKER_COLORS.length],
                             pos: assignments[u],
                           }))
-                          .filter((c): c is { url: string; name: string; color: string; pos: { x: number; y: number } } => !!c.pos)
-                          .map((c) => ({ url: c.url, name: c.name, color: c.color, x: c.pos.x, y: c.pos.y }))}
+                          .filter(
+                            (c): c is { url: string; name: string; color: string; pos: { x: number; y: number; rotationY?: number } } => !!c.pos
+                          )
+                          .map((c) => ({ url: c.url, name: c.name, color: c.color, x: c.pos.x, y: c.pos.y, rotationY: c.pos.rotationY }))}
                         depthImageUrl={locationBlockout[zoomedPromptImage]?.depthImageUrl}
                         groundMaskUrl={locationBlockout[zoomedPromptImage]?.groundMaskUrl}
                         horizonY={locationBlockout[zoomedPromptImage]?.horizonY ?? 0.5}
@@ -4337,8 +4341,24 @@ export default function VideoTuYTuongClient({
                         onCharacterMove={(characterUrl, pos) => {
                           setLocationPositions((prev) => ({
                             ...prev,
-                            [zoomedPromptImage as string]: { ...(prev[zoomedPromptImage as string] ?? {}), [characterUrl]: pos },
+                            [zoomedPromptImage as string]: {
+                              ...(prev[zoomedPromptImage as string] ?? {}),
+                              [characterUrl]: { ...pos, rotationY: prev[zoomedPromptImage as string]?.[characterUrl]?.rotationY },
+                            },
                           }));
+                        }}
+                        onCharacterRotate={(characterUrl, rotationY) => {
+                          setLocationPositions((prev) => {
+                            const existing = prev[zoomedPromptImage as string]?.[characterUrl];
+                            if (!existing) return prev; // chưa có vị trí x/y thì không có gì để gắn góc xoay vào
+                            return {
+                              ...prev,
+                              [zoomedPromptImage as string]: {
+                                ...(prev[zoomedPromptImage as string] ?? {}),
+                                [characterUrl]: { ...existing, rotationY },
+                              },
+                            };
+                          });
                         }}
                       />
                     </div>

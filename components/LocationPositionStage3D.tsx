@@ -59,6 +59,12 @@ export type PositionedCharacter = {
   // trái(0)->phải(1), y: xa(0, gần đỉnh ảnh)->gần(1, gần đáy ảnh).
   x: number;
   y: number;
+  // SỬA (phản hồi thật user: "di chuyển được nhưng không xoay được, tạo 2 mũi tên vòng tròn quanh nhân
+  // vật để xoay") — góc xoay quanh trục đứng Y (radian), lưu lại để không mất khi dựng lại mannequin
+  // (characters đổi reference liên tục, xem effect "Dựng lại mannequin" bên dưới). Chỉ ẢNH HƯỞNG HIỂN
+  // THỊ 3D, KHÔNG gửi vào mask lúc tạo ảnh/video thật (mask chỉ là 1 vùng trắng hình chữ nhật, không
+  // biểu đạt được hướng quay) — thuần công cụ xem trước/dàn cảnh.
+  rotationY?: number;
 };
 
 type Props = {
@@ -84,6 +90,10 @@ type Props = {
   // locationPositions giữ đồng bộ với chấm đánh dấu trên ảnh 2D. Không bắt buộc — thiếu thì nút "Di
   // chuyển" vẫn hiện nhưng kéo xong không lưu lại vị trí mới.
   onCharacterMove?: (characterUrl: string, pos: { x: number; y: number }) => void;
+  // Báo ngược lên component cha khi khách xoay 1 nhân vật qua gizmo xoay (chế độ "Di chuyển" -> bấm
+  // chuyển sang "Xoay") — tách riêng khỏi onCharacterMove vì đây là 1 giá trị khác (radian), không phải
+  // toạ độ x/y, để component cha gộp đúng vào đúng field rotationY khi lưu locationPositions.
+  onCharacterRotate?: (characterUrl: string, rotationY: number) => void;
   // Vị trí đường chân trời ước lượng cho ảnh này (0..1, 0=mép trên, 1=mép dưới) — xem depthToY2D/
   // y2DToDepth phía trên. Mặc định 0.5 (giữa ảnh) nếu chưa có dữ liệu (ảnh chưa "Dựng khối 3D" lần nào).
   horizonY?: number;
@@ -345,6 +355,7 @@ export function LocationPositionStage3D({
   groundMaskUrl,
   testPoints = [],
   onCharacterMove,
+  onCharacterRotate,
   horizonY = 0.5,
 }: Props) {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -392,6 +403,12 @@ export function LocationPositionStage3D({
   const transformControlsRef = useRef<TransformControls | null>(null);
   const draggingTransformRef = useRef(false);
   const attachedCharacterUrlRef = useRef<string | null>(null);
+  // SỬA (phản hồi thật user: "di chuyển được nhưng không xoay được, tạo 2 mũi tên vòng tròn quanh nhân
+  // vật để xoay") — thêm chế độ con "Xoay" bên trong "Di chuyển": chuyển gizmo giữa dịch chuyển (mũi
+  // tên X/Z, showY=false) và xoay quanh trục đứng (vòng tròn Y, showX=showZ=false) — chỉ xoay quanh Y vì
+  // nhân vật luôn đứng thẳng trên sàn, không cần nghiêng ngả theo X/Z.
+  const [gizmoMode, setGizmoMode] = useState<"translate" | "rotate">("translate");
+  const gizmoModeRef = useRef<"translate" | "rotate">("translate");
   const [, forceRerender] = useState(0);
   // Đọc horizonY mới nhất trong objectChange handler (effect setup chính có deps []) mà không cần re-run
   // toàn bộ effect (tạo lại renderer/scene) mỗi khi horizonY đổi.
@@ -517,7 +534,15 @@ export function LocationPositionStage3D({
     transformControls.addEventListener("objectChange", () => {
       const obj = transformControls.object;
       const url = attachedCharacterUrlRef.current;
-      if (!obj || !url || !onCharacterMove) return;
+      if (!obj || !url) return;
+      // SỬA (phản hồi thật user: "di chuyển được nhưng không xoay được") — objectChange giờ dùng chung
+      // cho cả 2 chế độ con (dịch chuyển/xoay), phân nhánh theo gizmoModeRef — chỉ đọc đúng giá trị
+      // tương ứng chế độ đang bật, không đụng tới giá trị còn lại.
+      if (gizmoModeRef.current === "rotate") {
+        onCharacterRotate?.(url, obj.rotation.y);
+        return;
+      }
+      if (!onCharacterMove) return;
       // SỬA (phản hồi thật user: "kéo về trục Z thì ảnh 2D vị trí sai") — bản trước GHI ĐÈ NGƯỢC LẠI
       // obj.position ngay trong lúc đang kéo (để kẹp biên) — TransformControls tự theo dõi vị trí nội
       // bộ để tính delta cho bước kéo TIẾP THEO (dựa trên con trỏ chuột di chuyển bao nhiêu so với vị
@@ -627,6 +652,9 @@ export function LocationPositionStage3D({
         const worldX = (ch.x - 0.5) * SPREAD_X;
         const worldZ = -y2DToDepthResolved(ch.y, groundCalib, horizonY, SPREAD_Z);
         group.position.set(worldX, 0, worldZ);
+        // SỬA (phản hồi thật user: xoay nhân vật qua gizmo xong bị mất góc xoay mỗi khi dựng lại
+        // mannequin) — áp lại góc xoay đã lưu (nếu có), giữ nguyên hướng đứng giữa các lần dựng lại.
+        group.rotation.y = ch.rotationY ?? 0;
         sc.add(group);
         if (ch.url === attachedCharacterUrlRef.current) justAttachedGroup = group;
       }
@@ -845,9 +873,37 @@ export function LocationPositionStage3D({
       if (!next) {
         transformControlsRef.current?.detach();
         attachedCharacterUrlRef.current = null;
+        gizmoModeRef.current = "translate";
+        setGizmoMode("translate");
+        transformControlsRef.current?.setMode("translate");
+        if (transformControlsRef.current) {
+          transformControlsRef.current.showX = true;
+          transformControlsRef.current.showY = false;
+          transformControlsRef.current.showZ = true;
+        }
       }
       return next;
     });
+  }
+  // SỬA (phản hồi thật user: "di chuyển được nhưng không xoay được, tạo 2 mũi tên vòng tròn quanh nhân
+  // vật để xoay") — chuyển gizmo giữa dịch chuyển (mũi tên X/Z) và xoay (vòng tròn quanh trục Y) —
+  // TransformControls chỉ hiện đúng 1 kiểu tay cầm tại 1 thời điểm (setMode), showX/Y/Z quyết định trục
+  // nào có tay cầm trong chế độ đó.
+  function setGizmoModeTo(mode: "translate" | "rotate") {
+    gizmoModeRef.current = mode;
+    setGizmoMode(mode);
+    const tc = transformControlsRef.current;
+    if (!tc) return;
+    tc.setMode(mode);
+    if (mode === "translate") {
+      tc.showX = true;
+      tc.showY = false;
+      tc.showZ = true;
+    } else {
+      tc.showX = false;
+      tc.showY = true;
+      tc.showZ = false;
+    }
   }
   function handlePointerUp() {
     dragRef.current.dragging = false;
@@ -902,10 +958,39 @@ export function LocationPositionStage3D({
             {moveMode ? "✕ Thoát di chuyển" : "✥ Di chuyển"}
           </button>
         )}
+        {/* SỬA (phản hồi thật user: "di chuyển được nhưng không xoay được, tạo 2 mũi tên vòng tròn quanh
+            nhân vật để xoay") — chỉ hiện khi đang ở "Di chuyển" VÀ đã chọn trúng 1 nhân vật (gizmo đang
+            gắn vào ai đó) — không có gì để xoay nếu chưa chọn nhân vật nào. */}
+        {moveMode && attachedCharacterUrlRef.current && (
+          <div className="flex overflow-hidden rounded-full shadow">
+            <button
+              type="button"
+              onClick={() => setGizmoModeTo("translate")}
+              className={`px-2.5 py-1 text-[11px] font-medium ${
+                gizmoMode === "translate" ? "bg-amber-500 text-white" : "bg-black/50 text-white hover:bg-black/70"
+              }`}
+              title="Di chuyển vị trí"
+            >
+              ↔ Dịch chuyển
+            </button>
+            <button
+              type="button"
+              onClick={() => setGizmoModeTo("rotate")}
+              className={`px-2.5 py-1 text-[11px] font-medium ${
+                gizmoMode === "rotate" ? "bg-amber-500 text-white" : "bg-black/50 text-white hover:bg-black/70"
+              }`}
+              title="Xoay hướng đứng"
+            >
+              ⟳ Xoay
+            </button>
+          </div>
+        )}
       </div>
       <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/50 px-2 py-0.5 text-[10px] text-white">
         {moveMode
-          ? "✥ Bấm nhân vật rồi kéo mũi tên để di chuyển — kéo chỗ trống để xoay góc nhìn"
+          ? gizmoMode === "rotate"
+            ? "⟳ Kéo vòng tròn để xoay hướng đứng — kéo chỗ trống để xoay góc nhìn"
+            : "✥ Bấm nhân vật rồi kéo mũi tên để di chuyển — kéo chỗ trống để xoay góc nhìn"
           : inspectMode
             ? "🖱️ Kéo để xoay góc nhìn, lăn chuột để zoom"
             : "🔄 Kéo vào nhân vật để xoay riêng người đó"}
