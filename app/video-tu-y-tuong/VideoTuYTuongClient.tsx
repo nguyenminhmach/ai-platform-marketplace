@@ -3999,6 +3999,73 @@ export default function VideoTuYTuongClient({
             </div>
           )}
 
+          {/* SỬA (phản hồi thật user: "tạo xong không biết kết quả lưu vào đâu") — phát hiện qua rà code:
+              handleContinueToScenes/handleContinueToImages/handleContinueToVideo và state storyStatus/
+              storyScenes/storyScenePreviews/storyCharacterSheetUrl vẫn hoạt động đầy đủ ở backend, NHƯNG
+              khi giao diện được làm lại theo kiểu "Higgsfield-style prompt-bar" (commit cb6d361), toàn bộ
+              khối JSX hiển thị preview Character/phân cảnh/ảnh phân cảnh + các nút "Tiếp tục chia cảnh"/
+              "Tạo ảnh"/"Tạo video" bị XOÁ theo giao diện cũ, chỉ còn đúng khối hiện video cuối cùng
+              (storyResult) ở trên — nghĩa là job vẫn chạy và lưu đúng trong Supabase, nhưng khách KHÔNG
+              CÓ CÁCH NÀO xem hay bấm tiếp qua giao diện mới, y hệt triệu chứng "không cuộn được" anh gặp.
+              Thêm lại đúng 3 khối hiển thị + nút bấm tiếp, tối giản cho hợp giao diện mới. */}
+          {!storyRunning && !storyResult && !storyError && storyStatus && storyStatus !== "done" && (
+            <div className="mt-8 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6">
+              {storyStatus === "character_ready" && storyCharacterSheetUrl && (
+                <div className="flex flex-col items-center gap-3">
+                  <p className="text-sm text-zinc-300">Ảnh nhân vật đã tạo xong — xem và bấm tiếp để chia cảnh.</p>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={storyCharacterSheetUrl} alt="" className="max-h-[360px] rounded-xl" />
+                  <button
+                    type="button"
+                    onClick={handleContinueToScenes}
+                    disabled={storyContinuingScenes}
+                    className="rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 px-5 py-2 text-sm font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {storyContinuingScenes ? "Đang xử lý..." : "Tiếp tục chia cảnh"}
+                  </button>
+                </div>
+              )}
+
+              {storyStatus === "scenes_ready" && (
+                <div className="flex flex-col items-center gap-3">
+                  <p className="text-sm text-zinc-300">
+                    Đã chia {storyScenePreviews?.length ?? 0} phân cảnh (xem miễn phí, chưa tốn credit) — bấm "Tạo ảnh" để AI vẽ ảnh thật cho từng cảnh.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleContinueToImages}
+                    disabled={storyContinuingImages}
+                    className="rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 px-5 py-2 text-sm font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {storyContinuingImages ? "Đang xử lý..." : "Tạo ảnh"}
+                  </button>
+                </div>
+              )}
+
+              {storyStatus === "images_ready" && storyScenes && (
+                <div className="flex flex-col items-center gap-4">
+                  <p className="text-sm text-zinc-300">Ảnh phân cảnh đã xong — xem kỹ trước khi tạo video.</p>
+                  <div className="grid w-full grid-cols-2 gap-3 sm:grid-cols-3">
+                    {storyScenes
+                      .filter((s) => !!s.imageUrl)
+                      .map((s) => (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img key={s.id} src={s.imageUrl as string} alt="" className="aspect-[9/16] w-full rounded-xl object-cover" />
+                      ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleContinueToVideo}
+                    disabled={storyContinuing}
+                    className="rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 px-5 py-2 text-sm font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {storyContinuing ? "Đang xử lý..." : "Tạo video"}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Khu vực tiến trình/kết quả cho tab "hình ảnh" — TÁCH RIÊNG khối trên (promptImageRunning/
               promptImageResult/promptImageError, không phải storyRunning/storyResult/storyError). */}
           {(promptImageRunning || promptImageResult || promptImageError) && (
