@@ -3171,17 +3171,18 @@ export default function VideoTuYTuongClient({
         }
       }
 
-      // SỬA (phản hồi thật user: "khi tạo ảnh vị trí trong ảnh không đúng như vị trí đã chọn") — tìm
-      // đúng ảnh Địa điểm đang gắn (nếu có), lấy vị trí đã chọn qua "Chọn vị trí đứng"
-      // (locationPositions), quy đổi thành mask trắng/đen rồi tải lên — CHỈ có tác dụng thật khi model
-      // đang chọn là fal-ai/gpt-image-2/edit (xem buildImageRequestBody), model khác tự bỏ qua, không
-      // lỗi gì cả, nhưng cũng không tốn công tính/tải mask lên vô ích.
+      // SỬA (phản hồi thật user: báo lỗi thật "Unexpected status code: 422" khi tạo ảnh có gắn 4 ảnh
+      // tham chiếu + bật mask vị trí cùng lúc) — Fal.ai từ chối request khi gửi CẢ image_urls (nhiều
+      // ảnh ghép — "giày", "mai", "lan"...) LẪN mask_url (vốn chỉ có nghĩa khi sửa/inpaint ĐÚNG 1 ảnh
+      // duy nhất) cùng lúc, 2 tham số này xung đột ngữ nghĩa với nhau. SỬA: chỉ gửi mask_url khi prompt
+      // CHỈ gắn đúng 1 ảnh tham chiếu (chính ảnh Địa điểm đó) — có thêm bất kỳ ảnh nào khác (nhân vật,
+      // đạo cụ...) thì bỏ qua mask, ưu tiên ghép nhiều ảnh thành công hơn là giữ đúng vị trí đã chọn.
       let maskUrl: string | null = null;
       const imageModelEntry = storyImageModels.find((m) => m.key === imageModelKey);
-      if (imageModelEntry?.model === "fal-ai/gpt-image-2/edit") {
+      if (imageModelEntry?.model === "fal-ai/gpt-image-2/edit" && imageUrls.length === 1) {
         const locationUrl = promptImages.find((u) => promptImageMeta[u]?.type === "location");
         const positions = locationUrl ? locationPositions[locationUrl] : undefined;
-        if (locationUrl && positions && Object.keys(positions).length > 0) {
+        if (locationUrl && imageUrls[0] === locationUrl && positions && Object.keys(positions).length > 0) {
           try {
             const { w, h } = await loadImageNaturalSize(locationUrl);
             const maskDataUrl = generatePositionMaskDataUrl(Object.values(positions), w, h);
@@ -3832,14 +3833,28 @@ export default function VideoTuYTuongClient({
               {(() => {
                 const locationUrl = promptImages.find((u) => promptImageMeta[u]?.type === "location");
                 const hasPositions = locationUrl && Object.keys(locationPositions[locationUrl] ?? {}).length > 0;
+                if (!hasPositions) return null;
                 const modelSupportsMask = storyImageModels.find((m) => m.key === storyImageModelKey)?.model === "fal-ai/gpt-image-2/edit";
-                if (!hasPositions || modelSupportsMask) return null;
-                return (
-                  <p className="-mt-2 text-xs text-amber-400">
-                    ⚠ Đã chọn vị trí đứng nhưng model ảnh đang chọn không hỗ trợ đặt đúng vị trí — đổi model sang
-                    "GPT Image 2 Edit" để vị trí có tác dụng.
-                  </p>
-                );
+                if (!modelSupportsMask) {
+                  return (
+                    <p className="-mt-2 text-xs text-amber-400">
+                      ⚠ Đã chọn vị trí đứng nhưng model ảnh đang chọn không hỗ trợ đặt đúng vị trí — đổi model sang
+                      "GPT Image 2 Edit" để vị trí có tác dụng.
+                    </p>
+                  );
+                }
+                // SỬA (phản hồi thật user: lỗi 422 khi gắn nhiều ảnh tham chiếu + mask cùng lúc) — mask
+                // vị trí CHỈ áp dụng khi prompt đúng 1 ảnh tham chiếu duy nhất (ảnh Địa điểm đó), có
+                // thêm ảnh nhân vật/đạo cụ nào khác thì mask bị bỏ qua để tránh Fal.ai từ chối request.
+                if (promptImages.length > 1) {
+                  return (
+                    <p className="-mt-2 text-xs text-amber-400">
+                      ⚠ Đang gắn thêm {promptImages.length - 1} ảnh tham chiếu khác — vị trí đứng sẽ KHÔNG có tác dụng (chỉ
+                      dùng được khi prompt chỉ có đúng 1 ảnh Địa điểm, không ghép thêm ảnh nào khác).
+                    </p>
+                  );
+                }
+                return null;
               })()}
 
               {/* KHỐI 2/2 tab "hình ảnh" — ô "viết prompt", không viền tím (đúng tab video); nút "Tạo"
