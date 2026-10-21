@@ -3153,63 +3153,39 @@ export default function VideoTuYTuongClient({
         return el ? el.name : full;
       });
 
-      // SỬA (phản hồi thật user: "đây là bức ảnh để trong thảm cỏ chứ không phải nhân vật đứng trong
-      // thảm cỏ" — ảnh ra kết quả giống dán phẳng ảnh nhân vật lên ảnh bối cảnh, không phải ghép tự
-      // nhiên) — nguyên nhân: luồng tạo ảnh nhanh này chỉ gửi đúng câu khách gõ + danh sách ảnh, không
-      // hề có câu chỉ dẫn nào về CÁCH ghép (model tự đoán, chọn cách "dán" đơn giản nhất). Khác hẳn
-      // luồng tạo video nhiều cảnh (lib/story-video.ts, buildSceneImagePrompt) vốn LUÔN thêm câu chỉ
-      // dẫn phân vai rõ ràng cho từng ảnh tham chiếu (ảnh nào là nhân vật giữ nguyên mặt/dáng/trang
-      // phục, ảnh nào là địa điểm thật cần đặt đúng bối cảnh) + câu ép ảnh chụp thật. Thêm đúng cùng
-      // kiểu chỉ dẫn đó ở đây, dựa theo type (character/location/prop) của từng ảnh đã gắn.
-      const chipMetas = promptImages.map((u) => promptImageMeta[u]).filter((m): m is NonNullable<typeof m> => !!m);
-      const characterNames = Array.from(new Set(chipMetas.filter((m) => m.type === "character").map((m) => m.name)));
-      const locationMeta = chipMetas.find((m) => m.type === "location");
-      const propNames = Array.from(new Set(chipMetas.filter((m) => m.type === "prop").map((m) => m.name)));
-      let compositionClause = "";
-      if (characterNames.length > 0 || locationMeta || propNames.length > 0) {
-        const parts: string[] = [];
-        if (characterNames.length > 0) {
-          parts.push(
-            `The reference photo(s) for ${characterNames.join(", ")} show exactly how ${
-              characterNames.length > 1 ? "each of them looks" : "this person looks"
-            } (face, hairstyle, body proportions, outfit) — keep ${
-              characterNames.length > 1 ? "them" : "it"
-            } exactly the same, do not change identity or clothing.`
-          );
-        }
-        if (locationMeta) {
-          parts.push(
-            `The reference photo for "${locationMeta.name}" is a REAL physical location — place the scene at that exact real location, matching its real layout, decor, lighting direction, and camera perspective. Do not invent a different place.`
-          );
-        }
-        if (propNames.length > 0) {
-          parts.push(
-            `Keep ${propNames.join(", ")} exactly as shown in their reference photo(s) — same color, style, and material, not a generic substitute.`
-          );
-        }
-        parts.push(
-          "Compose all of this into ONE single photorealistic photograph, as if captured by a real camera in one real moment — correct scale, pose, perspective, and lighting for every element combined. Never paste a reference photo in as a flat sticker/cutout or leave mismatched lighting or perspective between elements."
-        );
-        compositionClause = " " + parts.join(" ");
-      }
-      const finalPrompt = mentionStrippedText + compositionClause;
-
-      const MAX_REFERENCE_IMAGES_CLIENT = 20; // đúng MAX_CHARACTER_IMAGES ở lib/story-video.ts
+      // SỬA LẠI TOÀN BỘ (phản hồi thật user: "đây là bức ảnh để trong thảm cỏ chứ không phải nhân vật
+      // đứng trong thảm cỏ" rồi "trước đây mình vẫn làm với model này mà" — Flux Kontext Pro Multi ĐÃ
+      // ghép đúng trước khi giao diện được làm lại). Xác nhận qua đọc lại lib/story-video.ts
+      // (submitSceneImageForRow, hàm đã CHẠY THẬT cho đúng model này trước đây): bí quyết không nằm ở
+      // model mà ở CÁCH VIẾT PROMPT — luôn đánh số rõ "Reference image #N" khớp CHÍNH XÁC thứ tự ảnh
+      // thật sự gửi trong image_urls, nói rõ ảnh #N là người cần giữ nguyên mặt/dáng/trang phục, ảnh #N
+      // là địa điểm thật cần đặt cảnh vào, v.v. Bản sửa trước của em chỉ nhắc TÊN ảnh (không đánh số thứ
+      // tự) — không đủ để model tự khớp đúng ảnh nào ứng với vai trò nào khi có nhiều ảnh. Sửa lại đúng
+      // theo khuôn mẫu đã dùng thật trong story-video.ts, áp cho luồng tạo ảnh nhanh 1-câu-1-ảnh này.
+      type RefImageEntry = { url: string; type: "character" | "location" | "prop"; name: string };
       // SỬA RỒI SỬA LẠI — thử đổi sang chỉ lấy ảnh đại diện (image_urls[0]) mỗi phần tử, nghi đây là
       // nguyên nhân "sai vị trí sai người", nhưng user xác nhận gửi NHIỀU GÓC ảnh của 1 nhân vật là CHỦ
       // ĐÍCH (character sheet nhiều góc giúp model tham khảo, tránh biến dạng khuôn mặt/dáng người) —
       // đúng tinh thần luồng "Character sheet" đã dùng cho story-video. Revert lại .flatMap như cũ,
       // không phải lỗi.
-      const elementImageUrls = mentionedElements.flatMap((el) => el.image_urls);
+      const elementImageEntries: RefImageEntry[] = mentionedElements.flatMap((el) =>
+        el.image_urls.map((url) => ({ url, type: el.type, name: el.name }))
+      );
       const uploadedPromptImages = await Promise.all(
         promptImages.map((img) => (img.startsWith("http") ? Promise.resolve(img) : uploadOutfitSwapImage(img)))
       );
-      const imageUrls = [...elementImageUrls, ...uploadedPromptImages].slice(0, MAX_REFERENCE_IMAGES_CLIENT);
+      const uploadedPromptImageEntries: RefImageEntry[] = promptImages.map((originalUrl, i) => {
+        const meta = promptImageMeta[originalUrl];
+        return { url: uploadedPromptImages[i], type: meta?.type ?? "prop", name: meta?.name ?? "ảnh đính kèm" };
+      });
+
+      const MAX_REFERENCE_IMAGES_CLIENT = 20; // đúng MAX_CHARACTER_IMAGES ở lib/story-video.ts
+      let refEntries = [...elementImageEntries, ...uploadedPromptImageEntries].slice(0, MAX_REFERENCE_IMAGES_CLIENT);
 
       // >1 ảnh tham chiếu gộp lại -> cần model hỗ trợ multi_image, mirror đúng điều kiện ở
       // handlePromptCreate (dòng ~2614-2621) để không bị lỗi khi model đang chọn chỉ nhận 1 ảnh.
       let imageModelKey = storyImageModelKey ?? storyImageModels[0]?.key ?? undefined;
-      if (imageUrls.length > 1 && imageModelKey) {
+      if (refEntries.length > 1 && imageModelKey) {
         const current = storyImageModels.find((m) => m.key === imageModelKey);
         if (!current?.multi_image) {
           const fallback = storyImageModels.find((m) => m.multi_image);
@@ -3217,30 +3193,68 @@ export default function VideoTuYTuongClient({
         }
       }
 
-      // SỬA LẠI (2026-10-21): giả định trước đó (mask_url không dùng được cùng nhiều image_urls)
-      // đã bị tra lại và XÁC NHẬN SAI qua schema thật của fal-ai/gpt-image-2/edit — API này nhận
-      // image_urls (list, tối đa 16 ảnh) VÀ mask_url cùng lúc, tài liệu nói rõ đây là cách kết hợp
-      // nhiều ảnh tham chiếu với inpaint chính xác. Bỏ điều kiện imageUrls.length === 1 — gửi mask
-      // bất kể có bao nhiêu ảnh tham chiếu khác, miễn ảnh Địa điểm có trong danh sách và đã đặt vị trí.
-      // Lưu ý: nguyên nhân thật của lỗi 422 trước đây vẫn CHƯA xác định được (Vercel runtime logs bị
-      // từ chối truy cập - 403) — đây là thử lại dựa trên bằng chứng API thật, không phải khẳng định
-      // đã sửa xong lỗi 422.
-      let maskUrl: string | null = null;
+      // Mask vị trí đứng — CHỈ model fal-ai/gpt-image-2/edit hỗ trợ mask_url thật (xem
+      // buildImageRequestBody). API thật của model này (đã tra lại qua docs) nhận image_urls nhiều ảnh
+      // VÀ mask_url cùng lúc — không xung đột như giả định cũ. NHƯNG Fal.ai yêu cầu mask_url phải cùng
+      // kích thước với ẢNH ĐẦU TIÊN trong image_urls (xác nhận qua lỗi 422 thật job #413 bên
+      // story-video.ts, comment ở submitSceneImageForRow dòng ~2069) — nên khi có mask, PHẢI đẩy ảnh
+      // Địa điểm lên vị trí ĐẦU TIÊN của mảng, y hệt leadingOffset đã làm bên đó. Thiếu bước này trước
+      // đây là 1 nguyên nhân rất có thể gây lỗi 422 khi dùng GPT Image 2 Edit + mask + nhiều ảnh khác.
       const imageModelEntry = storyImageModels.find((m) => m.key === imageModelKey);
+      let maskUrl: string | null = null;
       if (imageModelEntry?.model === "fal-ai/gpt-image-2/edit") {
-        const locationUrl = promptImages.find((u) => promptImageMeta[u]?.type === "location");
+        const locationChipIndex = promptImages.findIndex((u) => promptImageMeta[u]?.type === "location");
+        const locationUrl = locationChipIndex !== -1 ? promptImages[locationChipIndex] : undefined;
         const positions = locationUrl ? locationPositions[locationUrl] : undefined;
-        if (locationUrl && imageUrls.includes(locationUrl) && positions && Object.keys(positions).length > 0) {
+        // uploadedPromptImageEntries được nối NGAY SAU elementImageEntries theo đúng thứ tự promptImages
+        // -- cùng chỉ số locationChipIndex vẫn khớp đúng phần tử trong refEntries trước khi bị cắt bớt
+        // (MAX_REFERENCE_IMAGES_CLIENT) hay xáo vị trí (chưa xáo lúc này).
+        const locationEntryIndex = locationChipIndex !== -1 ? elementImageEntries.length + locationChipIndex : -1;
+        if (locationUrl && locationEntryIndex !== -1 && locationEntryIndex < refEntries.length && positions && Object.keys(positions).length > 0) {
           try {
             const { w, h } = await loadImageNaturalSize(locationUrl);
             const maskDataUrl = generatePositionMaskDataUrl(Object.values(positions), w, h);
             maskUrl = await uploadOutfitSwapImage(maskDataUrl);
+            if (locationEntryIndex > 0) {
+              const [locationEntry] = refEntries.splice(locationEntryIndex, 1);
+              refEntries = [locationEntry, ...refEntries];
+            }
           } catch {
             // Lỗi tạo/tải mask không chặn tạo ảnh -- rơi về không có mask, giống hành vi cũ trước khi
             // có tính năng này, vẫn tạo được ảnh bình thường (chỉ không đúng vị trí đã chọn).
           }
         }
       }
+
+      const imageUrls = refEntries.map((e) => e.url);
+
+      // Câu chỉ dẫn phân vai từng ảnh tham chiếu theo đúng số thứ tự THẬT trong imageUrls — mirror đúng
+      // văn phong đã CHẠY THẬT trong lib/story-video.ts (submitSceneImageForRow) cho cùng các model này.
+      const roleParts: string[] = [];
+      refEntries.forEach((entry, i) => {
+        const ord = `Reference image #${i + 1}`;
+        if (entry.type === "character") {
+          roleParts.push(
+            `${ord} shows ${entry.name} — keep the exact same face, hairstyle, body proportions, and outfit as shown. Do not change identity or clothing.`
+          );
+        } else if (entry.type === "location") {
+          roleParts.push(
+            maskUrl && i === 0
+              ? `${ord} shows a REAL physical location, together with an inpainting mask (provided via mask_url) that marks EXACTLY where to place the character within that location: the WHITE area of the mask is where the character must stand/be positioned, the BLACK area must remain pixel-identical to ${ord} — do not alter, redraw, move, or crop anything outside the white masked area. Preserve the real location's appearance (layout, colors, decor, lighting) accurately everywhere outside the masked area.`
+              : `${ord} shows a REAL physical location ("${entry.name}") — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`
+          );
+        } else {
+          roleParts.push(
+            `${ord} is a REAL photo of ${entry.name} — keep its exact real appearance: color, shape, pattern, and material, not a generic substitute.`
+          );
+        }
+      });
+      if (roleParts.length > 0) {
+        roleParts.push(
+          "Compose all of this into ONE single photorealistic photograph, shot on a real camera — not an illustration, painting, drawing, anime, or digital art, and not a collage or flat sticker/cutout of the reference images. Correct scale, pose, perspective, and lighting for every element combined. Sharp, perfect focus on the subject, commercial-grade production quality."
+        );
+      }
+      const finalPrompt = roleParts.length > 0 ? `${mentionStrippedText} ${roleParts.join(" ")}` : mentionStrippedText;
 
       const res = await fetch("/api/prompt-image/submit", {
         method: "POST",
