@@ -8,8 +8,9 @@ import { NewElementModal, TYPE_LABEL, type ElementType, type ReferenceElement } 
 // (nền tối, bo góc, canh giữa màn hình) khớp kiểu modal preset ánh sáng/máy quay đã có sẵn trong file
 // (xem activePresetModal trong app/video-tu-y-tuong/page.tsx) để đồng bộ phong cách toàn trang.
 //
-// "+" mở modal ở tab "Tải lên"; "@" mở ở tab "Hình ảnh tham chiếu" VÀ có thêm hành vi chèn @element_id
-// vào đúng vị trí con trỏ trong ô prompt (onInsertMention) — xem mục 8 trong spec.
+// "+" mở modal ở tab "Tải lên"; "@" mở ở tab "Hình ảnh tham chiếu" — cả 2 chỉ GẮN ẢNH vào prompt, KHÔNG
+// tự chèn @mention nữa (xem SỬA ở handlePickElement bên dưới — khách tự bấm tên hiện dưới mỗi ảnh đã
+// gắn ở trang cha mới chèn mention, không còn tự động theo việc chọn ảnh nữa).
 
 type TabKey = "upload" | "reference" | "favorite";
 
@@ -24,7 +25,6 @@ export function ReferencePickerModal({
   uploadImage,
   onAddImages,
   onAddElementMeta,
-  onInsertMention,
   closeOnPick = true,
   selectedUrls = [],
 }: {
@@ -37,11 +37,8 @@ export function ReferencePickerModal({
   // ảnh tải lên thô ở tab "Tải lên" (không có type). Dùng để trang cha biết ảnh nào là "địa điểm" (vd
   // mở khung khoanh vùng vị trí đứng khi khách bấm phóng to đúng ảnh địa điểm đó).
   onAddElementMeta?: (items: { url: string; type: ElementType; name: string; elementId: string }[]) => void;
-  onInsertMention?: (elementId: string) => void;
-  // Tự đóng modal ngay sau khi chọn 1 phần tử từ tab "Hình ảnh tham chiếu" hay không — TÁCH RIÊNG khỏi
-  // onInsertMention (trước đây dùng chung 1 điều kiện, gây lỗi "chọn qua '+' không chèn mention"). Mặc
-  // định true (đóng ngay, khớp hành vi mở từ "@" trước đây) — truyền false khi mở từ "+" muốn chọn
-  // nhiều ảnh liên tiếp mà không bị đóng giữa chừng.
+  // Tự đóng modal ngay sau khi chọn 1 ảnh hay không — true (mặc định) khớp hành vi mở từ "@" (chọn 1
+  // phát rồi đóng ngay); false khi mở từ "+" muốn chọn nhiều ảnh liên tiếp không bị đóng giữa chừng.
   closeOnPick?: boolean;
   // Ảnh đang gắn sẵn vào prompt (promptImages ở trang cha) — dùng để tô dấu "✓ đã thêm" đúng ảnh,
   // KHÔNG dùng để tự động gắn gì cả (xem handleFiles: tải ảnh lên chỉ lưu vào thư viện "Tải lên",
@@ -138,19 +135,17 @@ export function ReferencePickerModal({
     if (res.ok) setElements((prev) => prev.filter((el) => el.id !== id));
   }
 
-  // SỬA (phản hồi thật user: bấm "+" rồi chuyển sang tab "Hình ảnh tham chiếu" chọn 1 phần tử có tên
-  // thật, nhưng KHÔNG được chèn @mention — vì trước đây việc chèn mention gắn theo NÚT NÀO mở modal
-  // (+/@), không gắn theo TAB NÀO chọn ảnh. Sửa đúng bản chất: chọn từ tab "Hình ảnh tham chiếu" LUÔN
-  // chèn mention (đây đúng là 1 phần tử có tên/element_id thật trong kho, xứng đáng được nhắc tới trong
-  // câu chuyện), bất kể mở modal từ "+" hay "@" — chỉ việc TỰ ĐÓNG modal sau khi chọn mới còn phân biệt
-  // theo closeOnPick (giữ nguyên trải nghiệm cũ: mở từ "@" đóng ngay để viết tiếp câu; mở từ "+" không
-  // đóng, để chọn thêm nhiều ảnh liên tiếp).
+  // SỬA (phản hồi thật user: "tên ... không xuất hiện trong khung viết prompt ... nếu muốn gọi nhân vật
+  // nào chỉ cần trỏ chuột và nhấp vào là tên hiện ra ngay chỗ đang viết prompt") — đổi hẳn mô hình: chọn
+  // 1 phần tử ở đây CHỈ gắn ảnh vào prompt (như "+"), KHÔNG tự động chèn @mention vào ô prompt nữa dù
+  // chọn từ tab nào/mở từ nút nào — việc chèn mention giờ là hành động RIÊNG, chủ động, khách tự bấm vào
+  // tên hiện dưới mỗi ảnh đã gắn (xem nhãn @element_id ở VideoTuYTuongClient.tsx) mới chèn vào đúng vị
+  // trí con trỏ đang gõ.
   function handlePickElement(el: ReferenceElement) {
     if (el.image_urls.length > 0) {
       onAddImages([el.image_urls[0]]);
       onAddElementMeta?.([{ url: el.image_urls[0], type: el.type, name: el.name, elementId: el.element_id }]);
     }
-    onInsertMention?.(el.element_id);
     if (closeOnPick) onClose();
   }
 
@@ -235,7 +230,7 @@ export function ReferencePickerModal({
                       onClick={() => {
                         if (!u.url) return;
                         onAddImages([u.url]);
-                        onInsertMention && onClose();
+                        if (closeOnPick) onClose();
                       }}
                       className="group relative aspect-square overflow-hidden rounded-xl border border-zinc-800 disabled:cursor-not-allowed"
                     >
