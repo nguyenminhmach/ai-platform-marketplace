@@ -5799,7 +5799,7 @@ async function xfadeMergeTwo(
 
 async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
   const supabase = getSupabaseAdmin();
-  const { data: job } = await supabase.from("story_video_jobs").select("user_id, mini_app_id, aspect_ratio").eq("id", jobId).single();
+  const { data: job } = await supabase.from("story_video_jobs").select("user_id, mini_app_id, aspect_ratio, project_id").eq("id", jobId).single();
   if (!job) return;
   const canvas = STITCH_CANVAS_BY_ASPECT_RATIO[job.aspect_ratio ?? "9:16"] ?? STITCH_CANVAS_BY_ASPECT_RATIO["9:16"];
 
@@ -5856,7 +5856,12 @@ async function stitchAndFinish(jobId: number, scenes: SceneRow[]) {
 
     const { data: publicUrlData } = supabase.storage.from("videos").getPublicUrl(filePath);
     await supabase.from("story_video_jobs").update({ status: "done", output_url: publicUrlData.publicUrl }).eq("id", jobId);
-    await recordGenerationHistory(job.user_id, job.mini_app_id, "video", publicUrlData.publicUrl);
+    // SỬA (phản hồi thật user: "video này nằm trong dự án sao xoá dự án mà video vẫn còn") — thiếu
+    // project_id ở đây khiến generation_history LUÔN ghi project_id=null cho video story-video, dù job
+    // đã được attachJobToProject() gắn vào đúng dự án lúc submit -- deleteGenerationHistoryByProject
+    // (xoá "cả nội dung bên trong" khi xoá dự án, lib/generation-history.ts) lọc theo đúng cột
+    // project_id nên không bao giờ tìm thấy/xoá được video này, dù hiện trong dự án đó.
+    await recordGenerationHistory(job.user_id, job.mini_app_id, "video", publicUrlData.publicUrl, job.project_id);
   } catch (err) {
     // failJob() chỉ lưu lỗi vào DB (job.error_message), không throw/log — log riêng ra đây để lỗi ghép
     // video còn xuất hiện trong Vercel error tracking, tránh lặp lại việc dò lỗi mù như lần ffmpeg ENOENT.
