@@ -145,6 +145,11 @@ export async function applyPromptImageResult(job: PromptImageJobRow, falPayload:
   const outputUrl = isError ? undefined : extractImageUrl(falPayload);
 
   if (isError || !outputUrl) {
+    // Log FULL payload (không chỉ falPayload.error, chuỗi ngắn kiểu "Unexpected status code: 422" không
+    // đủ chẩn đoán được nguyên nhân thật) — mirror đúng cách đã làm cho các bước lỗi khác của story-video
+    // (tạo Character/ảnh cảnh/video/lồng tiếng, xem lib/story-video.ts) — bước tạo ảnh đơn này trước đây
+    // bị sót, chỉ lưu đúng chuỗi ngắn falPayload.error vào error_message, không log gì ra server để tra.
+    console.error(`[prompt-image] Job #${job.id} lỗi (model=${job.model}), full payload:`, JSON.stringify(falPayload));
     if (job.credit_tx_id) await refundCredit(job.credit_tx_id);
     await supabase
       .from("prompt_image_jobs")
