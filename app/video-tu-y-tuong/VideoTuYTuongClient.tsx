@@ -3832,27 +3832,6 @@ export default function VideoTuYTuongClient({
                 </div>
               </div>
 
-              {/* SỬA (phản hồi thật user: "khi tạo ảnh vị trí trong ảnh không đúng như vị trí đã chọn")
-                  — cảnh báo khi khách ĐÃ chọn vị trí đứng cho ảnh Địa điểm đang gắn nhưng model ảnh đang
-                  chọn không hỗ trợ mask_url (chỉ fal-ai/gpt-image-2/edit hỗ trợ thật — xem
-                  buildImageRequestBody) — để khách biết cần đổi model mới có tác dụng, tránh thắc mắc
-                  "sao chọn vị trí rồi mà vẫn sai" lần nữa. */}
-              {(() => {
-                const locationUrl = promptImages.find((u) => promptImageMeta[u]?.type === "location");
-                const hasPositions = locationUrl && Object.keys(locationPositions[locationUrl] ?? {}).length > 0;
-                if (!hasPositions) return null;
-                const modelSupportsMask = storyImageModels.find((m) => m.key === storyImageModelKey)?.model === "fal-ai/gpt-image-2/edit";
-                if (!modelSupportsMask) {
-                  return (
-                    <p className="-mt-2 text-xs text-amber-400">
-                      ⚠ Đã chọn vị trí đứng nhưng model ảnh đang chọn không hỗ trợ đặt đúng vị trí — đổi model sang
-                      "GPT Image 2 Edit" để vị trí có tác dụng.
-                    </p>
-                  );
-                }
-                return null;
-              })()}
-
               {/* KHỐI 2/2 tab "hình ảnh" — ô "viết prompt", không viền tím (đúng tab video); nút "Tạo"
                   dính liền cuối khối, có viền tím đậm + nền tím nhạt. */}
               <div className="flex flex-col gap-3 rounded-[28px] bg-zinc-800 p-4">
