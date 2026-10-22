@@ -2945,13 +2945,13 @@ export default function VideoTuYTuongClient({
   // SỬA (phản hồi thật user: "cho ảnh full khối" — ô trống thực ra ĐÃ hiện, chỉ là viền border-zinc-700
   // trùng y hệt màu nền <main> (bg-zinc-700) nên gần như vô hình, trông như không có gì) — đổi màu viền
   // sáng hơn hẳn nền (zinc-500) + thêm nền mờ (bg-zinc-800/40) để thật sự phân biệt được với nền trang.
-  function renderEmptyProjectTile(key: string) {
-    return <div key={key} className="aspect-square rounded-xl border border-dashed border-zinc-500 bg-zinc-800/40" />;
+  function renderEmptyProjectTile(key: string, short?: boolean) {
+    return <div key={key} className={`${short ? "h-28" : "aspect-square"} rounded-xl border border-dashed border-zinc-500 bg-zinc-800/40`} />;
   }
 
-  function renderProjectJobTile(job: ProjectJobItem) {
+  function renderProjectJobTile(job: ProjectJobItem, short?: boolean) {
     return (
-      <div key={job.id} className="group relative aspect-square overflow-hidden rounded-xl bg-zinc-900">
+      <div key={job.id} className={`group relative ${short ? "h-28" : "aspect-square"} overflow-hidden rounded-xl bg-zinc-900`}>
         {job.status === "done" && job.outputUrl ? (
           <button type="button" onClick={() => setStoryQuickZoomUrl(job.outputUrl)} className="block h-full w-full" title={job.prompt}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -3198,9 +3198,9 @@ export default function VideoTuYTuongClient({
                 </div>
               ) : isImageGalleryOverlay ? (
                 <div className="grid grid-cols-4 gap-3">
-                  {projectJobs.map((job) => renderProjectJobTile(job))}
+                  {projectJobs.map((job) => renderProjectJobTile(job, true))}
                   {Array.from({ length: Math.max(8, Math.ceil(projectJobs.length / 4) * 4) - projectJobs.length }).map((_, i) =>
-                    renderEmptyProjectTile(`empty-${i}`)
+                    renderEmptyProjectTile(`empty-${i}`, true)
                   )}
                 </div>
               ) : (
