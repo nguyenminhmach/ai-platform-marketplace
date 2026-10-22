@@ -3692,7 +3692,10 @@ export default function VideoTuYTuongClient({
 
               {/* KHỐI 2/2 tab "hình ảnh" — ô "viết prompt", không viền tím (đúng tab video); nút "Tạo"
                   dính liền cuối khối, có viền tím đậm + nền tím nhạt. */}
-              <div className="flex flex-col gap-3 rounded-[28px] bg-zinc-800 p-4">
+              {/* SỬA (phản hồi thật user: "đưa khối Tạo xuống... chạm vào viền đen cạnh dưới của ô viết
+                  prompt" — bỏ hẳn đệm dưới (p-4 -> px-4 pt-4) để nút Tạo chạm sát mép dưới khối, không
+                  còn khoảng trống thừa bên dưới nút nữa. */}
+              <div className="flex flex-col gap-3 rounded-[28px] bg-zinc-800 px-4 pt-4">
                 {promptImages.length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {/* SỬA (phản hồi thật user: "tên ... không xuất hiện ... chỉ cần trỏ chuột và nhấp
