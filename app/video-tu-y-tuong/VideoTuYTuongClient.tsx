@@ -3170,7 +3170,7 @@ export default function VideoTuYTuongClient({
               gallery (mb-4 thay mb-10) khi đang mở 1 dự án, để lưới ảnh + ô viết prompt + nút "Tạo" gọn
               lại vừa màn hình hơn, đỡ phải cuộn mới thấy nút "Tạo". */}
           {activeProjectId ? (
-            <div className={isImageGalleryOverlay ? "" : "mb-4"}>
+            <div className={isImageGalleryOverlay ? "mb-2" : "mb-4"}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">
                   {contentProjects.find((p) => p.id === activeProjectId)?.name ?? "Dự án"}
