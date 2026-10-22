@@ -2958,44 +2958,32 @@ export default function VideoTuYTuongClient({
   // khung 832px, khớp chính xác). `short` = true khi dùng trong lưới overlay grid-rows-2 (bỏ hẳn
   // aspect-square, chỉ còn h-full theo track hàng thật); false/undefined (mặc định) giữ aspect-square
   // như cũ cho lưới 8 cột tab "video" (vốn cố ý định kích thước theo chiều rộng, vẫn đúng ý ở đó).
-  // SỬA (phản hồi thật user: "ảnh phân cảnh bị thiếu mặt và chân" — ô vuông cố định (aspect-square)
-  // buộc ảnh dọc 9:16 bị object-cover cắt mất đầu/chân mới lấp đầy được ô vuông; không có cách nào vừa
-  // lấp đầy vừa không cắt khi tỉ lệ ô khác tỉ lệ ảnh thật) — thử đổi ô sang 1 tỉ lệ CHUNG khớp với tỉ lệ
-  // đang chọn để tạo ảnh (aspectRatio CSS cố định cho cả lưới), nhưng ảnh CŨ tạo theo tỉ lệ khác vẫn bị
-  // cắt y hệt như cũ (chỉ ảnh mới khớp) — user xác nhận muốn "mỗi ảnh tự đúng tỉ lệ riêng của nó" thay
-  // vì 1 tỉ lệ chung cho cả lưới. Đổi hẳn sang bố cục MASONRY (CSS columns, không còn CSS grid hàng/cột
-  // cố định nữa): aspectRatio === "auto" thì ô không ép tỉ lệ gì cả, ảnh hiện đúng kích thước tự nhiên
-  // (w-full h-auto, không crop/cover) — CSS columns tự xếp các ô cao thấp khác nhau vào các cột cân
-  // bằng. aspectRatio là 1 giá trị cụ thể (vd "1/1") thì vẫn ép ô theo đúng tỉ lệ đó như cũ (lưới 8 cột
-  // tab "video", không đổi gì ở đó).
-  function renderEmptyProjectTile(key: string, aspectRatio?: string) {
-    const isMasonry = aspectRatio === "auto";
+  // SỬA (phản hồi thật user: "ảnh phân cảnh bị thiếu mặt và chân" rồi "anh thấy em chia vậy 2 hàng
+  // không đều nhau" khi thử masonry — chốt lại: "chỉ cần em phân chia hàng cột cho đúng đã" (ưu tiên
+  // hàng/cột đều nhau, AI chuyển tỉ lệ ảnh để sau) — quay lại lưới đều grid-rows-2 + h-full (đã kiểm
+  // chứng hoạt động đúng, xem comment phía trên), nhưng đổi `object-cover` -> `object-contain` để ảnh
+  // sai tỉ lệ (ảnh cũ) được thu nhỏ vừa khung thay vì bị cắt mặt/chân — khoảng trống dư (nếu có) tự động
+  // lộ ra màu nền tối bg-zinc-900 sẵn có của ô, giống kiểu letterbox Netflix/YouTube, không phải viền
+  // đen trống trơn phá layout.
+  function renderEmptyProjectTile(key: string, short?: boolean) {
     return (
       <div
         key={key}
-        className={`rounded-xl border border-dashed border-zinc-500 bg-zinc-800/40 ${isMasonry ? "mb-1 break-inside-avoid" : ""}`}
-        style={{ aspectRatio: isMasonry ? "1/1" : aspectRatio ?? "1/1" }}
+        className={`${short ? "h-full" : "aspect-square"} rounded-xl border border-dashed border-zinc-500 bg-zinc-800/40`}
       />
     );
   }
 
-  function renderProjectJobTile(job: ProjectJobItem, aspectRatio?: string) {
-    const isMasonry = aspectRatio === "auto";
+  function renderProjectJobTile(job: ProjectJobItem, short?: boolean) {
     return (
       <div
         key={job.id}
-        className={`group relative overflow-hidden rounded-xl border border-zinc-600 bg-zinc-900 ${isMasonry ? "mb-1 break-inside-avoid" : ""}`}
-        style={isMasonry && job.status === "done" ? undefined : { aspectRatio: aspectRatio && !isMasonry ? aspectRatio : "1/1" }}
+        className={`group relative ${short ? "h-full" : "aspect-square"} overflow-hidden rounded-xl border border-zinc-600 bg-zinc-900`}
       >
         {job.status === "done" && job.outputUrl ? (
-          <button
-            type="button"
-            onClick={() => setStoryQuickZoomUrl(job.outputUrl)}
-            className={isMasonry ? "block w-full" : "block h-full w-full"}
-            title={job.prompt}
-          >
+          <button type="button" onClick={() => setStoryQuickZoomUrl(job.outputUrl)} className="block h-full w-full" title={job.prompt}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={job.outputUrl} alt="" className={isMasonry ? "block w-full" : "h-full w-full object-cover"} />
+            <img src={job.outputUrl} alt="" className="h-full w-full object-contain" />
           </button>
         ) : job.status === "failed" ? (
           <div
@@ -3034,14 +3022,13 @@ export default function VideoTuYTuongClient({
   // giữ nguyên lưới 8 cột/giới hạn chiều cao cũ, không đổi gì.
   const isImageGalleryOverlay = activeProjectId !== null && promptMediaTab === "hinh-anh";
 
-  // SỬA (phản hồi thật user: "anh thấy em chia vậy 2 hàng không đều nhau" rồi xác nhận muốn "mỗi ảnh tự
-  // đúng tỉ lệ riêng" thay vì 1 tỉ lệ chung cho cả lưới — cách ép 1 aspectRatio chung theo
-  // storyAspectRatio chỉ đúng cho ảnh MỚI, ảnh CŨ tạo theo tỉ lệ khác vẫn bị cắt y hệt bug gốc) — bỏ
-  // hẳn việc co giãn SỐ CỘT theo storyAspectRatio, đổi sang bố cục MASONRY cố định 4 cột (CSS
-  // `columns-4`, xem renderProjectJobTile/renderEmptyProjectTile với aspectRatio="auto") — mỗi ảnh tự
-  // hiện đúng kích thước/tỉ lệ thật của nó (không ép, không cắt), CSS columns tự cân bằng các cột cao
-  // thấp khác nhau, không cần biết trước tỉ lệ ảnh là gì.
-  const projectMasonryColsClass = "columns-4";
+  // SỬA (phản hồi thật user: thử masonry (CSS columns) rồi "đây là 1 hàng chứ đâu phải 2 hàng" — masonry
+  // lấp cột theo thứ tự tài liệu chứ không theo hàng ngang, phá vỡ cảm giác "2 hàng N cột" đã quen —
+  // user chốt quay lại lưới đều, ưu tiên hàng/cột đúng trước, xử lý tỉ lệ ảnh bằng AI để sau) — khôi
+  // phục số cột co giãn theo storyAspectRatio (như trước khi thử masonry), kết hợp object-contain mới
+  // (xem renderProjectJobTile) để ảnh sai tỉ lệ không bị cắt, chỉ letterbox nền tối thôi.
+  const projectGridColsCount = storyAspectRatio === "16:9" ? 2 : storyAspectRatio === "9:16" ? 7 : 4;
+  const projectGridColsClass = storyAspectRatio === "16:9" ? "grid-cols-2" : storyAspectRatio === "9:16" ? "grid-cols-7" : "grid-cols-4";
 
   return (
     <div className="flex min-h-screen bg-black text-zinc-100">
@@ -3243,17 +3230,17 @@ export default function VideoTuYTuongClient({
                   Dự án này chưa có nội dung nào — tạo ảnh bên dưới sẽ tự gom vào đây.
                 </div>
               ) : (
-                // SỬA (phản hồi thật user: "mỗi ảnh tự đúng tỉ lệ riêng của nó" — bỏ hẳn việc ép 1
-                // aspectRatio/số cột chung cho cả lưới (chỉ đúng cho ảnh mới cùng tỉ lệ, ảnh cũ khác tỉ
-                // lệ vẫn bị cắt) — đổi sang bố cục masonry (CSS columns, xem projectMasonryColsClass):
-                // mỗi ảnh hiện đúng kích thước thật (aspectRatio="auto" trong renderProjectJobTile),
-                // không ô nào bị cắt hay méo nữa, bất kể ảnh cũ hay mới, tỉ lệ gì cũng được. overflow-y-
-                // auto + flex-1 vẫn giữ nguyên để cuộn xem thêm khi nhiều ảnh.
-                <div className={`-mx-6 min-h-0 flex-1 ${projectMasonryColsClass} gap-1 overflow-y-auto px-2`}>
-                  {projectJobs.map((job) => renderProjectJobTile(job, "auto"))}
-                  {Array.from({ length: Math.max(8, Math.ceil(projectJobs.length / 4) * 4) - projectJobs.length }).map((_, i) =>
-                    renderEmptyProjectTile(`empty-${i}`, "auto")
-                  )}
+                // SỬA (phản hồi thật user: "chỉ cần em phân chia hàng cột cho đúng đã" — quay lại lưới
+                // đều grid-rows-2 + h-full (đã kiểm chứng đúng), số cột co giãn theo storyAspectRatio
+                // (projectGridColsClass/projectGridColsCount), kết hợp object-contain mới ở
+                // renderProjectJobTile để ảnh sai tỉ lệ (vd ảnh cũ) không bị cắt, chỉ letterbox thôi.
+                <div className={`-mx-6 grid min-h-0 flex-1 ${projectGridColsClass} grid-rows-2 gap-1 overflow-y-auto px-2`}>
+                  {projectJobs.map((job) => renderProjectJobTile(job, true))}
+                  {Array.from({
+                    length:
+                      Math.max(projectGridColsCount * 2, Math.ceil(projectJobs.length / projectGridColsCount) * projectGridColsCount) -
+                      projectJobs.length,
+                  }).map((_, i) => renderEmptyProjectTile(`empty-${i}`, true))}
                 </div>
               )}
             </div>
