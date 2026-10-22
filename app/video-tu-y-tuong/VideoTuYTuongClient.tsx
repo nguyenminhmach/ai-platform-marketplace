@@ -3135,10 +3135,20 @@ export default function VideoTuYTuongClient({
                   {projectJobs.map((job) => (
                     <div key={job.id} className="group relative aspect-square overflow-hidden rounded-xl bg-zinc-900">
                       {job.status === "done" && job.outputUrl ? (
-                        <a href={job.outputUrl} target="_blank" rel="noreferrer" className="block h-full w-full" title={job.prompt}>
+                        // SỬA (phản hồi thật user: "ảnh phân cảnh phóng to nằm ở giữa màn hình chứ không
+                        // phải bên trái" — mở ảnh bằng target="_blank" để trình duyệt tự hiển thị, không
+                        // kiểm soát được cách căn giữa) — đổi sang mở khung xem trước NGAY TRONG APP
+                        // (storyQuickZoomUrl, đã khai báo sẵn nhưng chưa dùng ở đâu), tự canh giữa bằng
+                        // CSS của chính mình, không phụ thuộc trình xem ảnh mặc định của trình duyệt.
+                        <button
+                          type="button"
+                          onClick={() => setStoryQuickZoomUrl(job.outputUrl)}
+                          className="block h-full w-full"
+                          title={job.prompt}
+                        >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src={job.outputUrl} alt="" className="h-full w-full object-cover" />
-                        </a>
+                        </button>
                       ) : job.status === "failed" ? (
                         <div
                           className="flex h-full w-full flex-col items-center justify-center gap-1 border border-red-900/60 bg-red-950/30 p-2 text-center"
@@ -3757,6 +3767,30 @@ export default function VideoTuYTuongClient({
 
         </div>
       </main>
+
+      {/* Khung xem trước phóng to cho ảnh trong gallery "Dự án" — xem chú thích ở nút mở nó phía trên. */}
+      {storyQuickZoomUrl && (
+        <div
+          className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 p-6"
+          onClick={() => setStoryQuickZoomUrl(null)}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={storyQuickZoomUrl}
+            alt=""
+            className="max-h-full max-w-full rounded-xl object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            type="button"
+            onClick={() => setStoryQuickZoomUrl(null)}
+            className="absolute right-6 top-6 rounded-full bg-black/60 p-2 text-xl text-white hover:bg-black/80"
+            aria-label="Đóng"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {pickerModal && (
         // SỬA (phản hồi thật user: "nhưng khi vào thì vào mục ảnh tham khảo mà" — bấm "+" rồi chọn 1
