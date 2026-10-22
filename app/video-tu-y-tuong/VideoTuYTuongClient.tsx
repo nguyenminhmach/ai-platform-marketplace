@@ -2951,7 +2951,7 @@ export default function VideoTuYTuongClient({
 
   function renderProjectJobTile(job: ProjectJobItem) {
     return (
-      <div key={job.id} className="group relative aspect-square overflow-hidden rounded-xl bg-zinc-900">
+      <div key={job.id} className="group relative aspect-square overflow-hidden rounded-xl border border-zinc-600 bg-zinc-900">
         {job.status === "done" && job.outputUrl ? (
           <button type="button" onClick={() => setStoryQuickZoomUrl(job.outputUrl)} className="block h-full w-full" title={job.prompt}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
