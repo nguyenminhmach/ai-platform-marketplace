@@ -3403,7 +3403,7 @@ export default function VideoTuYTuongClient({
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   placeholder="viết prompt"
-                  rows={4}
+                  rows={7}
                   className="w-full resize-none bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
                 />
 
@@ -3679,7 +3679,7 @@ export default function VideoTuYTuongClient({
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   placeholder="viết prompt"
-                  rows={4}
+                  rows={7}
                   className="w-full resize-none bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
                 />
 
