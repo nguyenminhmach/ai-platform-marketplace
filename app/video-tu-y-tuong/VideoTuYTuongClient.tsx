@@ -3197,7 +3197,7 @@ export default function VideoTuYTuongClient({
                   Dự án này chưa có nội dung nào — tạo ảnh bên dưới sẽ tự gom vào đây.
                 </div>
               ) : isImageGalleryOverlay ? (
-                <div className="grid h-[48vh] grid-cols-4 grid-rows-2 gap-3">
+                <div className="grid h-[calc(100vh-170px)] grid-cols-4 grid-rows-2 gap-3">
                   {projectJobs.map((job) => renderProjectJobTile(job, true))}
                   {Array.from({ length: Math.max(8, Math.ceil(projectJobs.length / 4) * 4) - projectJobs.length }).map((_, i) =>
                     renderEmptyProjectTile(`empty-${i}`, true)
