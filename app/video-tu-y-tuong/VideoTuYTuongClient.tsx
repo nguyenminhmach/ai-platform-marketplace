@@ -3029,6 +3029,32 @@ export default function VideoTuYTuongClient({
   // (xem renderProjectJobTile) để ảnh sai tỉ lệ không bị cắt, chỉ letterbox nền tối thôi.
   const projectGridColsCount = storyAspectRatio === "16:9" ? 2 : storyAspectRatio === "9:16" ? 7 : 4;
 
+  // SỬA (phản hồi thật user: "có ảnh cũng vô nghĩa" — sau NHIỀU lần "đã kiểm chứng đúng bằng CSS" mà
+  // production vẫn hiện sai (1 hàng thay vì 2), kể cả sau khi đổi hẳn sang style inline để loại trừ nghi
+  // vấn Tailwind JIT — bằng chứng cho thấy vấn đề KHÔNG nằm ở việc chọn class/style nào, mà có thể là
+  // khối cha (absolute inset-0) không cho ra chiều cao thật trên môi trường production vì lý do nào đó
+  // chưa xác định được qua ảnh chụp từ xa) — bỏ hẳn việc PHÓ THÁC cho CSS flex/grid/absolute tính chiều
+  // cao, ĐO TRỰC TIẾP bằng JS (ResizeObserver, luôn đúng 100% vì đọc thẳng kích thước đã render thật,
+  // không qua suy luận CSS nào nữa) rồi gán cứng số pixel đo được vào style của khối lưới ảnh.
+  const galleryWrapperRef = useRef<HTMLDivElement | null>(null);
+  const galleryHeaderRef = useRef<HTMLDivElement | null>(null);
+  const [galleryGridHeightPx, setGalleryGridHeightPx] = useState<number | null>(null);
+  useEffect(() => {
+    if (!isImageGalleryOverlay) return;
+    const wrapperEl = galleryWrapperRef.current;
+    const headerEl = galleryHeaderRef.current;
+    if (!wrapperEl || !headerEl) return;
+    const recompute = () => {
+      const available = wrapperEl.clientHeight - headerEl.offsetHeight;
+      if (available > 0) setGalleryGridHeightPx(available);
+    };
+    recompute();
+    const observer = new ResizeObserver(recompute);
+    observer.observe(wrapperEl);
+    observer.observe(headerEl);
+    return () => observer.disconnect();
+  }, [isImageGalleryOverlay]);
+
   return (
     <div className="flex min-h-screen bg-black text-zinc-100">
       {/* Sidebar trái — xem video1.jpg. "Hình ảnh tham chiếu" trỏ sang trang quản lý kho tham chiếu đã
@@ -3211,8 +3237,8 @@ export default function VideoTuYTuongClient({
             // (đã có position:relative), không cần tính toán gì nữa. flex-col bên trong: header tự
             // nhiên, khối lưới ảnh flex-1 chiếm hết phần còn lại, pb-2 (8px) là khoảng cách chính xác
             // tới mép dưới mà anh yêu cầu.
-            <div className="absolute inset-0 flex flex-col px-6 pb-2 pt-4">
-              <div className="mb-4 flex items-center justify-between">
+            <div ref={galleryWrapperRef} className="absolute inset-0 flex flex-col px-6 pb-2 pt-4">
+              <div ref={galleryHeaderRef} className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">
                   {contentProjects.find((p) => p.id === activeProjectId)?.name ?? "Dự án"}
                 </h2>
@@ -3229,15 +3255,17 @@ export default function VideoTuYTuongClient({
                   Dự án này chưa có nội dung nào — tạo ảnh bên dưới sẽ tự gom vào đây.
                 </div>
               ) : (
-                // SỬA (phản hồi thật user: "em thấy không đều/chỉ 1 hàng" ngay cả sau khi deploy đúng
-                // bản mới — nghi vấn Tailwind JIT không quét đúng class ghép trong template string động
-                // (`${projectGridColsClass} grid-rows-2`) lúc build production dù dev local vẫn ra đúng
-                // (build dev quét lại liên tục, production build 1 lần có thể bỏ sót) — chuyển hẳn sang
-                // style inline (gridTemplateColumns/gridTemplateRows) thay vì class Tailwind động, để
-                // KHÔNG còn phụ thuộc Tailwind quét đúng hay không nữa, chắc chắn hoạt động mọi lúc.
+                // SỬA (phản hồi thật user: "có ảnh cũng vô nghĩa" — vẫn hiện 1 hàng dù đã đổi style
+                // inline, nghi vấn thật sự là khối "absolute inset-0" phía trên không cho ra chiều cao
+                // thật trên production vì lý do nào đó chưa rõ) — bỏ hẳn "flex-1" (nhờ CSS tự tính), ĐO
+                // TRỰC TIẾP bằng ResizeObserver (xem galleryGridHeightPx phía trên) rồi gán CỨNG số pixel
+                // đo được vào height — không còn phụ thuộc CSS flex/grid tự suy ra chiều cao nữa, chỉ còn
+                // phụ thuộc kích thước đã render THẬT của khối cha, luôn đúng.
                 <div
-                  className="-mx-6 grid min-h-0 flex-1 gap-1 overflow-y-auto px-2"
+                  className="-mx-6 grid min-h-0 gap-1 overflow-y-auto px-2"
                   style={{
+                    height: galleryGridHeightPx != null ? `${galleryGridHeightPx}px` : undefined,
+                    flex: galleryGridHeightPx != null ? "none" : "1 1 0%",
                     gridTemplateColumns: `repeat(${projectGridColsCount}, minmax(0, 1fr))`,
                     gridTemplateRows: "repeat(2, minmax(0, 1fr))",
                   }}
