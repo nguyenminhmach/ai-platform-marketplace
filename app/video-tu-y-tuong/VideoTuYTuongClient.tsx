@@ -3255,19 +3255,24 @@ export default function VideoTuYTuongClient({
                   Dự án này chưa có nội dung nào — tạo ảnh bên dưới sẽ tự gom vào đây.
                 </div>
               ) : (
-                // SỬA (phản hồi thật user: "có ảnh cũng vô nghĩa" — vẫn hiện 1 hàng dù đã đổi style
-                // inline, nghi vấn thật sự là khối "absolute inset-0" phía trên không cho ra chiều cao
-                // thật trên production vì lý do nào đó chưa rõ) — bỏ hẳn "flex-1" (nhờ CSS tự tính), ĐO
-                // TRỰC TIẾP bằng ResizeObserver (xem galleryGridHeightPx phía trên) rồi gán CỨNG số pixel
-                // đo được vào height — không còn phụ thuộc CSS flex/grid tự suy ra chiều cao nữa, chỉ còn
-                // phụ thuộc kích thước đã render THẬT của khối cha, luôn đúng.
+                // SỬA (phản hồi thật user: dữ liệu THỰC RA có đủ 5 ảnh (xác nhận qua tab "video" hiện
+                // đúng 5 ảnh), nhưng tab "hình ảnh" (2 cột) với 5 ảnh cần tới 3 HÀNG (2 cột x 3 hàng = 6
+                // ô ≥ 5 ảnh), mà style trước chỉ định nghĩa CỨNG "gridTemplateRows: repeat(2, ...)" — hàng
+                // thứ 3 trở đi trở thành hàng "ẩn" (implicit), không có kích thước rõ ràng, mặc định
+                // "auto" (co theo nội dung ảnh thật qua object-contain/h-full — vòng lặp không có chiều
+                // cao gốc để dựa vào), hàng ẩn đó giãn to bất thường, chèn ép 2 hàng đầu co lại gần như
+                // biến mất — ĐÂY MỚI LÀ NGUYÊN NHÂN THẬT, không phải do CSS/Tailwind/cache như các lần
+                // trước đoán. Sửa: dùng "gridAutoRows" (áp dụng cho MỌI hàng, kể cả hàng ẩn phát sinh sau
+                // này) với 1 chiều cao CỐ ĐỊNH bằng pixel = (chiều cao đo được - khe hở) / 2 — nên hàng 1,
+                // 2, 3... đều cao bằng nhau tuyệt đối, hàng dư (quá 2 hàng) đẩy nội dung tràn xuống, tự
+                // cuộn xem tiếp nhờ overflow-y-auto, không còn hàng nào bị bóp méo nữa.
                 <div
                   className="-mx-6 grid min-h-0 gap-1 overflow-y-auto px-2"
                   style={{
                     height: galleryGridHeightPx != null ? `${galleryGridHeightPx}px` : undefined,
                     flex: galleryGridHeightPx != null ? "none" : "1 1 0%",
                     gridTemplateColumns: `repeat(${projectGridColsCount}, minmax(0, 1fr))`,
-                    gridTemplateRows: "repeat(2, minmax(0, 1fr))",
+                    gridAutoRows: galleryGridHeightPx != null ? `${(galleryGridHeightPx - 4) / 2}px` : "1fr",
                   }}
                 >
                   {projectJobs.map((job) => renderProjectJobTile(job, true))}
