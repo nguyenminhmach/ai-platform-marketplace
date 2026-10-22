@@ -2945,13 +2945,13 @@ export default function VideoTuYTuongClient({
   // SỬA (phản hồi thật user: "cho ảnh full khối" — ô trống thực ra ĐÃ hiện, chỉ là viền border-zinc-700
   // trùng y hệt màu nền <main> (bg-zinc-700) nên gần như vô hình, trông như không có gì) — đổi màu viền
   // sáng hơn hẳn nền (zinc-500) + thêm nền mờ (bg-zinc-800/40) để thật sự phân biệt được với nền trang.
-  function renderEmptyProjectTile(key: string, short?: boolean) {
-    return <div key={key} className={`${short ? "h-full min-h-28" : "aspect-square"} rounded-xl border border-dashed border-zinc-500 bg-zinc-800/40`} />;
+  function renderEmptyProjectTile(key: string) {
+    return <div key={key} className="aspect-square rounded-xl border border-dashed border-zinc-500 bg-zinc-800/40" />;
   }
 
-  function renderProjectJobTile(job: ProjectJobItem, short?: boolean) {
+  function renderProjectJobTile(job: ProjectJobItem) {
     return (
-      <div key={job.id} className={`group relative ${short ? "h-full min-h-28" : "aspect-square"} overflow-hidden rounded-xl bg-zinc-900`}>
+      <div key={job.id} className="group relative aspect-square overflow-hidden rounded-xl bg-zinc-900">
         {job.status === "done" && job.outputUrl ? (
           <button type="button" onClick={() => setStoryQuickZoomUrl(job.outputUrl)} className="block h-full w-full" title={job.prompt}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -3160,7 +3160,7 @@ export default function VideoTuYTuongClient({
             khối NGOÀI này để lưới ảnh dùng hết chiều ngang thật của khung chính; tiêu đề + khối prompt
             vẫn được bọc riêng trong 1 khối max-w-5xl con bên dưới (y hệt độ rộng cũ) để không đổi gì về
             layout của chúng. Mọi trường hợp khác (tab video, chưa mở dự án) giữ nguyên max-w-5xl như cũ. */}
-        <div className={`flex min-h-full w-full flex-col px-6 ${activeProjectId ? "pb-2 pt-4" : "pb-2 pt-8"} ${isImageGalleryOverlay ? "" : "mx-auto max-w-5xl"}`}>
+        <div className={`relative flex min-h-full w-full flex-col px-6 ${activeProjectId ? "pb-2 pt-4" : "pb-2 pt-8"} ${isImageGalleryOverlay ? "" : "mx-auto max-w-5xl"}`}>
           {/* SỬA (phản hồi thật user: "mọi thao tác phải lưu trong dự án không cần khởi tạo thành công
               mới lưu" — đổi nguồn từ generation_history (chỉ có job thành công) sang projectJobs (đọc
               thẳng prompt_image_jobs, đủ trạng thái kể cả lỗi) để lưới dự án hiện ĐÚNG mọi lượt đã thử).
@@ -3197,11 +3197,13 @@ export default function VideoTuYTuongClient({
                   Dự án này chưa có nội dung nào — tạo ảnh bên dưới sẽ tự gom vào đây.
                 </div>
               ) : isImageGalleryOverlay ? (
-                <div className="grid h-[32vh] grid-cols-4 grid-rows-2 gap-3">
-                  {projectJobs.map((job) => renderProjectJobTile(job, true))}
-                  {Array.from({ length: Math.max(8, Math.ceil(projectJobs.length / 4) * 4) - projectJobs.length }).map((_, i) =>
-                    renderEmptyProjectTile(`empty-${i}`, true)
-                  )}
+                <div className="-mx-6 h-[70vh] overflow-y-auto">
+                  <div className="grid grid-cols-4 gap-1">
+                    {projectJobs.map((job) => renderProjectJobTile(job))}
+                    {Array.from({ length: Math.max(8, Math.ceil(projectJobs.length / 4) * 4) - projectJobs.length }).map((_, i) =>
+                      renderEmptyProjectTile(`empty-${i}`)
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div
@@ -3232,7 +3234,21 @@ export default function VideoTuYTuongClient({
           {/* Tiêu đề + khối prompt (+ khu vực tiến trình/kết quả bên dưới) LUÔN bó hẹp max-w-5xl như cũ,
               kể cả khi khối NGOÀI đã bỏ max-w-5xl cho lưới ảnh overlay — tự bọc riêng 1 lớp max-w-5xl ở
               đây, không phụ thuộc khối cha nữa. */}
-          <div className="mx-auto w-full max-w-5xl">
+          {/* SỬA (phản hồi thật user: "khối hình ảnh/video + viết prompt không nằm trong luồng bình
+              thường — nổi/đè cố định 1 vị trí trên ảnh, ảnh vẫn nằm nguyên phía sau") — khi
+              isImageGalleryOverlay, khối NGOÀI này (bọc tiêu đề + khối prompt) đổi hẳn sang
+              position:absolute, ghim cố định vào đáy khung cha (position:relative ở trên) bằng
+              inset-x-0 bottom-0 + mx-auto/max-w-5xl vẫn giữ nguyên để tự căn giữa bên trong track full
+              width đó (margin:auto vẫn hoạt động bình thường với absolute khi left/right cùng đặt 0).
+              Vì là absolute, khối này RA KHỎI LUỒNG hẳn — không chiếm chỗ, không đẩy lưới ảnh lên/xuống
+              — lưới ảnh phía sau cứ trải dài hết khung, chỉ bị khối này che 1 phần cố định. */}
+          <div
+            className={
+              isImageGalleryOverlay
+                ? "absolute inset-x-0 bottom-0 z-10 mx-auto w-full max-w-5xl bg-zinc-700 px-6 pb-2 pt-3"
+                : "mx-auto w-full max-w-5xl"
+            }
+          >
           <h1 className={`text-center font-bold text-white ${activeProjectId ? "mb-3 text-xl sm:text-2xl" : "mb-6 text-3xl sm:text-4xl"}`}>
             Không gian cho mọi ý tưởng
           </h1>
@@ -3245,11 +3261,10 @@ export default function VideoTuYTuongClient({
               liệu tham khảo/máy ảnh/bảng màu/ánh sáng/thiết lập phim tự động" nằm NGAY DƯỚI ô prompt.
               Tab "hình ảnh" CHƯA đổi — anh nói sẽ gửi ảnh mẫu riêng cho tab đó sau, nên giữ nguyên
               layout cũ (cột tab riêng bên trái + box riêng + nút "tạo" đứng ngoài) ở nhánh else. */}
-          {/* SỬA (phản hồi thật user: "cách A" — khối hình ảnh/video + viết prompt đứng yên "đè" lên
-              lưới ảnh phía sau khi cuộn, không trôi theo) — isImageGalleryOverlay thì sticky bottom-0
-              (dính đáy khung cuộn `main`, nền đặc bg-zinc-700 trùng màu main để thật sự "che" ảnh cuộn
-              qua phía dưới nó), còn lại vẫn mt-auto như cũ (đẩy xuống đáy 1 lần, không dính/cuộn đè). */}
-          <div className={isImageGalleryOverlay ? "sticky bottom-0 z-10 bg-zinc-700 pb-2 pt-3" : "mt-auto"}>
+          {/* Khối cha (ở trên) đã lo việc đè/ghim cố định khi isImageGalleryOverlay rồi (absolute), nên ở
+              đây chỉ còn cần "mt-auto" cho trường hợp KHÔNG overlay (đẩy xuống đáy 1 lần trong luồng
+              bình thường như cũ); overlay thì không cần thêm gì nữa. */}
+          <div className={isImageGalleryOverlay ? "" : "mt-auto"}>
           {promptMediaTab === "video" ? (
             <div className="flex flex-col gap-2">
               {/* KHỐI 1/2 — bản thiết kế có 2 khối riêng biệt (khối pill trên + khối box dưới), không
