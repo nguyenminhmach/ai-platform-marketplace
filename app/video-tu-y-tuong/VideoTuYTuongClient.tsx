@@ -3170,7 +3170,7 @@ export default function VideoTuYTuongClient({
               gallery (mb-4 thay mb-10) khi đang mở 1 dự án, để lưới ảnh + ô viết prompt + nút "Tạo" gọn
               lại vừa màn hình hơn, đỡ phải cuộn mới thấy nút "Tạo". */}
           {activeProjectId ? (
-            <div className={`mb-4 ${isImageGalleryOverlay ? "flex min-h-0 flex-1 flex-col" : ""}`}>
+            <div className="mb-4">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">
                   {contentProjects.find((p) => p.id === activeProjectId)?.name ?? "Dự án"}
@@ -3197,7 +3197,7 @@ export default function VideoTuYTuongClient({
                   Dự án này chưa có nội dung nào — tạo ảnh bên dưới sẽ tự gom vào đây.
                 </div>
               ) : isImageGalleryOverlay ? (
-                <div className="grid flex-1 grid-cols-4 grid-rows-2 gap-3">
+                <div className="grid h-[48vh] grid-cols-4 grid-rows-2 gap-3">
                   {projectJobs.map((job) => renderProjectJobTile(job, true))}
                   {Array.from({ length: Math.max(8, Math.ceil(projectJobs.length / 4) * 4) - projectJobs.length }).map((_, i) =>
                     renderEmptyProjectTile(`empty-${i}`, true)
