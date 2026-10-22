@@ -3169,8 +3169,14 @@ export default function VideoTuYTuongClient({
               bị mép dưới che mất") — giảm hẳn khoảng trống phía trên (pt-4 thay py-8) và dưới khối
               gallery (mb-4 thay mb-10) khi đang mở 1 dự án, để lưới ảnh + ô viết prompt + nút "Tạo" gọn
               lại vừa màn hình hơn, đỡ phải cuộn mới thấy nút "Tạo". */}
-          {activeProjectId ? (
-            <div className={isImageGalleryOverlay ? "mb-2" : "mb-4"}>
+          {activeProjectId && isImageGalleryOverlay ? (
+            // SỬA (phản hồi thật user: "gửi số 8px rồi mà mãi không khớp" — mọi lần đoán bằng vh đều
+            // sai vì không biết chính xác <main> còn lại bao nhiêu chỗ trống thật) — bỏ hẳn việc đoán
+            // vh, dùng absolute inset-0 để khối này LUÔN khớp đúng 100% không gian còn lại của khối cha
+            // (đã có position:relative), không cần tính toán gì nữa. flex-col bên trong: header tự
+            // nhiên, khối lưới ảnh flex-1 chiếm hết phần còn lại, pb-2 (8px) là khoảng cách chính xác
+            // tới mép dưới mà anh yêu cầu.
+            <div className="absolute inset-0 flex flex-col px-6 pb-2 pt-4">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">
                   {contentProjects.find((p) => p.id === activeProjectId)?.name ?? "Dự án"}
@@ -3183,33 +3189,40 @@ export default function VideoTuYTuongClient({
                   Thoát dự án
                 </button>
               </div>
-              {/* SỬA (phản hồi thật user: "bố trí thành 2 hàng mỗi hàng 8 cột..." rồi sau đó riêng cho
-                  tab "hình ảnh": "2 hàng mỗi hàng 4 cột... ảnh thứ 9 vào ô số 1, ảnh ô 1 dịch sang ô 2...
-                  khối hình ảnh/video và viết prompt vẫn đè lên ảnh, dùng con trượt để xem ảnh bị che") —
-                  2 biến thể: isImageGalleryOverlay (tab "hình ảnh" + đang mở dự án) dùng 4 cột, KHÔNG
-                  giới hạn chiều cao/không tự cuộn riêng (hoà vào dòng chảy trang, cuộn chung với
-                  main/hình nền) để khối prompt sticky bên dưới có thể "đè" lên khi cuộn; còn lại (tab
-                  "video") vẫn 8 cột giới hạn 2 hàng + tự cuộn riêng như cũ, không đổi. projectJobs đã
-                  sắp mới nhất trước (xem API route) nên ảnh mới luôn tự rơi vào ô đầu tiên, không cần
-                  xử lý "dịch chuyển" thủ công gì thêm. */}
               {projectJobs.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-zinc-600 p-8 text-center text-sm text-zinc-400">
                   Dự án này chưa có nội dung nào — tạo ảnh bên dưới sẽ tự gom vào đây.
                 </div>
-              ) : isImageGalleryOverlay ? (
-                <div className="-mx-6 h-[calc(100vh-170px)] overflow-y-auto">
-                  {/* SỬA (phản hồi thật user: "còn cách mép dưới khung xám 1 khoảng, đáng lẽ chỉ nên
-                      cách 8px") — h-[70vh] trước đó ước lượng thấp hơn nhiều so với chiều cao THẬT còn
-                      trống trong <main> (root layout chỉ "min-h-screen", main = gần hết 100vh trừ
-                      margin/padding/khối tiêu đề dự án) nên để lại khoảng trống xám lớn phía dưới —
-                      đổi sang calc(100vh-170px) (ước lượng khớp sát hơn phần đã bị header/padding
-                      chiếm), phần dư còn lại được xử lý bằng mb-2 (8px) ở khối cha. */}
-                  <div className="grid h-full grid-cols-4 auto-rows-[calc((100vh-170px-0.25rem)/2)] gap-1">
+              ) : (
+                <div className="-mx-6 min-h-0 flex-1 overflow-y-auto">
+                  <div className="grid h-full grid-cols-4 grid-rows-2 gap-1">
                     {projectJobs.map((job) => renderProjectJobTile(job))}
                     {Array.from({ length: Math.max(8, Math.ceil(projectJobs.length / 4) * 4) - projectJobs.length }).map((_, i) =>
                       renderEmptyProjectTile(`empty-${i}`)
                     )}
                   </div>
+                </div>
+              )}
+            </div>
+          ) : activeProjectId ? (
+            <div className="mb-4">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-white">
+                  {contentProjects.find((p) => p.id === activeProjectId)?.name ?? "Dự án"}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setActiveProjectId(null)}
+                  className="text-sm text-zinc-400 hover:text-white"
+                >
+                  Thoát dự án
+                </button>
+              </div>
+              {/* SỬA (phản hồi thật user: "bố trí thành 2 hàng mỗi hàng 8 cột...") — tab "video" vẫn 8
+                  cột giới hạn 2 hàng + tự cuộn riêng như cũ, không đổi. */}
+              {projectJobs.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-zinc-600 p-8 text-center text-sm text-zinc-400">
+                  Dự án này chưa có nội dung nào — tạo ảnh bên dưới sẽ tự gom vào đây.
                 </div>
               ) : (
                 <div
