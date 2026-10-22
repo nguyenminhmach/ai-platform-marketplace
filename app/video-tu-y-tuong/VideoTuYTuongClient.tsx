@@ -3194,13 +3194,18 @@ export default function VideoTuYTuongClient({
                   Dự án này chưa có nội dung nào — tạo ảnh bên dưới sẽ tự gom vào đây.
                 </div>
               ) : (
-                <div className="-mx-6 min-h-0 flex-1 overflow-y-auto px-2">
-                  <div className="grid h-full grid-cols-4 grid-rows-2 gap-1">
-                    {projectJobs.map((job) => renderProjectJobTile(job))}
-                    {Array.from({ length: Math.max(8, Math.ceil(projectJobs.length / 4) * 4) - projectJobs.length }).map((_, i) =>
-                      renderEmptyProjectTile(`empty-${i}`)
-                    )}
-                  </div>
+                // SỬA (phản hồi thật user: "2 hàng vẫn chưa bằng nhau dù đã sửa" — xác nhận qua Vercel
+                // deployment là bản mới ĐÃ lên Production rồi, vậy lỗi là thật, không phải do chưa
+                // deploy) — gộp khối cuộn + khối grid làm MỘT phần tử (bỏ lớp "h-full" trung gian dễ vỡ:
+                // height:100% của 1 div thường bên trong 1 flex item overflow-auto không phải lúc nào
+                // cũng resolve đúng) — giờ chính div này VỪA LÀ flex-1 (được gán chiều cao trực tiếp qua
+                // flex-grow, không qua %) VỪA LÀ grid grid-rows-2, nên 2 hàng chắc chắn bằng nhau và
+                // khớp đúng chiều cao thật, không còn mắt xích % nào có thể gãy nữa.
+                <div className="-mx-6 grid min-h-0 flex-1 grid-cols-4 grid-rows-2 gap-1 overflow-y-auto px-2">
+                  {projectJobs.map((job) => renderProjectJobTile(job))}
+                  {Array.from({ length: Math.max(8, Math.ceil(projectJobs.length / 4) * 4) - projectJobs.length }).map((_, i) =>
+                    renderEmptyProjectTile(`empty-${i}`)
+                  )}
                 </div>
               )}
             </div>
