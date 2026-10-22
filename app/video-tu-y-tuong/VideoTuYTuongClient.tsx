@@ -3358,13 +3358,11 @@ export default function VideoTuYTuongClient({
               // pt-3 của nó, tạo ra 1 hình chữ nhật xám LỚN HƠN bao ngoài khối có viền bo tròn bên trong
               // — bỏ hẳn nền + đệm của khối NGOÀI (chỉ còn lo định vị/căn giữa), dời nền xám + đệm vào
               // đúng khối CÓ VIỀN bên trong, để viền xám chính là mép ngoài cùng nhìn thấy được.
-              // SỬA (phản hồi thật user: "đưa xuống dưới như tab hình ảnh" — tab "video" khi đang mở 1 dự
-              // án cũng cần đè/ghim sát đáy y hệt tab "hình ảnh", không chỉ dùng mt-auto (vẫn nằm trong
-              // luồng bình thường, không chắc sát mép dưới tuyệt đối bằng absolute). Mở rộng điều kiện
-              // sang CẢ 2 tab khi đã mở dự án, không chỉ riêng tab "hình ảnh" nữa.
-              activeProjectId !== null
-                ? "absolute inset-x-0 bottom-0 z-10 mx-auto w-full max-w-5xl"
-                : "mx-auto w-full max-w-5xl"
+              // SỬA (phản hồi thật user: "tại đây cũng cho xuống" — khoanh đỏ đúng lúc CHƯA mở dự án
+              // (trang mặc định) — mt-auto vẫn chưa đủ sát mép dưới bằng absolute) — bỏ hẳn điều kiện
+              // activeProjectId, luôn dùng absolute/bottom-0 ở MỌI trạng thái (có dự án hay không, tab
+              // nào cũng vậy) để luôn ghim chắc chắn sát đáy khung.
+              "absolute inset-x-0 bottom-0 z-10 mx-auto w-full max-w-5xl"
             }
           >
           {/* SỬA (phản hồi thật user: "không chỉ ở tab hình ảnh khi đã tạo ảnh thôi" — thu hẹp lại, lúc
@@ -3385,10 +3383,9 @@ export default function VideoTuYTuongClient({
               liệu tham khảo/máy ảnh/bảng màu/ánh sáng/thiết lập phim tự động" nằm NGAY DƯỚI ô prompt.
               Tab "hình ảnh" CHƯA đổi — anh nói sẽ gửi ảnh mẫu riêng cho tab đó sau, nên giữ nguyên
               layout cũ (cột tab riêng bên trái + box riêng + nút "tạo" đứng ngoài) ở nhánh else. */}
-          {/* Khối cha (ở trên) đã lo việc đè/ghim cố định khi đã mở dự án rồi (absolute), nên ở đây chỉ
-              còn cần "mt-auto" cho trường hợp CHƯA mở dự án (đẩy xuống đáy 1 lần trong luồng bình thường
-              như cũ); đã mở dự án (cả 2 tab) thì không cần thêm gì nữa. */}
-          <div className={activeProjectId !== null ? "" : "mt-auto"}>
+          {/* Khối cha (ở trên) giờ LUÔN absolute/ghim sát đáy ở mọi trạng thái, nên "mt-auto" không còn
+              cần thiết ở đây nữa. */}
+          <div>
           {promptMediaTab === "video" ? (
             <div className="flex flex-col gap-2 rounded-[44px] border border-zinc-500 bg-zinc-700 p-3">
               {/* KHỐI 1/2 — bản thiết kế có 2 khối riêng biệt (khối pill trên + khối box dưới), không
