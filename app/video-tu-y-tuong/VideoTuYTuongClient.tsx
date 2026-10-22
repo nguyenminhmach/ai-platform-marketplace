@@ -3588,7 +3588,7 @@ export default function VideoTuYTuongClient({
                   gap-0 (sát hàng tab toggle hơn), pb-3 -> pb-1 (viền dưới khối nâng lên gần hàng chip
                   hơn, bớt khoảng trống thừa). */}
               <div
-                className="mx-[30px] flex flex-col gap-0 rounded-[40px] border border-fuchsia-500/50 bg-zinc-800 pb-0 pl-1 pr-4 pt-0"
+                className="mx-[60px] flex flex-col gap-0 rounded-[40px] border border-fuchsia-500/50 bg-zinc-800 pb-0 pl-1 pr-4 pt-0"
                 style={{ boxShadow: "0 0 45px -4px rgba(217,70,239,0.75), 0 0 4px rgba(217,70,239,0.95)" }}
               >
                 <div
@@ -3692,7 +3692,7 @@ export default function VideoTuYTuongClient({
 
               {/* KHỐI 2/2 tab "hình ảnh" — ô "viết prompt", không viền tím (đúng tab video); nút "Tạo"
                   dính liền cuối khối, có viền tím đậm + nền tím nhạt. */}
-              <div className="mx-[30px] flex flex-col gap-3 rounded-[28px] bg-zinc-800 p-4">
+              <div className="mx-[60px] flex flex-col gap-3 rounded-[28px] bg-zinc-800 p-4">
                 {promptImages.length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {/* SỬA (phản hồi thật user: "tên ... không xuất hiện ... chỉ cần trỏ chuột và nhấp
