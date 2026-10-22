@@ -3028,7 +3028,6 @@ export default function VideoTuYTuongClient({
   // phục số cột co giãn theo storyAspectRatio (như trước khi thử masonry), kết hợp object-contain mới
   // (xem renderProjectJobTile) để ảnh sai tỉ lệ không bị cắt, chỉ letterbox nền tối thôi.
   const projectGridColsCount = storyAspectRatio === "16:9" ? 2 : storyAspectRatio === "9:16" ? 7 : 4;
-  const projectGridColsClass = storyAspectRatio === "16:9" ? "grid-cols-2" : storyAspectRatio === "9:16" ? "grid-cols-7" : "grid-cols-4";
 
   return (
     <div className="flex min-h-screen bg-black text-zinc-100">
@@ -3230,11 +3229,19 @@ export default function VideoTuYTuongClient({
                   Dự án này chưa có nội dung nào — tạo ảnh bên dưới sẽ tự gom vào đây.
                 </div>
               ) : (
-                // SỬA (phản hồi thật user: "chỉ cần em phân chia hàng cột cho đúng đã" — quay lại lưới
-                // đều grid-rows-2 + h-full (đã kiểm chứng đúng), số cột co giãn theo storyAspectRatio
-                // (projectGridColsClass/projectGridColsCount), kết hợp object-contain mới ở
-                // renderProjectJobTile để ảnh sai tỉ lệ (vd ảnh cũ) không bị cắt, chỉ letterbox thôi.
-                <div className={`-mx-6 grid min-h-0 flex-1 ${projectGridColsClass} grid-rows-2 gap-1 overflow-y-auto px-2`}>
+                // SỬA (phản hồi thật user: "em thấy không đều/chỉ 1 hàng" ngay cả sau khi deploy đúng
+                // bản mới — nghi vấn Tailwind JIT không quét đúng class ghép trong template string động
+                // (`${projectGridColsClass} grid-rows-2`) lúc build production dù dev local vẫn ra đúng
+                // (build dev quét lại liên tục, production build 1 lần có thể bỏ sót) — chuyển hẳn sang
+                // style inline (gridTemplateColumns/gridTemplateRows) thay vì class Tailwind động, để
+                // KHÔNG còn phụ thuộc Tailwind quét đúng hay không nữa, chắc chắn hoạt động mọi lúc.
+                <div
+                  className="-mx-6 grid min-h-0 flex-1 gap-1 overflow-y-auto px-2"
+                  style={{
+                    gridTemplateColumns: `repeat(${projectGridColsCount}, minmax(0, 1fr))`,
+                    gridTemplateRows: "repeat(2, minmax(0, 1fr))",
+                  }}
+                >
                   {projectJobs.map((job) => renderProjectJobTile(job, true))}
                   {Array.from({
                     length:
