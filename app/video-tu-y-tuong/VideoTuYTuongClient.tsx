@@ -3597,14 +3597,14 @@ export default function VideoTuYTuongClient({
                 >
                   <button
                     type="button"
-                    className="rounded-full bg-zinc-200 px-4 py-1.5 text-sm font-medium text-zinc-900"
+                    className="rounded-full bg-zinc-200 px-[6px] py-1.5 text-sm font-medium text-zinc-900"
                   >
                     hình ảnh
                   </button>
                   <button
                     type="button"
                     onClick={() => setPromptMediaTab("video")}
-                    className="rounded-full px-4 py-1.5 text-sm font-medium text-zinc-300 hover:text-zinc-100"
+                    className="rounded-full px-[6px] py-1.5 text-sm font-medium text-zinc-300 hover:text-zinc-100"
                   >
                     video
                   </button>
