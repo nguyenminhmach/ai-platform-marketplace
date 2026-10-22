@@ -3291,9 +3291,14 @@ export default function VideoTuYTuongClient({
                 : "mx-auto w-full max-w-5xl"
             }
           >
-          <h1 className={`text-center font-bold text-white ${activeProjectId ? "mb-3 text-xl sm:text-2xl" : "mb-6 text-3xl sm:text-4xl"}`}>
-            Không gian cho mọi ý tưởng
-          </h1>
+          {/* SỬA (phản hồi thật user: "bỏ hết phần vuông màu xám ngoài đi cả dòng chữ Không gian cho mọi
+              ý tưởng nữa" — chỉ áp dụng tab "hình ảnh", xác nhận qua câu hỏi riêng) — ẩn tiêu đề khi
+              promptMediaTab !== "video" (tức đang ở tab "hình ảnh"); tab "video" giữ nguyên như cũ. */}
+          {promptMediaTab === "video" && (
+            <h1 className={`text-center font-bold text-white ${activeProjectId ? "mb-3 text-xl sm:text-2xl" : "mb-6 text-3xl sm:text-4xl"}`}>
+              Không gian cho mọi ý tưởng
+            </h1>
+          )}
 
           {/* Khối prompt chính — tab "video" dùng layout GỘP 1 khối duy nhất (tab toggle + hàng icon +
               ô prompt + hàng chip preset + nút "tạo" đều nằm trong 1 rounded-2xl box), đúng cấu trúc
@@ -3565,10 +3570,9 @@ export default function VideoTuYTuongClient({
           ) : null}
 
           {promptMediaTab !== "video" && (
-            // SỬA (phản hồi thật user: "ở tab này... tạo 1 viền nhỏ màu xám bao quanh 2 khối này" — chỉ
-            // tab "hình ảnh", không áp dụng cho tab "video") — viền xám bao quanh CẢ 2 khối con (toggle
-            // + chip, và ô viết prompt) như 1 nhóm chung.
-            <div className="flex flex-col gap-2 rounded-[44px] border border-zinc-500 p-3">
+            // SỬA (phản hồi thật user: "bỏ hết phần vuông màu xám ngoài đi" — bỏ lại viền xám vừa thêm
+            // trước đó, user đổi ý sau khi thấy nó).
+            <div className="flex flex-col gap-2">
               {/* KHỐI 1/2 tab "hình ảnh" — ĐÚNG cấu trúc tab "video": tab toggle riêng 1 dòng trên cùng
                   (sát góc trên-trái), chip cấu hình (character/camera/màu sắc) ở dòng riêng bên dưới,
                   cả khối viền tím phát sáng. */}
