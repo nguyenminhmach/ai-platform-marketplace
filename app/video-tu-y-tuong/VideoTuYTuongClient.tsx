@@ -3021,6 +3021,9 @@ export default function VideoTuYTuongClient({
   // chỉ bật khi đang mở 1 dự án VÀ đang ở đúng tab "hình ảnh"; tab "video" hay chưa mở dự án nào vẫn
   // giữ nguyên lưới 8 cột/giới hạn chiều cao cũ, không đổi gì.
   const isImageGalleryOverlay = activeProjectId !== null && promptMediaTab === "hinh-anh";
+  // SỬA (phản hồi thật user: "trong tab video tạo 1 đường viền bao quanh 2 khối... giống như bên tab
+  // hình ảnh" — áp dụng y hệt điều kiện isImageGalleryOverlay nhưng cho tab "video").
+  const isVideoGalleryOverlay = activeProjectId !== null && promptMediaTab === "video";
 
   // SỬA (phản hồi thật user: thử masonry (CSS columns) rồi "đây là 1 hàng chứ đâu phải 2 hàng" — masonry
   // lấp cột theo thứ tự tài liệu chứ không theo hàng ngang, phá vỡ cảm giác "2 hàng N cột" đã quen —
@@ -3386,7 +3389,7 @@ export default function VideoTuYTuongClient({
               bình thường như cũ); overlay thì không cần thêm gì nữa. */}
           <div className={isImageGalleryOverlay ? "" : "mt-auto"}>
           {promptMediaTab === "video" ? (
-            <div className="flex flex-col gap-2">
+            <div className={`flex flex-col gap-2 ${isVideoGalleryOverlay ? "rounded-[44px] border border-zinc-500 bg-zinc-700 p-3" : ""}`}>
               {/* KHỐI 1/2 — bản thiết kế có 2 khối riêng biệt (khối pill trên + khối box dưới), không
                   phải 1 khối gộp chung như bản trước. Khối này: tab toggle RIÊNG 1 DÒNG trên cùng (sát
                   góc trên-trái của khối), chip preset (tài liệu tham khảo/máy ảnh/bảng màu/ánh sáng/
