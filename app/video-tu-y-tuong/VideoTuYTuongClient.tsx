@@ -3194,7 +3194,7 @@ export default function VideoTuYTuongClient({
                   Dự án này chưa có nội dung nào — tạo ảnh bên dưới sẽ tự gom vào đây.
                 </div>
               ) : (
-                <div className="-mx-6 min-h-0 flex-1 overflow-y-auto">
+                <div className="-mx-6 min-h-0 flex-1 overflow-y-auto px-2">
                   <div className="grid h-full grid-cols-4 grid-rows-2 gap-1">
                     {projectJobs.map((job) => renderProjectJobTile(job))}
                     {Array.from({ length: Math.max(8, Math.ceil(projectJobs.length / 4) * 4) - projectJobs.length }).map((_, i) =>
