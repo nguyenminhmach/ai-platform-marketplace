@@ -3094,8 +3094,11 @@ export default function VideoTuYTuongClient({
 
       {/* Khối nội dung chính TÁCH RIÊNG khỏi sidebar — sidebar vuông góc, dính sát viền trang; khối
           này mới có bo góc + lề ngoài, nền sáng hơn (zinc-800) các khối con bên trong (zinc-900). */}
-      <main className="m-3 min-w-0 flex-1 overflow-y-auto rounded-[32px] bg-zinc-700">
-        <div className={`mx-auto max-w-5xl px-6 ${activeProjectId ? "pb-8 pt-4" : "py-8"}`}>
+      <main className="m-3 flex min-w-0 flex-1 overflow-y-auto rounded-[32px] bg-zinc-700">
+        {/* SỬA (phản hồi thật user: "đẩy 2 khối hình ảnh/video và khối viết prompt xuống sát mép dưới")
+            — min-h-full + flex-col để khối "mt-auto" bên dưới (bọc quanh 2 khối chip+prompt) có chỗ đẩy
+            xuống đáy khung thay vì đứng ngay dưới tiêu đề như trước. */}
+        <div className={`mx-auto flex min-h-full w-full max-w-5xl flex-col px-6 ${activeProjectId ? "pb-8 pt-4" : "py-8"}`}>
           {/* SỬA (phản hồi thật user: "mọi thao tác phải lưu trong dự án không cần khởi tạo thành công
               mới lưu" — đổi nguồn từ generation_history (chỉ có job thành công) sang projectJobs (đọc
               thẳng prompt_image_jobs, đủ trạng thái kể cả lỗi) để lưới dự án hiện ĐÚNG mọi lượt đã thử).
@@ -3211,6 +3214,7 @@ export default function VideoTuYTuongClient({
               liệu tham khảo/máy ảnh/bảng màu/ánh sáng/thiết lập phim tự động" nằm NGAY DƯỚI ô prompt.
               Tab "hình ảnh" CHƯA đổi — anh nói sẽ gửi ảnh mẫu riêng cho tab đó sau, nên giữ nguyên
               layout cũ (cột tab riêng bên trái + box riêng + nút "tạo" đứng ngoài) ở nhánh else. */}
+          <div className="mt-auto">
           {promptMediaTab === "video" ? (
             <div className="flex flex-col gap-2">
               {/* KHỐI 1/2 — bản thiết kế có 2 khối riêng biệt (khối pill trên + khối box dưới), không
@@ -3656,6 +3660,7 @@ export default function VideoTuYTuongClient({
               </div>
             </div>
           )}
+          </div>
 
           {createToast && <p className="mt-3 text-center text-xs text-amber-400">{createToast}</p>}
 
