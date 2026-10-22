@@ -135,6 +135,10 @@ export default function VideoTuYTuongClient({
       .catch(() => {});
   }, [user]);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
+  // SỬA (phản hồi thật user: "các dự án đã tạo chỉ để 1 dự án đang làm hiện thị tại đây thôi còn cho vào
+  // mục tất cả các dự án" — sidebar trước liệt kê HẾT mọi dự án gây rối mắt; giờ mặc định chỉ hiện đúng
+  // 1 dòng là dự án ĐANG MỞ (activeProjectId), bấm "Tất cả các dự án" mới xổ ra đủ danh sách).
+  const [showAllProjectsList, setShowAllProjectsList] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectPrivate, setNewProjectPrivate] = useState(true);
   const [creatingProject, setCreatingProject] = useState(false);
@@ -3103,7 +3107,7 @@ export default function VideoTuYTuongClient({
           {/* SỬA (phản hồi thật user: dự án mới tạo xuất hiện NGAY TRÊN "trang chủ") — danh sách dự án
               đã tạo, mỗi dòng bấm vào để lọc "Tạo" + lịch sử theo đúng dự án đó (activeProjectId). Bấm
               lại đúng dự án đang chọn thì bỏ chọn (quay về xem toàn bộ, không lọc). */}
-          {contentProjects.map((p) =>
+          {(showAllProjectsList ? contentProjects : contentProjects.filter((p) => p.id === activeProjectId)).map((p) =>
             editingProjectId === p.id ? (
               <input
                 key={p.id}
@@ -3193,7 +3197,13 @@ export default function VideoTuYTuongClient({
           >
             + Dự án mới
           </button>
-          <button type="button" className="block w-full rounded-lg px-3 py-2 text-left text-zinc-300 hover:bg-zinc-900 hover:text-white">
+          <button
+            type="button"
+            onClick={() => setShowAllProjectsList((v) => !v)}
+            className={`block w-full rounded-lg px-3 py-2 text-left ${
+              showAllProjectsList ? "border border-fuchsia-500/60 bg-zinc-700 font-medium text-fuchsia-400" : "text-zinc-300 hover:bg-zinc-900 hover:text-white"
+            }`}
+          >
             Tất cả các dự án
           </button>
         </nav>
