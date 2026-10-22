@@ -3220,8 +3220,12 @@ export default function VideoTuYTuongClient({
                   góc trên-trái của khối), chip preset (tài liệu tham khảo/máy ảnh/bảng màu/ánh sáng/
                   thiết lập phim tự động) ở DÒNG RIÊNG bên dưới — đúng hướng mũi tên anh vẽ nhiều lần
                   (từ hàng chip chỉ lên khối tab, nghĩa là 2 dòng tách biệt, không chung 1 hàng). */}
+              {/* SỬA (phản hồi thật user: "đẩy dòng chữ tài liệu tham khảo lên sát viền hình ảnh/video và
+                  nâng viền dưới lên" — khoanh đỏ khoảng trống cả trên lẫn dưới hàng chip) — gap-2 ->
+                  gap-0 (sát hàng tab toggle hơn), pb-3 -> pb-1 (viền dưới khối nâng lên gần hàng chip
+                  hơn, bớt khoảng trống thừa). */}
               <div
-                className="flex flex-col gap-2 rounded-[40px] border border-fuchsia-500/50 bg-zinc-800 pb-3 pl-1 pr-4 pt-0"
+                className="flex flex-col gap-0 rounded-[40px] border border-fuchsia-500/50 bg-zinc-800 pb-1 pl-1 pr-4 pt-0"
                 style={{ boxShadow: "0 0 45px -4px rgba(217,70,239,0.75), 0 0 4px rgba(217,70,239,0.95)" }}
               >
                 {/* Viền TRÊN của tab toggle phải trùng/sát viền trên của khối lớn — không có khoảng đệm
@@ -3467,8 +3471,12 @@ export default function VideoTuYTuongClient({
               {/* KHỐI 1/2 tab "hình ảnh" — ĐÚNG cấu trúc tab "video": tab toggle riêng 1 dòng trên cùng
                   (sát góc trên-trái), chip cấu hình (character/camera/màu sắc) ở dòng riêng bên dưới,
                   cả khối viền tím phát sáng. */}
+              {/* SỬA (phản hồi thật user: "đẩy dòng chữ tài liệu tham khảo lên sát viền hình ảnh/video và
+                  nâng viền dưới lên" — khoanh đỏ khoảng trống cả trên lẫn dưới hàng chip) — gap-2 ->
+                  gap-0 (sát hàng tab toggle hơn), pb-3 -> pb-1 (viền dưới khối nâng lên gần hàng chip
+                  hơn, bớt khoảng trống thừa). */}
               <div
-                className="flex flex-col gap-2 rounded-[40px] border border-fuchsia-500/50 bg-zinc-800 pb-3 pl-1 pr-4 pt-0"
+                className="flex flex-col gap-0 rounded-[40px] border border-fuchsia-500/50 bg-zinc-800 pb-1 pl-1 pr-4 pt-0"
                 style={{ boxShadow: "0 0 45px -4px rgba(217,70,239,0.75), 0 0 4px rgba(217,70,239,0.95)" }}
               >
                 <div
