@@ -3212,7 +3212,7 @@ export default function VideoTuYTuongClient({
               Tab "hình ảnh" CHƯA đổi — anh nói sẽ gửi ảnh mẫu riêng cho tab đó sau, nên giữ nguyên
               layout cũ (cột tab riêng bên trái + box riêng + nút "tạo" đứng ngoài) ở nhánh else. */}
           {promptMediaTab === "video" ? (
-            <div className="flex flex-col gap-10">
+            <div className="flex flex-col gap-2">
               {/* KHỐI 1/2 — bản thiết kế có 2 khối riêng biệt (khối pill trên + khối box dưới), không
                   phải 1 khối gộp chung như bản trước. Khối này: tab toggle RIÊNG 1 DÒNG trên cùng (sát
                   góc trên-trái của khối), chip preset (tài liệu tham khảo/máy ảnh/bảng màu/ánh sáng/
@@ -3469,7 +3469,7 @@ export default function VideoTuYTuongClient({
           ) : null}
 
           {promptMediaTab !== "video" && (
-            <div className="flex flex-col gap-10">
+            <div className="flex flex-col gap-2">
               {/* KHỐI 1/2 tab "hình ảnh" — ĐÚNG cấu trúc tab "video": tab toggle riêng 1 dòng trên cùng
                   (sát góc trên-trái), chip cấu hình (character/camera/màu sắc) ở dòng riêng bên dưới,
                   cả khối viền tím phát sáng. */}
