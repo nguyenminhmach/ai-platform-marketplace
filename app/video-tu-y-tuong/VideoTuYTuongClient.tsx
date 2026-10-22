@@ -2879,13 +2879,11 @@ export default function VideoTuYTuongClient({
       }
 
       // 9) Submit job thật.
-      // SỬA (phản hồi thật user: "chưa thấy ảnh phân cảnh đã tạo vì video, video không đúng bối cảnh")
-      // — xác nhận qua đọc applyImageStageResult: auto_video=true khiến job chuyển THẲNG sang tạo video
-      // ngay khi ảnh phân cảnh vừa xong, không dừng lại cho khách xem/soát trước — nên trước đây job
-      // luôn "biến mất" rồi ra thẳng video (có khi sai bối cảnh) mà không ai kịp thấy/dừng lại ở bước
-      // ảnh. Đổi false để job LUÔN dừng ở "images_ready" (khối JSX mới thêm ở trên sẽ hiện ảnh phân
-      // cảnh + nút "Tạo video" riêng) — giống hệt cách 2 điểm dừng kia (character_ready/scenes_ready)
-      // đã hoạt động, khách chủ động bấm tiếp khi ảnh ổn, không tốn credit video một cách mù quáng.
+      // SỬA (phản hồi thật user: "không cho ảnh phân cảnh hiện tại đây" — xoá hẳn bước dừng xem trước
+      // ảnh phân cảnh cho tab "video") — bối cảnh đã ổn định hơn nhiều (GPT Image 2 Edit/Nano Banana ra
+      // đúng bối cảnh thật) nên không cần bước dừng thủ công nữa, tab "video" quay lại chạy 1 mạch tới
+      // video như luồng gốc. Tab "hình ảnh" (quickImage) vẫn PHẢI dừng ở "images_ready" vì đó là kết quả
+      // CUỐI của tab đó (không có bước video tiếp theo) — autoVideo chỉ true khi KHÔNG phải quickImage.
       setStoryStatusText("Đang gửi yêu cầu tạo video...");
       const res = await fetch("/api/story-video/submit", {
         method: "POST",
@@ -2899,7 +2897,7 @@ export default function VideoTuYTuongClient({
           characters,
           imageModelKey,
           videoModelKey: storyVideoModelKey,
-          autoVideo: false,
+          autoVideo: !quickImage,
           aspectRatio: storyAspectRatio,
           resolutionKey: storyResolutionKey,
           durationKey: storyDurationKey,
@@ -3737,11 +3735,14 @@ export default function VideoTuYTuongClient({
                 </div>
               )}
 
-              {storyStatus === "images_ready" && storyScenes && (
+              {/* SỬA (phản hồi thật user: "không cho ảnh phân cảnh hiện tại đây" — xoá hẳn bước dừng xem
+                  trước này cho tab "video", xem chú thích autoVideo ở handlePromptCreate) — giờ CHỈ còn
+                  hiện cho tab "hình ảnh" (storyQuickImageMode), vì đó là kết quả CUỐI của tab đó. Tab
+                  "video" không bao giờ dừng ở "images_ready" nữa (autoVideo=true đi thẳng tới video) nên
+                  nhánh "Tạo video" cũ không còn cần thiết, bỏ hẳn. */}
+              {storyStatus === "images_ready" && storyQuickImageMode && storyScenes && (
                 <div className="flex flex-col items-center gap-4">
-                  <p className="text-sm text-zinc-300">
-                    {storyQuickImageMode ? "Ảnh đã xong." : "Ảnh phân cảnh đã xong — xem kỹ trước khi tạo video."}
-                  </p>
+                  <p className="text-sm text-zinc-300">Ảnh đã xong.</p>
                   <div className="grid w-full grid-cols-2 gap-3 sm:grid-cols-3">
                     {storyScenes
                       .filter((s) => !!s.imageUrl)
@@ -3750,27 +3751,14 @@ export default function VideoTuYTuongClient({
                         <img key={s.id} src={s.imageUrl as string} alt="" className="aspect-[9/16] w-full rounded-xl object-cover" />
                       ))}
                   </div>
-                  {/* Tab "hình ảnh" (storyQuickImageMode) dừng hẳn ở đây -- chỉ tải ảnh, không có bước
-                      tạo video nào tiếp theo. Tab "video" mới hiện nút "Tạo video" đi tiếp. */}
-                  {storyQuickImageMode ? (
-                    storyScenes[0]?.imageUrl && (
-                      <a
-                        href={storyScenes[0].imageUrl}
-                        download
-                        className="rounded-full bg-zinc-800 px-4 py-2 text-xs font-medium text-zinc-200 hover:bg-zinc-700"
-                      >
-                        Tải ảnh
-                      </a>
-                    )
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={handleContinueToVideo}
-                      disabled={storyContinuing}
-                      className="rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 px-5 py-2 text-sm font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+                  {storyScenes[0]?.imageUrl && (
+                    <a
+                      href={storyScenes[0].imageUrl}
+                      download
+                      className="rounded-full bg-zinc-800 px-4 py-2 text-xs font-medium text-zinc-200 hover:bg-zinc-700"
                     >
-                      {storyContinuing ? "Đang xử lý..." : "Tạo video"}
-                    </button>
+                      Tải ảnh
+                    </a>
                   )}
                 </div>
               )}
