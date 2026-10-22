@@ -3460,7 +3460,7 @@ export default function VideoTuYTuongClient({
                 onClick={() => handlePromptCreate()}
                 disabled={storyRunning}
                 style={{ boxShadow: "0 0 32px -3px rgba(217,70,239,0.8)" }}
-                className="w-full rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 py-3.5 text-base font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+                className="w-full rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 py-2 text-base font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {storyRunning ? "Đang tạo..." : "Tạo"}
               </button>
@@ -3649,7 +3649,7 @@ export default function VideoTuYTuongClient({
                   onClick={handlePromptImageCreate}
                   disabled={storyRunning}
                   style={{ boxShadow: "0 0 32px -3px rgba(217,70,239,0.8)" }}
-                  className="w-full rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 py-3.5 text-base font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="w-full rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 py-2 text-base font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {storyRunning ? "Đang tạo..." : "Tạo"}
                 </button>
