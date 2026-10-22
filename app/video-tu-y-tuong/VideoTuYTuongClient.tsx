@@ -2940,6 +2940,53 @@ export default function VideoTuYTuongClient({
     await handlePromptCreate({ quickImage: true });
   }
 
+  // 1 ô ảnh trong lưới "Dự án" — tách ra dùng chung cho 2 biến thể hiển thị (lưới 8 cột giới hạn chiều
+  // cao cũ, và lưới 4 cột làm NỀN cuộn độc lập mới cho riêng tab "hình ảnh", xem renderProjectGallery).
+  function renderProjectJobTile(job: ProjectJobItem) {
+    return (
+      <div key={job.id} className="group relative aspect-square overflow-hidden rounded-xl bg-zinc-900">
+        {job.status === "done" && job.outputUrl ? (
+          <button type="button" onClick={() => setStoryQuickZoomUrl(job.outputUrl)} className="block h-full w-full" title={job.prompt}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={job.outputUrl} alt="" className="h-full w-full object-cover" />
+          </button>
+        ) : job.status === "failed" ? (
+          <div
+            className="flex h-full w-full flex-col items-center justify-center gap-1 border border-red-900/60 bg-red-950/30 p-2 text-center"
+            title={job.errorMessage ?? "Lỗi không rõ"}
+          >
+            <span className="text-lg">⚠️</span>
+            <span className="line-clamp-3 text-[10px] text-red-300">{job.errorMessage ?? "Có lỗi xảy ra"}</span>
+          </div>
+        ) : (
+          <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-center text-zinc-400">
+            <span className="animate-pulse text-lg">⏳</span>
+            <span className="text-[10px]">Đang tạo...</span>
+          </div>
+        )}
+        {job.status !== "pending" && job.status !== "processing" && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              if (confirm("Xoá mục này? Vĩnh viễn, không hoàn tác được.")) handleDeleteProjectJob(job.id, job.kind);
+            }}
+            className="absolute right-1.5 top-1.5 rounded-full bg-black/60 p-1.5 text-white opacity-0 hover:bg-red-600 group-hover:opacity-100"
+            aria-label="Xoá"
+          >
+            🗑️
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // SỬA (phản hồi thật user: lưới ảnh tab "hình ảnh" làm NỀN cuộn độc lập, 2 hàng x 4 cột, khối tab
+  // toggle + viết prompt "đè" cố định phía trên — xem renderProjectGallery + khối sticky bên dưới) —
+  // chỉ bật khi đang mở 1 dự án VÀ đang ở đúng tab "hình ảnh"; tab "video" hay chưa mở dự án nào vẫn
+  // giữ nguyên lưới 8 cột/giới hạn chiều cao cũ, không đổi gì.
+  const isImageGalleryOverlay = activeProjectId !== null && promptMediaTab === "hinh-anh";
+
   return (
     <div className="flex min-h-screen bg-black text-zinc-100">
       {/* Sidebar trái — xem video1.jpg. "Hình ảnh tham chiếu" trỏ sang trang quản lý kho tham chiếu đã
@@ -3124,67 +3171,32 @@ export default function VideoTuYTuongClient({
                   Thoát dự án
                 </button>
               </div>
-              {/* SỬA (phản hồi thật user: "bố trí thành 2 hàng mỗi hàng 8 cột, vượt quá thì có thanh
-                  trượt" rồi "cho ảnh full khu vực này" — khoanh đỏ mọi ô trống còn lại) — cố định 8 cột,
-                  giới hạn chiều cao đúng 2 hàng, vượt quá 16 ô thì cuộn dọc bên trong khối này. Luôn hiện
-                  đủ 16 ô (hoặc bội số 8 tiếp theo nếu đã có >16 job) — ô nào chưa có job thật thì hiện
-                  khung viền đứt nét trống, để lưới luôn "đầy" đúng 8 cột thay vì dồn về bên trái để trống
-                  cả mảng lớn bên phải/hàng dưới. */}
+              {/* SỬA (phản hồi thật user: "bố trí thành 2 hàng mỗi hàng 8 cột..." rồi sau đó riêng cho
+                  tab "hình ảnh": "2 hàng mỗi hàng 4 cột... ảnh thứ 9 vào ô số 1, ảnh ô 1 dịch sang ô 2...
+                  khối hình ảnh/video và viết prompt vẫn đè lên ảnh, dùng con trượt để xem ảnh bị che") —
+                  2 biến thể: isImageGalleryOverlay (tab "hình ảnh" + đang mở dự án) dùng 4 cột, KHÔNG
+                  giới hạn chiều cao/không tự cuộn riêng (hoà vào dòng chảy trang, cuộn chung với
+                  main/hình nền) để khối prompt sticky bên dưới có thể "đè" lên khi cuộn; còn lại (tab
+                  "video") vẫn 8 cột giới hạn 2 hàng + tự cuộn riêng như cũ, không đổi. projectJobs đã
+                  sắp mới nhất trước (xem API route) nên ảnh mới luôn tự rơi vào ô đầu tiên, không cần
+                  xử lý "dịch chuyển" thủ công gì thêm. */}
               {projectJobs.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-zinc-600 p-8 text-center text-sm text-zinc-400">
                   Dự án này chưa có nội dung nào — tạo ảnh bên dưới sẽ tự gom vào đây.
                 </div>
-              ) : (
-                <div className="grid auto-rows-fr grid-cols-8 gap-3 overflow-y-auto pr-1" style={{ maxHeight: "calc(2 * (((100% - 7 * 0.75rem) / 8)) + 0.75rem)" }}>
-                  {projectJobs.map((job) => (
-                    <div key={job.id} className="group relative aspect-square overflow-hidden rounded-xl bg-zinc-900">
-                      {job.status === "done" && job.outputUrl ? (
-                        // SỬA (phản hồi thật user: "ảnh phân cảnh phóng to nằm ở giữa màn hình chứ không
-                        // phải bên trái" — mở ảnh bằng target="_blank" để trình duyệt tự hiển thị, không
-                        // kiểm soát được cách căn giữa) — đổi sang mở khung xem trước NGAY TRONG APP
-                        // (storyQuickZoomUrl, đã khai báo sẵn nhưng chưa dùng ở đâu), tự canh giữa bằng
-                        // CSS của chính mình, không phụ thuộc trình xem ảnh mặc định của trình duyệt.
-                        <button
-                          type="button"
-                          onClick={() => setStoryQuickZoomUrl(job.outputUrl)}
-                          className="block h-full w-full"
-                          title={job.prompt}
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={job.outputUrl} alt="" className="h-full w-full object-cover" />
-                        </button>
-                      ) : job.status === "failed" ? (
-                        <div
-                          className="flex h-full w-full flex-col items-center justify-center gap-1 border border-red-900/60 bg-red-950/30 p-2 text-center"
-                          title={job.errorMessage ?? "Lỗi không rõ"}
-                        >
-                          <span className="text-lg">⚠️</span>
-                          <span className="line-clamp-3 text-[10px] text-red-300">{job.errorMessage ?? "Có lỗi xảy ra"}</span>
-                        </div>
-                      ) : (
-                        <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-center text-zinc-400">
-                          <span className="animate-pulse text-lg">⏳</span>
-                          <span className="text-[10px]">Đang tạo...</span>
-                        </div>
-                      )}
-                      {/* SỬA (phản hồi thật user: lo ngại Storage đầy, muốn xoá được từng ảnh/video) —
-                          nút xoá hiện khi di chuột qua — chỉ cho xoá job đã xong (done/failed), job đang
-                          chạy bị chặn ở lib/prompt-image.ts deletePromptImageJob. */}
-                      {job.status !== "pending" && job.status !== "processing" && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            if (confirm("Xoá mục này? Vĩnh viễn, không hoàn tác được.")) handleDeleteProjectJob(job.id, job.kind);
-                          }}
-                          className="absolute right-1.5 top-1.5 rounded-full bg-black/60 p-1.5 text-white opacity-0 hover:bg-red-600 group-hover:opacity-100"
-                          aria-label="Xoá"
-                        >
-                          🗑️
-                        </button>
-                      )}
-                    </div>
+              ) : isImageGalleryOverlay ? (
+                <div className="grid grid-cols-4 gap-3">
+                  {projectJobs.map((job) => renderProjectJobTile(job))}
+                  {Array.from({ length: Math.max(8, Math.ceil(projectJobs.length / 4) * 4) - projectJobs.length }).map((_, i) => (
+                    <div key={`empty-${i}`} className="aspect-square rounded-xl border border-dashed border-zinc-700" />
                   ))}
+                </div>
+              ) : (
+                <div
+                  className="grid auto-rows-fr grid-cols-8 gap-3 overflow-y-auto pr-1"
+                  style={{ maxHeight: "calc(2 * (((100% - 7 * 0.75rem) / 8)) + 0.75rem)" }}
+                >
+                  {projectJobs.map((job) => renderProjectJobTile(job))}
                   {Array.from({ length: Math.max(16, Math.ceil(projectJobs.length / 8) * 8) - projectJobs.length }).map((_, i) => (
                     <div key={`empty-${i}`} className="aspect-square rounded-xl border border-dashed border-zinc-700" />
                   ))}
@@ -3217,7 +3229,11 @@ export default function VideoTuYTuongClient({
               liệu tham khảo/máy ảnh/bảng màu/ánh sáng/thiết lập phim tự động" nằm NGAY DƯỚI ô prompt.
               Tab "hình ảnh" CHƯA đổi — anh nói sẽ gửi ảnh mẫu riêng cho tab đó sau, nên giữ nguyên
               layout cũ (cột tab riêng bên trái + box riêng + nút "tạo" đứng ngoài) ở nhánh else. */}
-          <div className="mt-auto">
+          {/* SỬA (phản hồi thật user: "cách A" — khối hình ảnh/video + viết prompt đứng yên "đè" lên
+              lưới ảnh phía sau khi cuộn, không trôi theo) — isImageGalleryOverlay thì sticky bottom-0
+              (dính đáy khung cuộn `main`, nền đặc bg-zinc-700 trùng màu main để thật sự "che" ảnh cuộn
+              qua phía dưới nó), còn lại vẫn mt-auto như cũ (đẩy xuống đáy 1 lần, không dính/cuộn đè). */}
+          <div className={isImageGalleryOverlay ? "sticky bottom-0 z-10 bg-zinc-700 pb-2 pt-3" : "mt-auto"}>
           {promptMediaTab === "video" ? (
             <div className="flex flex-col gap-2">
               {/* KHỐI 1/2 — bản thiết kế có 2 khối riêng biệt (khối pill trên + khối box dưới), không
