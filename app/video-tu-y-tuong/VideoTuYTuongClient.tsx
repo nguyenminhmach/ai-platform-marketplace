@@ -3028,6 +3028,7 @@ export default function VideoTuYTuongClient({
   // phục số cột co giãn theo storyAspectRatio (như trước khi thử masonry), kết hợp object-contain mới
   // (xem renderProjectJobTile) để ảnh sai tỉ lệ không bị cắt, chỉ letterbox nền tối thôi.
   const projectGridColsCount = storyAspectRatio === "16:9" ? 2 : storyAspectRatio === "9:16" ? 7 : 4;
+  const projectTileRatioNumber = storyAspectRatio === "16:9" ? 16 / 9 : storyAspectRatio === "9:16" ? 9 / 16 : 1;
 
   // SỬA (phản hồi thật user: "có ảnh cũng vô nghĩa" — sau NHIỀU lần "đã kiểm chứng đúng bằng CSS" mà
   // production vẫn hiện sai (1 hàng thay vì 2), kể cả sau khi đổi hẳn sang style inline để loại trừ nghi
@@ -3038,20 +3039,30 @@ export default function VideoTuYTuongClient({
   // không qua suy luận CSS nào nữa) rồi gán cứng số pixel đo được vào style của khối lưới ảnh.
   const galleryWrapperRef = useRef<HTMLDivElement | null>(null);
   const galleryHeaderRef = useRef<HTMLDivElement | null>(null);
+  const galleryGridRef = useRef<HTMLDivElement | null>(null);
   const [galleryGridHeightPx, setGalleryGridHeightPx] = useState<number | null>(null);
+  // SỬA (phản hồi thật user: "9:16 vẫn không kín khung, còn viền đen" — "em đo lại các chiều khung hình
+  // xem" — đo lại mới phát hiện: công thức cũ tính chiều cao hàng = "chiều cao khung / 2", HOÀN TOÀN
+  // không liên quan tới chiều RỘNG cột hay tỉ lệ ảnh đang chọn — chỉ tình cờ gần đúng ở vài trường hợp.
+  // Ô muốn đúng tỉ lệ ảnh thật (vd 9:16) thì chiều cao PHẢI tính từ chiều rộng cột đã đo được: rowHeight
+  // = colWidth / (ratioW/ratioH). Đo thêm chiều RỘNG khung lưới (galleryGridRef) để tính đúng công thức.
+  const [galleryGridWidthPx, setGalleryGridWidthPx] = useState<number | null>(null);
   useEffect(() => {
     if (!isImageGalleryOverlay) return;
     const wrapperEl = galleryWrapperRef.current;
     const headerEl = galleryHeaderRef.current;
+    const gridEl = galleryGridRef.current;
     if (!wrapperEl || !headerEl) return;
     const recompute = () => {
       const available = wrapperEl.clientHeight - headerEl.offsetHeight;
       if (available > 0) setGalleryGridHeightPx(available);
+      if (gridEl && gridEl.clientWidth > 0) setGalleryGridWidthPx(gridEl.clientWidth);
     };
     recompute();
     const observer = new ResizeObserver(recompute);
     observer.observe(wrapperEl);
     observer.observe(headerEl);
+    if (gridEl) observer.observe(gridEl);
     return () => observer.disconnect();
   }, [isImageGalleryOverlay]);
 
@@ -3255,24 +3266,23 @@ export default function VideoTuYTuongClient({
                   Dự án này chưa có nội dung nào — tạo ảnh bên dưới sẽ tự gom vào đây.
                 </div>
               ) : (
-                // SỬA (phản hồi thật user: dữ liệu THỰC RA có đủ 5 ảnh (xác nhận qua tab "video" hiện
-                // đúng 5 ảnh), nhưng tab "hình ảnh" (2 cột) với 5 ảnh cần tới 3 HÀNG (2 cột x 3 hàng = 6
-                // ô ≥ 5 ảnh), mà style trước chỉ định nghĩa CỨNG "gridTemplateRows: repeat(2, ...)" — hàng
-                // thứ 3 trở đi trở thành hàng "ẩn" (implicit), không có kích thước rõ ràng, mặc định
-                // "auto" (co theo nội dung ảnh thật qua object-contain/h-full — vòng lặp không có chiều
-                // cao gốc để dựa vào), hàng ẩn đó giãn to bất thường, chèn ép 2 hàng đầu co lại gần như
-                // biến mất — ĐÂY MỚI LÀ NGUYÊN NHÂN THẬT, không phải do CSS/Tailwind/cache như các lần
-                // trước đoán. Sửa: dùng "gridAutoRows" (áp dụng cho MỌI hàng, kể cả hàng ẩn phát sinh sau
-                // này) với 1 chiều cao CỐ ĐỊNH bằng pixel = (chiều cao đo được - khe hở) / 2 — nên hàng 1,
-                // 2, 3... đều cao bằng nhau tuyệt đối, hàng dư (quá 2 hàng) đẩy nội dung tràn xuống, tự
-                // cuộn xem tiếp nhờ overflow-y-auto, không còn hàng nào bị bóp méo nữa.
+                // SỬA (phản hồi thật user: "9:16 vẫn còn viền đen" — "em đo lại các chiều khung hình
+                // xem" — đo lại phát hiện công thức cũ (chiều cao hàng = chiều cao khung / 2) KHÔNG liên
+                // quan gì tới chiều RỘNG cột hay tỉ lệ ảnh thật đang chọn, chỉ tình cờ gần đúng — giờ tính
+                // ĐÚNG công thức: rowHeight = chiều rộng 1 cột (đo thật, trừ khe hở) / tỉ lệ ảnh
+                // (projectTileRatioNumber) — ô sẽ khớp CHÍNH XÁC tỉ lệ ảnh đang chọn, hết viền đen khi
+                // ảnh thật đúng tỉ lệ đó.
                 <div
+                  ref={galleryGridRef}
                   className="-mx-6 grid min-h-0 gap-1 overflow-y-auto px-2"
                   style={{
                     height: galleryGridHeightPx != null ? `${galleryGridHeightPx}px` : undefined,
                     flex: galleryGridHeightPx != null ? "none" : "1 1 0%",
                     gridTemplateColumns: `repeat(${projectGridColsCount}, minmax(0, 1fr))`,
-                    gridAutoRows: galleryGridHeightPx != null ? `${(galleryGridHeightPx - 4) / 2}px` : "1fr",
+                    gridAutoRows:
+                      galleryGridWidthPx != null
+                        ? `${((galleryGridWidthPx - (projectGridColsCount - 1) * 4) / projectGridColsCount / projectTileRatioNumber).toFixed(2)}px`
+                        : "1fr",
                   }}
                 >
                   {projectJobs.map((job) => renderProjectJobTile(job, true))}
