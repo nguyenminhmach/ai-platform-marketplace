@@ -3160,7 +3160,7 @@ export default function VideoTuYTuongClient({
             khối NGOÀI này để lưới ảnh dùng hết chiều ngang thật của khung chính; tiêu đề + khối prompt
             vẫn được bọc riêng trong 1 khối max-w-5xl con bên dưới (y hệt độ rộng cũ) để không đổi gì về
             layout của chúng. Mọi trường hợp khác (tab video, chưa mở dự án) giữ nguyên max-w-5xl như cũ. */}
-        <div className={`relative flex min-h-full w-full flex-col px-6 ${activeProjectId ? "pb-2 pt-4" : "pb-2 pt-8"} ${isImageGalleryOverlay ? "" : "mx-auto max-w-5xl"}`}>
+        <div className={`relative flex min-h-full w-full flex-col px-6 ${isImageGalleryOverlay ? "pt-4" : activeProjectId ? "pb-2 pt-4" : "pb-2 pt-8"} ${isImageGalleryOverlay ? "" : "mx-auto max-w-5xl"}`}>
           {/* SỬA (phản hồi thật user: "mọi thao tác phải lưu trong dự án không cần khởi tạo thành công
               mới lưu" — đổi nguồn từ generation_history (chỉ có job thành công) sang projectJobs (đọc
               thẳng prompt_image_jobs, đủ trạng thái kể cả lỗi) để lưới dự án hiện ĐÚNG mọi lượt đã thử).
@@ -3170,7 +3170,7 @@ export default function VideoTuYTuongClient({
               gallery (mb-4 thay mb-10) khi đang mở 1 dự án, để lưới ảnh + ô viết prompt + nút "Tạo" gọn
               lại vừa màn hình hơn, đỡ phải cuộn mới thấy nút "Tạo". */}
           {activeProjectId ? (
-            <div className="mb-4">
+            <div className={isImageGalleryOverlay ? "" : "mb-4"}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">
                   {contentProjects.find((p) => p.id === activeProjectId)?.name ?? "Dự án"}
