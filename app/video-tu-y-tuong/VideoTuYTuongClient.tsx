@@ -2946,12 +2946,12 @@ export default function VideoTuYTuongClient({
   // trùng y hệt màu nền <main> (bg-zinc-700) nên gần như vô hình, trông như không có gì) — đổi màu viền
   // sáng hơn hẳn nền (zinc-500) + thêm nền mờ (bg-zinc-800/40) để thật sự phân biệt được với nền trang.
   function renderEmptyProjectTile(key: string, short?: boolean) {
-    return <div key={key} className={`${short ? "h-28" : "aspect-square"} rounded-xl border border-dashed border-zinc-500 bg-zinc-800/40`} />;
+    return <div key={key} className={`${short ? "h-full min-h-28" : "aspect-square"} rounded-xl border border-dashed border-zinc-500 bg-zinc-800/40`} />;
   }
 
   function renderProjectJobTile(job: ProjectJobItem, short?: boolean) {
     return (
-      <div key={job.id} className={`group relative ${short ? "h-28" : "aspect-square"} overflow-hidden rounded-xl bg-zinc-900`}>
+      <div key={job.id} className={`group relative ${short ? "h-full min-h-28" : "aspect-square"} overflow-hidden rounded-xl bg-zinc-900`}>
         {job.status === "done" && job.outputUrl ? (
           <button type="button" onClick={() => setStoryQuickZoomUrl(job.outputUrl)} className="block h-full w-full" title={job.prompt}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -3170,7 +3170,7 @@ export default function VideoTuYTuongClient({
               gallery (mb-4 thay mb-10) khi đang mở 1 dự án, để lưới ảnh + ô viết prompt + nút "Tạo" gọn
               lại vừa màn hình hơn, đỡ phải cuộn mới thấy nút "Tạo". */}
           {activeProjectId ? (
-            <div className="mb-4">
+            <div className={`mb-4 ${isImageGalleryOverlay ? "flex min-h-0 flex-1 flex-col" : ""}`}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">
                   {contentProjects.find((p) => p.id === activeProjectId)?.name ?? "Dự án"}
@@ -3197,7 +3197,7 @@ export default function VideoTuYTuongClient({
                   Dự án này chưa có nội dung nào — tạo ảnh bên dưới sẽ tự gom vào đây.
                 </div>
               ) : isImageGalleryOverlay ? (
-                <div className="grid grid-cols-4 gap-3">
+                <div className="grid flex-1 grid-cols-4 grid-rows-2 gap-3">
                   {projectJobs.map((job) => renderProjectJobTile(job, true))}
                   {Array.from({ length: Math.max(8, Math.ceil(projectJobs.length / 4) * 4) - projectJobs.length }).map((_, i) =>
                     renderEmptyProjectTile(`empty-${i}`, true)
