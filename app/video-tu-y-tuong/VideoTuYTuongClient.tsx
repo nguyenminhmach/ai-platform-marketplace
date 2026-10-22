@@ -3286,8 +3286,13 @@ export default function VideoTuYTuongClient({
               — lưới ảnh phía sau cứ trải dài hết khung, chỉ bị khối này che 1 phần cố định. */}
           <div
             className={
+              // SỬA (phản hồi thật user: "cắt bỏ phần vuông màu xám bên ngoài đường viền đi, chỉ giữ lại
+              // từ viền màu xám trở vào trong" — khối NGOÀI này trước có riêng bg-zinc-700 + px-6 pb-2
+              // pt-3 của nó, tạo ra 1 hình chữ nhật xám LỚN HƠN bao ngoài khối có viền bo tròn bên trong
+              // — bỏ hẳn nền + đệm của khối NGOÀI (chỉ còn lo định vị/căn giữa), dời nền xám + đệm vào
+              // đúng khối CÓ VIỀN bên trong, để viền xám chính là mép ngoài cùng nhìn thấy được.
               isImageGalleryOverlay
-                ? "absolute inset-x-0 bottom-0 z-10 mx-auto w-full max-w-5xl bg-zinc-700 px-6 pb-2 pt-3"
+                ? "absolute inset-x-0 bottom-0 z-10 mx-auto w-full max-w-5xl"
                 : "mx-auto w-full max-w-5xl"
             }
           >
@@ -3574,7 +3579,7 @@ export default function VideoTuYTuongClient({
             // SỬA (phản hồi thật user: "viền xám đâu" — hoá ra phạm vi đúng là NGƯỢC lại: viền xám cần
             // HIỆN khi isImageGalleryOverlay (đang mở dự án + tab hình ảnh, đã có ảnh), không phải ẩn ở
             // đó — chỉ ẩn ở tab hình ảnh lúc CHƯA mở dự án (nơi chưa từng có viền này).
-            <div className={`flex flex-col gap-2 ${isImageGalleryOverlay ? "rounded-[44px] border border-zinc-500 p-3" : ""}`}>
+            <div className={`flex flex-col gap-2 ${isImageGalleryOverlay ? "rounded-[44px] border border-zinc-500 bg-zinc-700 p-3" : ""}`}>
               {/* KHỐI 1/2 tab "hình ảnh" — ĐÚNG cấu trúc tab "video": tab toggle riêng 1 dòng trên cùng
                   (sát góc trên-trái), chip cấu hình (character/camera/màu sắc) ở dòng riêng bên dưới,
                   cả khối viền tím phát sáng. */}
