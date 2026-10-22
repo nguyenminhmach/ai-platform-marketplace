@@ -3097,13 +3097,17 @@ export default function VideoTuYTuongClient({
       {/* Khối nội dung chính TÁCH RIÊNG khỏi sidebar — sidebar vuông góc, dính sát viền trang; khối
           này mới có bo góc + lề ngoài, nền sáng hơn (zinc-800) các khối con bên trong (zinc-900). */}
       <main className="m-3 min-w-0 flex-1 overflow-y-auto rounded-[32px] bg-zinc-700">
-        <div className="mx-auto max-w-5xl px-6 py-8">
+        <div className={`mx-auto max-w-5xl px-6 ${activeProjectId ? "pb-8 pt-4" : "py-8"}`}>
           {/* SỬA (phản hồi thật user: "mọi thao tác phải lưu trong dự án không cần khởi tạo thành công
               mới lưu" — đổi nguồn từ generation_history (chỉ có job thành công) sang projectJobs (đọc
               thẳng prompt_image_jobs, đủ trạng thái kể cả lỗi) để lưới dự án hiện ĐÚNG mọi lượt đã thử).
               Bấm lại đúng tên dự án trong sidebar để bỏ chọn, quay về giao diện mặc định. */}
+          {/* SỬA (phản hồi thật user: "cho ảnh xát lên nền trên đồng thời kéo phần tạo prompt lên không
+              bị mép dưới che mất") — giảm hẳn khoảng trống phía trên (pt-4 thay py-8) và dưới khối
+              gallery (mb-4 thay mb-10) khi đang mở 1 dự án, để lưới ảnh + ô viết prompt + nút "Tạo" gọn
+              lại vừa màn hình hơn, đỡ phải cuộn mới thấy nút "Tạo". */}
           {activeProjectId ? (
-            <div className="mb-10">
+            <div className="mb-4">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">
                   {contentProjects.find((p) => p.id === activeProjectId)?.name ?? "Dự án"}
@@ -3187,7 +3191,9 @@ export default function VideoTuYTuongClient({
             </div>
           )}
 
-          <h1 className="mb-6 text-center text-3xl font-bold text-white sm:text-4xl">Không gian cho mọi ý tưởng</h1>
+          <h1 className={`text-center font-bold text-white ${activeProjectId ? "mb-3 text-xl sm:text-2xl" : "mb-6 text-3xl sm:text-4xl"}`}>
+            Không gian cho mọi ý tưởng
+          </h1>
 
           {/* Khối prompt chính — tab "video" dùng layout GỘP 1 khối duy nhất (tab toggle + hàng icon +
               ô prompt + hàng chip preset + nút "tạo" đều nằm trong 1 rounded-2xl box), đúng cấu trúc
