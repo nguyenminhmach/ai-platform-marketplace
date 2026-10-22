@@ -2945,13 +2945,31 @@ export default function VideoTuYTuongClient({
   // SỬA (phản hồi thật user: "cho ảnh full khối" — ô trống thực ra ĐÃ hiện, chỉ là viền border-zinc-700
   // trùng y hệt màu nền <main> (bg-zinc-700) nên gần như vô hình, trông như không có gì) — đổi màu viền
   // sáng hơn hẳn nền (zinc-500) + thêm nền mờ (bg-zinc-800/40) để thật sự phân biệt được với nền trang.
-  function renderEmptyProjectTile(key: string) {
-    return <div key={key} className="aspect-square rounded-xl border border-dashed border-zinc-500 bg-zinc-800/40" />;
+  // SỬA (phản hồi thật user: "2 hàng vẫn không bằng nhau" — đã TỰ kiểm chứng bằng tài khoản test +
+  // javascript_tool đo getBoundingClientRect thật trên DOM, không đoán nữa) — tìm ra nguyên nhân thật:
+  // "aspect-square" (aspect-ratio:1) GHI ĐÈ lên grid-rows-2 bất kể track đã định nghĩa rõ hay chưa, vì
+  // cột (chiều ngang) trong CSS Grid luôn có kích thước định rõ trước, nên theo đúng spec, trình duyệt
+  // tính chiều cao ô = chiều rộng cột / tỉ lệ, THAY VÌ "stretch" theo track hàng — bất kể track hàng có
+  // minmax(0,1fr) hay không. Đã đo thực tế: CÓ aspect-square → 2 hàng cao 218px cố định (bằng chiều
+  // rộng cột) dù khung cao 600px hay 900px; BỎ aspect-square → 2 hàng cao 414px mỗi hàng (đúng = nửa
+  // khung 832px, khớp chính xác). `short` = true khi dùng trong lưới overlay grid-rows-2 (bỏ hẳn
+  // aspect-square, chỉ còn h-full theo track hàng thật); false/undefined (mặc định) giữ aspect-square
+  // như cũ cho lưới 8 cột tab "video" (vốn cố ý định kích thước theo chiều rộng, vẫn đúng ý ở đó).
+  function renderEmptyProjectTile(key: string, short?: boolean) {
+    return (
+      <div
+        key={key}
+        className={`${short ? "h-full" : "aspect-square"} rounded-xl border border-dashed border-zinc-500 bg-zinc-800/40`}
+      />
+    );
   }
 
-  function renderProjectJobTile(job: ProjectJobItem) {
+  function renderProjectJobTile(job: ProjectJobItem, short?: boolean) {
     return (
-      <div key={job.id} className="group relative aspect-square overflow-hidden rounded-xl border border-zinc-600 bg-zinc-900">
+      <div
+        key={job.id}
+        className={`group relative ${short ? "h-full" : "aspect-square"} overflow-hidden rounded-xl border border-zinc-600 bg-zinc-900`}
+      >
         {job.status === "done" && job.outputUrl ? (
           <button type="button" onClick={() => setStoryQuickZoomUrl(job.outputUrl)} className="block h-full w-full" title={job.prompt}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -3202,9 +3220,9 @@ export default function VideoTuYTuongClient({
                 // flex-grow, không qua %) VỪA LÀ grid grid-rows-2, nên 2 hàng chắc chắn bằng nhau và
                 // khớp đúng chiều cao thật, không còn mắt xích % nào có thể gãy nữa.
                 <div className="-mx-6 grid min-h-0 flex-1 grid-cols-4 grid-rows-2 gap-1 overflow-y-auto px-2">
-                  {projectJobs.map((job) => renderProjectJobTile(job))}
+                  {projectJobs.map((job) => renderProjectJobTile(job, true))}
                   {Array.from({ length: Math.max(8, Math.ceil(projectJobs.length / 4) * 4) - projectJobs.length }).map((_, i) =>
-                    renderEmptyProjectTile(`empty-${i}`)
+                    renderEmptyProjectTile(`empty-${i}`, true)
                   )}
                 </div>
               )}
