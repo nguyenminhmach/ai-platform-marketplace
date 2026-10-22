@@ -368,7 +368,10 @@ export default function VideoTuYTuongClient({
   const [storySceneHints, setStorySceneHints] = useState<string[]>([]);
   // "Cấu hình media" — tỉ lệ khung hình (luôn có), độ phân giải/thời lượng chỉ hiện khi model đang
   // chọn có bảng giá riêng cho trục đó (không hiện dropdown giả cho model không hỗ trợ).
-  const [storyAspectRatio, setStoryAspectRatio] = useState("9:16");
+  // SỬA (phản hồi thật user: "đổi tất cả ảnh này sang 16:9 và tạo ô ứng dụng cho phù hợp" — mặc định
+  // đổi từ 9:16 sang 16:9, đồng thời lưới ảnh dự án (xem gridColsForAspectRatio) co giãn số cột theo
+  // đúng tỉ lệ này để ô khớp ảnh thật, không bị cắt mặt/chân nữa).
+  const [storyAspectRatio, setStoryAspectRatio] = useState("16:9");
   const [storyResolutionKey, setStoryResolutionKey] = useState<string | null>(initialResolutionKey);
   const [storyDurationKey, setStoryDurationKey] = useState<string | null>(initialDurationKey);
   // Chuyển động liên tục giữa các cảnh (Kling O1 FLFV) — chỉ có ý nghĩa khi model video đang chọn hỗ
@@ -2955,20 +2958,28 @@ export default function VideoTuYTuongClient({
   // khung 832px, khớp chính xác). `short` = true khi dùng trong lưới overlay grid-rows-2 (bỏ hẳn
   // aspect-square, chỉ còn h-full theo track hàng thật); false/undefined (mặc định) giữ aspect-square
   // như cũ cho lưới 8 cột tab "video" (vốn cố ý định kích thước theo chiều rộng, vẫn đúng ý ở đó).
-  function renderEmptyProjectTile(key: string, short?: boolean) {
+  // SỬA (phản hồi thật user: "ảnh phân cảnh bị thiếu mặt và chân" — ô vuông cố định (aspect-square)
+  // buộc ảnh dọc 9:16 bị object-cover cắt mất đầu/chân mới lấp đầy được ô vuông; không có cách nào vừa
+  // lấp đầy vừa không cắt khi tỉ lệ ô khác tỉ lệ ảnh thật) — đổi ô sang đúng TỈ LỆ ẢNH THẬT
+  // (aspectRatio CSS, vd "16/9"/"9/16"/"1/1") thay vì ép vuông, để object-cover không còn gì để cắt
+  // nữa (tỉ lệ ô = tỉ lệ ảnh = không cắt, không viền đen). aspectRatio bỏ trống thì mặc định "1/1" (lưới
+  // 8 cột tab "video", không đổi gì ở đó).
+  function renderEmptyProjectTile(key: string, aspectRatio?: string) {
     return (
       <div
         key={key}
-        className={`${short ? "h-full" : "aspect-square"} rounded-xl border border-dashed border-zinc-500 bg-zinc-800/40`}
+        className="rounded-xl border border-dashed border-zinc-500 bg-zinc-800/40"
+        style={{ aspectRatio: aspectRatio ?? "1/1" }}
       />
     );
   }
 
-  function renderProjectJobTile(job: ProjectJobItem, short?: boolean) {
+  function renderProjectJobTile(job: ProjectJobItem, aspectRatio?: string) {
     return (
       <div
         key={job.id}
-        className={`group relative ${short ? "h-full" : "aspect-square"} overflow-hidden rounded-xl border border-zinc-600 bg-zinc-900`}
+        className="group relative overflow-hidden rounded-xl border border-zinc-600 bg-zinc-900"
+        style={{ aspectRatio: aspectRatio ?? "1/1" }}
       >
         {job.status === "done" && job.outputUrl ? (
           <button type="button" onClick={() => setStoryQuickZoomUrl(job.outputUrl)} className="block h-full w-full" title={job.prompt}>
@@ -3011,6 +3022,19 @@ export default function VideoTuYTuongClient({
   // chỉ bật khi đang mở 1 dự án VÀ đang ở đúng tab "hình ảnh"; tab "video" hay chưa mở dự án nào vẫn
   // giữ nguyên lưới 8 cột/giới hạn chiều cao cũ, không đổi gì.
   const isImageGalleryOverlay = activeProjectId !== null && promptMediaTab === "hinh-anh";
+
+  // SỬA (phản hồi thật user: "em phải tính để chia màn hình ra bao nhiêu cột nếu khách cho tỉ lệ ảnh
+  // phù hợp" — số cột lưới dự án co giãn theo đúng storyAspectRatio đang chọn, để ô luôn khớp tỉ lệ
+  // ảnh thật, không còn bị cắt mặt/chân nữa). Tính dựa trên bề rộng khung ảnh thực tế ~970px, nhắm giữ
+  // chiều cao mỗi ô gần bằng nhau giữa các tỉ lệ (~240px/ô) để lưới 2 hàng không bị quá cao:
+  // - 1:1 (vuông): 4 cột (giữ nguyên như cũ).
+  // - 9:16 (dọc, hẹp ngang): cần nhiều cột hơn mới giữ ô không quá cao -> 7 cột.
+  // - 16:9 (ngang, rộng): cần ít cột hơn mới giữ ô không quá dẹt -> 2 cột.
+  // grid-cols-2/4/7 phải xuất hiện NGUYÊN VĂN ở đây để Tailwind JIT build đúng class (không thể ghép
+  // chuỗi động `grid-cols-${n}` vì Tailwind quét chữ, không eval runtime).
+  const projectGridColsCount = storyAspectRatio === "16:9" ? 2 : storyAspectRatio === "9:16" ? 7 : 4;
+  const projectGridColsClass = storyAspectRatio === "16:9" ? "grid-cols-2" : storyAspectRatio === "9:16" ? "grid-cols-7" : "grid-cols-4";
+  const projectTileAspectRatio = storyAspectRatio === "16:9" ? "16/9" : storyAspectRatio === "9:16" ? "9/16" : "1/1";
 
   return (
     <div className="flex min-h-screen bg-black text-zinc-100">
@@ -3212,18 +3236,19 @@ export default function VideoTuYTuongClient({
                   Dự án này chưa có nội dung nào — tạo ảnh bên dưới sẽ tự gom vào đây.
                 </div>
               ) : (
-                // SỬA (phản hồi thật user: "2 hàng vẫn chưa bằng nhau dù đã sửa" — xác nhận qua Vercel
-                // deployment là bản mới ĐÃ lên Production rồi, vậy lỗi là thật, không phải do chưa
-                // deploy) — gộp khối cuộn + khối grid làm MỘT phần tử (bỏ lớp "h-full" trung gian dễ vỡ:
-                // height:100% của 1 div thường bên trong 1 flex item overflow-auto không phải lúc nào
-                // cũng resolve đúng) — giờ chính div này VỪA LÀ flex-1 (được gán chiều cao trực tiếp qua
-                // flex-grow, không qua %) VỪA LÀ grid grid-rows-2, nên 2 hàng chắc chắn bằng nhau và
-                // khớp đúng chiều cao thật, không còn mắt xích % nào có thể gãy nữa.
-                <div className="-mx-6 grid min-h-0 flex-1 grid-cols-4 grid-rows-2 gap-1 overflow-y-auto px-2">
-                  {projectJobs.map((job) => renderProjectJobTile(job, true))}
-                  {Array.from({ length: Math.max(8, Math.ceil(projectJobs.length / 4) * 4) - projectJobs.length }).map((_, i) =>
-                    renderEmptyProjectTile(`empty-${i}`, true)
-                  )}
+                // SỬA (phản hồi thật user: "đổi tất cả ảnh sang 16:9, tạo ô ứng dụng cho phù hợp" — bỏ
+                // hẳn "grid-rows-2 h-full" (ép hàng bằng nhau bất kể tỉ lệ ảnh, nguyên nhân gây cắt mặt/
+                // chân trước đó) — giờ số cột + tỉ lệ ô co giãn theo projectGridColsClass/
+                // projectTileAspectRatio (xem định nghĩa ở isImageGalleryOverlay), hàng tự cao theo đúng
+                // tỉ lệ ảnh thật (không ép %), nhiều ảnh hơn 2 hàng vẫn cuộn bình thường nhờ flex-1 +
+                // overflow-y-auto trên chính khối này.
+                <div className={`-mx-6 grid min-h-0 flex-1 ${projectGridColsClass} gap-1 overflow-y-auto px-2`}>
+                  {projectJobs.map((job) => renderProjectJobTile(job, projectTileAspectRatio))}
+                  {Array.from({
+                    length:
+                      Math.max(projectGridColsCount * 2, Math.ceil(projectJobs.length / projectGridColsCount) * projectGridColsCount) -
+                      projectJobs.length,
+                  }).map((_, i) => renderEmptyProjectTile(`empty-${i}`, projectTileAspectRatio))}
                 </div>
               )}
             </div>
