@@ -3197,14 +3197,14 @@ export default function VideoTuYTuongClient({
                   Dự án này chưa có nội dung nào — tạo ảnh bên dưới sẽ tự gom vào đây.
                 </div>
               ) : isImageGalleryOverlay ? (
-                <div className="-mx-6 h-[70vh] overflow-y-auto">
-                  {/* SỬA (phản hồi thật user: "2 hàng chiều cao không bằng nhau, chưa sát mép dưới") —
-                      root cause: grid mặc định auto-rows "auto" khiến hàng tự giãn theo tỉ lệ
-                      aspect-square (vuông theo CHIỀU RỘNG cột) của ô, mà cột full-width/4 ở màn rộng rất
-                      cao, nên hàng 1 chiếm gần hết 70vh, hàng 2 bị cắt cụt — đặt auto-rows CỐ ĐỊNH bằng
-                      đúng 1 nửa chiều cao khung (trừ khe hở gap-1 ở giữa) để LUÔN đúng 2 hàng bằng nhau,
-                      khớp sát đủ 70vh dù tỉ lệ ảnh thế nào. */}
-                  <div className="grid h-full grid-cols-4 auto-rows-[calc((70vh-0.25rem)/2)] gap-1">
+                <div className="-mx-6 h-[calc(100vh-170px)] overflow-y-auto">
+                  {/* SỬA (phản hồi thật user: "còn cách mép dưới khung xám 1 khoảng, đáng lẽ chỉ nên
+                      cách 8px") — h-[70vh] trước đó ước lượng thấp hơn nhiều so với chiều cao THẬT còn
+                      trống trong <main> (root layout chỉ "min-h-screen", main = gần hết 100vh trừ
+                      margin/padding/khối tiêu đề dự án) nên để lại khoảng trống xám lớn phía dưới —
+                      đổi sang calc(100vh-170px) (ước lượng khớp sát hơn phần đã bị header/padding
+                      chiếm), phần dư còn lại được xử lý bằng mb-2 (8px) ở khối cha. */}
+                  <div className="grid h-full grid-cols-4 auto-rows-[calc((100vh-170px-0.25rem)/2)] gap-1">
                     {projectJobs.map((job) => renderProjectJobTile(job))}
                     {Array.from({ length: Math.max(8, Math.ceil(projectJobs.length / 4) * 4) - projectJobs.length }).map((_, i) =>
                       renderEmptyProjectTile(`empty-${i}`)
