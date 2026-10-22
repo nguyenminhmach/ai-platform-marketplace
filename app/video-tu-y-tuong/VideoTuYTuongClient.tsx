@@ -3198,7 +3198,13 @@ export default function VideoTuYTuongClient({
                 </div>
               ) : isImageGalleryOverlay ? (
                 <div className="-mx-6 h-[70vh] overflow-y-auto">
-                  <div className="grid grid-cols-4 gap-1">
+                  {/* SỬA (phản hồi thật user: "2 hàng chiều cao không bằng nhau, chưa sát mép dưới") —
+                      root cause: grid mặc định auto-rows "auto" khiến hàng tự giãn theo tỉ lệ
+                      aspect-square (vuông theo CHIỀU RỘNG cột) của ô, mà cột full-width/4 ở màn rộng rất
+                      cao, nên hàng 1 chiếm gần hết 70vh, hàng 2 bị cắt cụt — đặt auto-rows CỐ ĐỊNH bằng
+                      đúng 1 nửa chiều cao khung (trừ khe hở gap-1 ở giữa) để LUÔN đúng 2 hàng bằng nhau,
+                      khớp sát đủ 70vh dù tỉ lệ ảnh thế nào. */}
+                  <div className="grid h-full grid-cols-4 auto-rows-[calc((70vh-0.25rem)/2)] gap-1">
                     {projectJobs.map((job) => renderProjectJobTile(job))}
                     {Array.from({ length: Math.max(8, Math.ceil(projectJobs.length / 4) * 4) - projectJobs.length }).map((_, i) =>
                       renderEmptyProjectTile(`empty-${i}`)
