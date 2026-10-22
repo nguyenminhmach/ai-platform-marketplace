@@ -2942,6 +2942,13 @@ export default function VideoTuYTuongClient({
 
   // 1 ô ảnh trong lưới "Dự án" — tách ra dùng chung cho 2 biến thể hiển thị (lưới 8 cột giới hạn chiều
   // cao cũ, và lưới 4 cột làm NỀN cuộn độc lập mới cho riêng tab "hình ảnh", xem renderProjectGallery).
+  // SỬA (phản hồi thật user: "cho ảnh full khối" — ô trống thực ra ĐÃ hiện, chỉ là viền border-zinc-700
+  // trùng y hệt màu nền <main> (bg-zinc-700) nên gần như vô hình, trông như không có gì) — đổi màu viền
+  // sáng hơn hẳn nền (zinc-500) + thêm nền mờ (bg-zinc-800/40) để thật sự phân biệt được với nền trang.
+  function renderEmptyProjectTile(key: string) {
+    return <div key={key} className="aspect-square rounded-xl border border-dashed border-zinc-500 bg-zinc-800/40" />;
+  }
+
   function renderProjectJobTile(job: ProjectJobItem) {
     return (
       <div key={job.id} className="group relative aspect-square overflow-hidden rounded-xl bg-zinc-900">
@@ -3187,9 +3194,9 @@ export default function VideoTuYTuongClient({
               ) : isImageGalleryOverlay ? (
                 <div className="grid grid-cols-4 gap-3">
                   {projectJobs.map((job) => renderProjectJobTile(job))}
-                  {Array.from({ length: Math.max(8, Math.ceil(projectJobs.length / 4) * 4) - projectJobs.length }).map((_, i) => (
-                    <div key={`empty-${i}`} className="aspect-square rounded-xl border border-dashed border-zinc-700" />
-                  ))}
+                  {Array.from({ length: Math.max(8, Math.ceil(projectJobs.length / 4) * 4) - projectJobs.length }).map((_, i) =>
+                    renderEmptyProjectTile(`empty-${i}`)
+                  )}
                 </div>
               ) : (
                 <div
@@ -3197,9 +3204,9 @@ export default function VideoTuYTuongClient({
                   style={{ maxHeight: "calc(2 * (((100% - 7 * 0.75rem) / 8)) + 0.75rem)" }}
                 >
                   {projectJobs.map((job) => renderProjectJobTile(job))}
-                  {Array.from({ length: Math.max(16, Math.ceil(projectJobs.length / 8) * 8) - projectJobs.length }).map((_, i) => (
-                    <div key={`empty-${i}`} className="aspect-square rounded-xl border border-dashed border-zinc-700" />
-                  ))}
+                  {Array.from({ length: Math.max(16, Math.ceil(projectJobs.length / 8) * 8) - projectJobs.length }).map((_, i) =>
+                    renderEmptyProjectTile(`empty-${i}`)
+                  )}
                 </div>
               )}
             </div>
