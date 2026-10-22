@@ -3155,7 +3155,12 @@ export default function VideoTuYTuongClient({
         {/* SỬA (phản hồi thật user: "cho sát xuống viền xám hình nền") — bớt hẳn đệm dưới (pb-8 -> pb-2)
             cho cả 2 trường hợp, để khối đã đẩy bằng mt-auto nằm sát luôn viền dưới cùng của khung chính,
             không còn khoảng đệm thừa giữa khối và mép khung. */}
-        <div className={`mx-auto flex min-h-full w-full max-w-5xl flex-col px-6 ${activeProjectId ? "pb-2 pt-4" : "pb-2 pt-8"}`}>
+        {/* SỬA (phản hồi thật user: "cho ảnh ra hai bên còn trống thấy không" — lưới ảnh bị bó hẹp giữa
+            trang, 2 bên thừa rất nhiều khoảng trống tối) — khi isImageGalleryOverlay, bỏ hẳn max-w-5xl ở
+            khối NGOÀI này để lưới ảnh dùng hết chiều ngang thật của khung chính; tiêu đề + khối prompt
+            vẫn được bọc riêng trong 1 khối max-w-5xl con bên dưới (y hệt độ rộng cũ) để không đổi gì về
+            layout của chúng. Mọi trường hợp khác (tab video, chưa mở dự án) giữ nguyên max-w-5xl như cũ. */}
+        <div className={`flex min-h-full w-full flex-col px-6 ${activeProjectId ? "pb-2 pt-4" : "pb-2 pt-8"} ${isImageGalleryOverlay ? "" : "mx-auto max-w-5xl"}`}>
           {/* SỬA (phản hồi thật user: "mọi thao tác phải lưu trong dự án không cần khởi tạo thành công
               mới lưu" — đổi nguồn từ generation_history (chỉ có job thành công) sang projectJobs (đọc
               thẳng prompt_image_jobs, đủ trạng thái kể cả lỗi) để lưới dự án hiện ĐÚNG mọi lượt đã thử).
@@ -3224,6 +3229,10 @@ export default function VideoTuYTuongClient({
             </div>
           )}
 
+          {/* Tiêu đề + khối prompt (+ khu vực tiến trình/kết quả bên dưới) LUÔN bó hẹp max-w-5xl như cũ,
+              kể cả khi khối NGOÀI đã bỏ max-w-5xl cho lưới ảnh overlay — tự bọc riêng 1 lớp max-w-5xl ở
+              đây, không phụ thuộc khối cha nữa. */}
+          <div className="mx-auto w-full max-w-5xl">
           <h1 className={`text-center font-bold text-white ${activeProjectId ? "mb-3 text-xl sm:text-2xl" : "mb-6 text-3xl sm:text-4xl"}`}>
             Không gian cho mọi ý tưởng
           </h1>
@@ -3805,6 +3814,7 @@ export default function VideoTuYTuongClient({
               )}
             </div>
           )}
+          </div>
 
         </div>
       </main>
