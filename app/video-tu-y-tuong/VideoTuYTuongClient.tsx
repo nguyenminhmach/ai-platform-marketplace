@@ -3291,10 +3291,11 @@ export default function VideoTuYTuongClient({
                 : "mx-auto w-full max-w-5xl"
             }
           >
-          {/* SỬA (phản hồi thật user: "bỏ hết phần vuông màu xám ngoài đi cả dòng chữ Không gian cho mọi
-              ý tưởng nữa" — chỉ áp dụng tab "hình ảnh", xác nhận qua câu hỏi riêng) — ẩn tiêu đề khi
-              promptMediaTab !== "video" (tức đang ở tab "hình ảnh"); tab "video" giữ nguyên như cũ. */}
-          {promptMediaTab === "video" && (
+          {/* SỬA (phản hồi thật user: "không chỉ ở tab hình ảnh khi đã tạo ảnh thôi" — thu hẹp lại, lúc
+              đầu em ẩn theo CẢ tab "hình ảnh" kể cả khi chưa mở dự án, sai) — chỉ ẩn tiêu đề khi đúng
+              isImageGalleryOverlay (tab "hình ảnh" + đang mở 1 dự án đã có nội dung), còn tab "hình ảnh"
+              lúc CHƯA mở dự án (trang mặc định) vẫn hiện tiêu đề như cũ. */}
+          {!isImageGalleryOverlay && (
             <h1 className={`text-center font-bold text-white ${activeProjectId ? "mb-3 text-xl sm:text-2xl" : "mb-6 text-3xl sm:text-4xl"}`}>
               Không gian cho mọi ý tưởng
             </h1>
