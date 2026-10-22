@@ -3098,7 +3098,10 @@ export default function VideoTuYTuongClient({
         {/* SỬA (phản hồi thật user: "đẩy 2 khối hình ảnh/video và khối viết prompt xuống sát mép dưới")
             — min-h-full + flex-col để khối "mt-auto" bên dưới (bọc quanh 2 khối chip+prompt) có chỗ đẩy
             xuống đáy khung thay vì đứng ngay dưới tiêu đề như trước. */}
-        <div className={`mx-auto flex min-h-full w-full max-w-5xl flex-col px-6 ${activeProjectId ? "pb-8 pt-4" : "py-8"}`}>
+        {/* SỬA (phản hồi thật user: "cho sát xuống viền xám hình nền") — bớt hẳn đệm dưới (pb-8 -> pb-2)
+            cho cả 2 trường hợp, để khối đã đẩy bằng mt-auto nằm sát luôn viền dưới cùng của khung chính,
+            không còn khoảng đệm thừa giữa khối và mép khung. */}
+        <div className={`mx-auto flex min-h-full w-full max-w-5xl flex-col px-6 ${activeProjectId ? "pb-2 pt-4" : "pb-2 pt-8"}`}>
           {/* SỬA (phản hồi thật user: "mọi thao tác phải lưu trong dự án không cần khởi tạo thành công
               mới lưu" — đổi nguồn từ generation_history (chỉ có job thành công) sang projectJobs (đọc
               thẳng prompt_image_jobs, đủ trạng thái kể cả lỗi) để lưới dự án hiện ĐÚNG mọi lượt đã thử).
