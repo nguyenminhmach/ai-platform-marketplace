@@ -3774,13 +3774,11 @@ export default function VideoTuYTuongClient({
           className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 p-6"
           onClick={() => setStoryQuickZoomUrl(null)}
         >
+          {/* SỬA (phản hồi thật user: "khi ảnh phóng to nhấp vào không thu nhỏ được") — bỏ
+              stopPropagation, bấm vào CHÍNH ảnh cũng đóng khung xem trước luôn, không chỉ bấm ra
+              ngoài/nút X mới đóng được. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={storyQuickZoomUrl}
-            alt=""
-            className="max-h-full max-w-full rounded-xl object-contain"
-            onClick={(e) => e.stopPropagation()}
-          />
+          <img src={storyQuickZoomUrl} alt="" className="max-h-full max-w-full rounded-xl object-contain" />
           <button
             type="button"
             onClick={() => setStoryQuickZoomUrl(null)}
