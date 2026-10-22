@@ -3701,7 +3701,17 @@ export default function VideoTuYTuongClient({
               (storyResult) ở trên — nghĩa là job vẫn chạy và lưu đúng trong Supabase, nhưng khách KHÔNG
               CÓ CÁCH NÀO xem hay bấm tiếp qua giao diện mới, y hệt triệu chứng "không cuộn được" anh gặp.
               Thêm lại đúng 3 khối hiển thị + nút bấm tiếp, tối giản cho hợp giao diện mới. */}
-          {!storyRunning && !storyResult && !storyError && storyStatus && storyStatus !== "done" && (
+          {/* SỬA (phản hồi thật user: "khối này là khối gì bỏ nó đi" — khung rỗng hiện ra khi job đang ở
+              các bước generating_images/generating_videos/stitching...) — điều kiện cũ chỉ loại trừ
+              "done", không loại trừ hết các trạng thái KHÁC 3 nhánh bên trong thật sự xử lý (nhất là từ
+              khi tab "video" bỏ dừng ở "images_ready", status tiến thẳng qua generating_videos/stitching
+              mà không khớp nhánh nào) — liệt kê đúng 3 trạng thái CÓ nội dung hiện ra thay vì loại trừ. */}
+          {!storyRunning &&
+            !storyResult &&
+            !storyError &&
+            (storyStatus === "character_ready" ||
+              storyStatus === "scenes_ready" ||
+              (storyStatus === "images_ready" && storyQuickImageMode)) && (
             <div className="mt-8 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6">
               {storyStatus === "character_ready" && storyCharacterSheetUrl && (
                 <div className="flex flex-col items-center gap-3">
