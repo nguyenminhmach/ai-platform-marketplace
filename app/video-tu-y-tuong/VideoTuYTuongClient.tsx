@@ -3579,7 +3579,7 @@ export default function VideoTuYTuongClient({
             // SỬA (phản hồi thật user: "viền xám đâu" — hoá ra phạm vi đúng là NGƯỢC lại: viền xám cần
             // HIỆN khi isImageGalleryOverlay (đang mở dự án + tab hình ảnh, đã có ảnh), không phải ẩn ở
             // đó — chỉ ẩn ở tab hình ảnh lúc CHƯA mở dự án (nơi chưa từng có viền này).
-            <div className={`flex flex-col gap-2 ${isImageGalleryOverlay ? "rounded-[44px] border border-zinc-500 bg-zinc-700 p-3" : ""}`}>
+            <div className={`flex flex-col gap-2 ${isImageGalleryOverlay ? "mx-[60px] rounded-[44px] border border-zinc-500 bg-zinc-700 p-3" : ""}`}>
               {/* KHỐI 1/2 tab "hình ảnh" — ĐÚNG cấu trúc tab "video": tab toggle riêng 1 dòng trên cùng
                   (sát góc trên-trái), chip cấu hình (character/camera/màu sắc) ở dòng riêng bên dưới,
                   cả khối viền tím phát sáng. */}
