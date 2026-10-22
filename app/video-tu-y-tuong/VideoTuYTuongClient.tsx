@@ -3116,12 +3116,18 @@ export default function VideoTuYTuongClient({
                   Thoát dự án
                 </button>
               </div>
+              {/* SỬA (phản hồi thật user: "bố trí thành 2 hàng mỗi hàng 8 cột, vượt quá thì có thanh
+                  trượt" rồi "cho ảnh full khu vực này" — khoanh đỏ mọi ô trống còn lại) — cố định 8 cột,
+                  giới hạn chiều cao đúng 2 hàng, vượt quá 16 ô thì cuộn dọc bên trong khối này. Luôn hiện
+                  đủ 16 ô (hoặc bội số 8 tiếp theo nếu đã có >16 job) — ô nào chưa có job thật thì hiện
+                  khung viền đứt nét trống, để lưới luôn "đầy" đúng 8 cột thay vì dồn về bên trái để trống
+                  cả mảng lớn bên phải/hàng dưới. */}
               {projectJobs.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-zinc-600 p-8 text-center text-sm text-zinc-400">
                   Dự án này chưa có nội dung nào — tạo ảnh bên dưới sẽ tự gom vào đây.
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="grid auto-rows-fr grid-cols-8 gap-3 overflow-y-auto pr-1" style={{ maxHeight: "calc(2 * (((100% - 7 * 0.75rem) / 8)) + 0.75rem)" }}>
                   {projectJobs.map((job) => (
                     <div key={job.id} className="group relative aspect-square overflow-hidden rounded-xl bg-zinc-900">
                       {job.status === "done" && job.outputUrl ? (
@@ -3160,6 +3166,9 @@ export default function VideoTuYTuongClient({
                         </button>
                       )}
                     </div>
+                  ))}
+                  {Array.from({ length: Math.max(16, Math.ceil(projectJobs.length / 8) * 8) - projectJobs.length }).map((_, i) => (
+                    <div key={`empty-${i}`} className="aspect-square rounded-xl border border-dashed border-zinc-700" />
                   ))}
                 </div>
               )}
