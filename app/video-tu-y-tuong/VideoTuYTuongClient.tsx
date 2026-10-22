@@ -3225,7 +3225,7 @@ export default function VideoTuYTuongClient({
                   gap-0 (sát hàng tab toggle hơn), pb-3 -> pb-1 (viền dưới khối nâng lên gần hàng chip
                   hơn, bớt khoảng trống thừa). */}
               <div
-                className="flex flex-col gap-0 rounded-[40px] border border-fuchsia-500/50 bg-zinc-800 pb-1 pl-1 pr-4 pt-0"
+                className="flex flex-col gap-0 rounded-[40px] border border-fuchsia-500/50 bg-zinc-800 pb-0 pl-1 pr-4 pt-0"
                 style={{ boxShadow: "0 0 45px -4px rgba(217,70,239,0.75), 0 0 4px rgba(217,70,239,0.95)" }}
               >
                 {/* Viền TRÊN của tab toggle phải trùng/sát viền trên của khối lớn — không có khoảng đệm
@@ -3476,7 +3476,7 @@ export default function VideoTuYTuongClient({
                   gap-0 (sát hàng tab toggle hơn), pb-3 -> pb-1 (viền dưới khối nâng lên gần hàng chip
                   hơn, bớt khoảng trống thừa). */}
               <div
-                className="flex flex-col gap-0 rounded-[40px] border border-fuchsia-500/50 bg-zinc-800 pb-1 pl-1 pr-4 pt-0"
+                className="flex flex-col gap-0 rounded-[40px] border border-fuchsia-500/50 bg-zinc-800 pb-0 pl-1 pr-4 pt-0"
                 style={{ boxShadow: "0 0 45px -4px rgba(217,70,239,0.75), 0 0 4px rgba(217,70,239,0.95)" }}
               >
                 <div
