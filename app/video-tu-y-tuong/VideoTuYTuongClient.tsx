@@ -3250,7 +3250,7 @@ export default function VideoTuYTuongClient({
                 <button
                   type="button"
                   onClick={() => setPickerModal({ defaultTab: "reference", forMention: false })}
-                  className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
+                  className="flex items-center gap-1.5 rounded-full px-3 py-0.5 text-sm text-zinc-200 hover:bg-zinc-700"
                 >
                   tài liệu tham khảo
                 </button>
@@ -3258,7 +3258,7 @@ export default function VideoTuYTuongClient({
                 <button
                   type="button"
                   onClick={() => setCameraModalOpen(true)}
-                  className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
+                  className="flex items-center gap-1.5 rounded-full px-3 py-0.5 text-sm text-zinc-200 hover:bg-zinc-700"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="1.5" className="h-4 w-4 shrink-0">
                     <rect x="3" y="7" width="18" height="13" rx="2" />
@@ -3271,7 +3271,7 @@ export default function VideoTuYTuongClient({
                 <button
                   type="button"
                   onClick={() => setColorModalOpen(true)}
-                  className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
+                  className="flex items-center gap-1.5 rounded-full px-3 py-0.5 text-sm text-zinc-200 hover:bg-zinc-700"
                 >
                   <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0">
                     <circle cx="12" cy="12" r="9" fill="none" stroke="#22d3ee" strokeWidth="1.5" />
@@ -3283,7 +3283,7 @@ export default function VideoTuYTuongClient({
                 <button
                   type="button"
                   onClick={() => setLightModalOpen(true)}
-                  className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
+                  className="flex items-center gap-1.5 rounded-full px-3 py-0.5 text-sm text-zinc-200 hover:bg-zinc-700"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="1.5" className="h-4 w-4 shrink-0">
                     <circle cx="12" cy="12" r="5" />
@@ -3295,7 +3295,7 @@ export default function VideoTuYTuongClient({
                 <button
                   type="button"
                   title="Sắp ra mắt"
-                  className="rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
+                  className="rounded-full px-3 py-0.5 text-sm text-zinc-200 hover:bg-zinc-700"
                 >
                   thiết lập phim tự động
                 </button>
@@ -3502,7 +3502,7 @@ export default function VideoTuYTuongClient({
                   <button
                     type="button"
                     onClick={() => setPickerModal({ defaultTab: "reference", forMention: true })}
-                    className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
+                    className="flex items-center gap-1.5 rounded-full px-3 py-0.5 text-sm text-zinc-200 hover:bg-zinc-700"
                     title="Chèn @mention nhân vật từ kho tham chiếu"
                   >
                     character
@@ -3510,7 +3510,7 @@ export default function VideoTuYTuongClient({
                   <button
                     type="button"
                     onClick={() => setCameraModalOpen(true)}
-                    className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
+                    className="flex items-center gap-1.5 rounded-full px-3 py-0.5 text-sm text-zinc-200 hover:bg-zinc-700"
                   >
                     <svg viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="1.5" className="h-4 w-4 shrink-0">
                       <rect x="3" y="7" width="18" height="13" rx="2" />
@@ -3522,7 +3522,7 @@ export default function VideoTuYTuongClient({
                   <button
                     type="button"
                     onClick={() => setColorModalOpen(true)}
-                    className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
+                    className="flex items-center gap-1.5 rounded-full px-3 py-0.5 text-sm text-zinc-200 hover:bg-zinc-700"
                   >
                     <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0">
                       <circle cx="12" cy="12" r="9" fill="none" stroke="#22d3ee" strokeWidth="1.5" />
