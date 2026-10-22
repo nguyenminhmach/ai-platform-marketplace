@@ -3565,7 +3565,10 @@ export default function VideoTuYTuongClient({
           ) : null}
 
           {promptMediaTab !== "video" && (
-            <div className="flex flex-col gap-2">
+            // SỬA (phản hồi thật user: "ở tab này... tạo 1 viền nhỏ màu xám bao quanh 2 khối này" — chỉ
+            // tab "hình ảnh", không áp dụng cho tab "video") — viền xám bao quanh CẢ 2 khối con (toggle
+            // + chip, và ô viết prompt) như 1 nhóm chung.
+            <div className="flex flex-col gap-2 rounded-[44px] border border-zinc-500 p-3">
               {/* KHỐI 1/2 tab "hình ảnh" — ĐÚNG cấu trúc tab "video": tab toggle riêng 1 dòng trên cùng
                   (sát góc trên-trái), chip cấu hình (character/camera/màu sắc) ở dòng riêng bên dưới,
                   cả khối viền tím phát sáng. */}
