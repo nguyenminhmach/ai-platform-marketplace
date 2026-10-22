@@ -3246,11 +3246,15 @@ export default function VideoTuYTuongClient({
                   </button>
                 </div>
 
-                <div className="ml-[95px] flex flex-wrap items-center gap-2">
+                {/* SỬA (phản hồi thật user: "dịch chuyển các dòng chữ thẳng đường kẻ màu đỏ và cho to
+                    thêm" — mũi tên đỏ chỉ ngay sau cụm nút tab toggle) — ml-[95px] -> ml-[140px] (bắt
+                    đầu đúng sau khi tab toggle kết thúc, không đè lên chữ "video" nữa), text-sm -> base
+                    + icon to hơn cho cả 5 nút chip. */}
+                <div className="ml-[140px] flex flex-wrap items-center gap-3">
                 <button
                   type="button"
                   onClick={() => setPickerModal({ defaultTab: "reference", forMention: false })}
-                  className="flex items-center gap-1.5 rounded-full px-3 py-0.5 text-sm text-zinc-200 hover:bg-zinc-700"
+                  className="flex items-center gap-1.5 rounded-full px-3 py-0.5 text-base text-zinc-200 hover:bg-zinc-700"
                 >
                   tài liệu tham khảo
                 </button>
@@ -3258,9 +3262,9 @@ export default function VideoTuYTuongClient({
                 <button
                   type="button"
                   onClick={() => setCameraModalOpen(true)}
-                  className="flex items-center gap-1.5 rounded-full px-3 py-0.5 text-sm text-zinc-200 hover:bg-zinc-700"
+                  className="flex items-center gap-1.5 rounded-full px-3 py-0.5 text-base text-zinc-200 hover:bg-zinc-700"
                 >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="1.5" className="h-4 w-4 shrink-0">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="1.5" className="h-5 w-5 shrink-0">
                     <rect x="3" y="7" width="18" height="13" rx="2" />
                     <path d="M8 7l2-3h4l2 3" />
                     <circle cx="12" cy="13.5" r="3.2" />
@@ -3271,9 +3275,9 @@ export default function VideoTuYTuongClient({
                 <button
                   type="button"
                   onClick={() => setColorModalOpen(true)}
-                  className="flex items-center gap-1.5 rounded-full px-3 py-0.5 text-sm text-zinc-200 hover:bg-zinc-700"
+                  className="flex items-center gap-1.5 rounded-full px-3 py-0.5 text-base text-zinc-200 hover:bg-zinc-700"
                 >
-                  <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0">
+                  <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0">
                     <circle cx="12" cy="12" r="9" fill="none" stroke="#22d3ee" strokeWidth="1.5" />
                     <path d="M12 3a9 9 0 0 1 9 9h-9z" fill="#22d3ee" />
                   </svg>
@@ -3283,9 +3287,9 @@ export default function VideoTuYTuongClient({
                 <button
                   type="button"
                   onClick={() => setLightModalOpen(true)}
-                  className="flex items-center gap-1.5 rounded-full px-3 py-0.5 text-sm text-zinc-200 hover:bg-zinc-700"
+                  className="flex items-center gap-1.5 rounded-full px-3 py-0.5 text-base text-zinc-200 hover:bg-zinc-700"
                 >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="1.5" className="h-4 w-4 shrink-0">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="1.5" className="h-5 w-5 shrink-0">
                     <circle cx="12" cy="12" r="5" />
                     <path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" />
                   </svg>
@@ -3295,7 +3299,7 @@ export default function VideoTuYTuongClient({
                 <button
                   type="button"
                   title="Sắp ra mắt"
-                  className="rounded-full px-3 py-0.5 text-sm text-zinc-200 hover:bg-zinc-700"
+                  className="rounded-full px-3 py-0.5 text-base text-zinc-200 hover:bg-zinc-700"
                 >
                   thiết lập phim tự động
                 </button>
@@ -3498,11 +3502,11 @@ export default function VideoTuYTuongClient({
                   </button>
                 </div>
 
-                <div className="ml-[95px] flex flex-wrap items-center gap-2">
+                <div className="ml-[140px] flex flex-wrap items-center gap-3">
                   <button
                     type="button"
                     onClick={() => setPickerModal({ defaultTab: "reference", forMention: true })}
-                    className="flex items-center gap-1.5 rounded-full px-3 py-0.5 text-sm text-zinc-200 hover:bg-zinc-700"
+                    className="flex items-center gap-1.5 rounded-full px-3 py-0.5 text-base text-zinc-200 hover:bg-zinc-700"
                     title="Chèn @mention nhân vật từ kho tham chiếu"
                   >
                     character
@@ -3510,7 +3514,7 @@ export default function VideoTuYTuongClient({
                   <button
                     type="button"
                     onClick={() => setCameraModalOpen(true)}
-                    className="flex items-center gap-1.5 rounded-full px-3 py-0.5 text-sm text-zinc-200 hover:bg-zinc-700"
+                    className="flex items-center gap-1.5 rounded-full px-3 py-0.5 text-base text-zinc-200 hover:bg-zinc-700"
                   >
                     <svg viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="1.5" className="h-4 w-4 shrink-0">
                       <rect x="3" y="7" width="18" height="13" rx="2" />
@@ -3522,7 +3526,7 @@ export default function VideoTuYTuongClient({
                   <button
                     type="button"
                     onClick={() => setColorModalOpen(true)}
-                    className="flex items-center gap-1.5 rounded-full px-3 py-0.5 text-sm text-zinc-200 hover:bg-zinc-700"
+                    className="flex items-center gap-1.5 rounded-full px-3 py-0.5 text-base text-zinc-200 hover:bg-zinc-700"
                   >
                     <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0">
                       <circle cx="12" cy="12" r="9" fill="none" stroke="#22d3ee" strokeWidth="1.5" />
