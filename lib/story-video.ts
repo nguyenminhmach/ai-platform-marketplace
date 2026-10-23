@@ -2258,9 +2258,24 @@ async function submitSceneImageForRow(
       // SỬA tiếp (cùng nguyên nhân): ngoài vùng trắng, thêm MÔ TẢ BẰNG CHỮ vị trí đó (vd "lower-left")
       // -- dùng chung describeMaskZonePosition đã có sẵn cho nhánh nhiều nhân vật. Chỉ dẫn chữ là kênh
       // THỨ 2, độc lập với mask hình ảnh -- model dễ tuân theo chữ hơn vùng không gian thuần tuý.
+      // SỬA tiếp (phản hồi thật user: tự thử trực tiếp trên Google Gemini, chỉ gõ thẳng 2 số tọa độ
+      // chuẩn hoá bằng CHỮ SỐ vào prompt ("tọa độ là x=0.538, y=0.834"), không dùng mask gì cả -- model
+      // tuân theo khá đúng) -- thêm ĐÚNG 2 con số thật (không chỉ mô tả định tính "trái/phải") vào câu
+      // chỉ dẫn, mirror đúng cách đã test thành công thủ công.
+      // SỬA LỖI (phát hiện qua dry-run test trước khi push, theo đúng yêu cầu user "phải thử đã"):
+      // rect.yPct = y_click - H (đáy khung = điểm chân, xem generatePositionMaskDataUrl phía client) --
+      // "tâm hình học" của khung (yPct + hPct/2) KHÔNG PHẢI điểm chân thật, lệch hẳn nửa chiều cao khung
+      // (vd y_click=0.797, box H=0.25 -> tâm hình học chỉ ra y=0.672, sai gần 0.13). Câu chỉ dẫn cũ
+      // "feet phải ở TÂM vùng trắng" + số liệu tính từ tâm hình học đều SAI theo đúng quy ước này --
+      // phải dùng ĐÁY khung (yPct + hPct) cho trục dọc, tâm khung (xPct + wPct/2) cho trục ngang.
       const zone = job.location_reference_mask_zones?.[0];
-      const zoneText = zone ? ` This white area is located in the ${describeMaskZonePosition(zone)} of the overall frame.` : "";
-      scenePrompt += ` Reference image #${idx} shows a REAL physical location, together with an inpainting mask (provided via mask_url) that marks EXACTLY where to place the character within that location. STRICT REQUIREMENT, highest priority: the character's feet/base must be positioned AT THE CENTER of the WHITE area of the mask — not merely somewhere inside it, not shifted toward any other part of the frame (e.g. a tree, a wall, or any other visually prominent object) for compositional reasons.${zoneText} Treat the white area's center as a fixed, non-negotiable anchor point, exactly as strictly as the requirement below to keep the black area unchanged. The BLACK area must remain pixel-identical to reference image #${idx} — do not alter, redraw, move, or crop anything outside the white masked area. Preserve the real location's appearance (layout, colors, decor, lighting) accurately everywhere outside the masked area.`;
+      const anchorX = zone ? zone.xPct + zone.wPct / 2 : undefined;
+      const anchorY = zone ? zone.yPct + zone.hPct : undefined;
+      const zoneText =
+        zone && anchorX !== undefined && anchorY !== undefined
+          ? ` The exact point where the character's feet must touch the ground is at normalized position x=${anchorX.toFixed(3)}, y=${anchorY.toFixed(3)} of the overall frame (where x=0/y=0 is the top-left corner of the frame and x=1/y=1 is the bottom-right corner) — this is in the ${describeMaskZonePosition(zone)} of the frame. This point is at the horizontal center and the BOTTOM edge of the white masked area (not its geometric center — the white area extends upward from this point to accommodate the character's full body height).`
+          : "";
+      scenePrompt += ` Reference image #${idx} shows a REAL physical location, together with an inpainting mask (provided via mask_url) that marks EXACTLY where to place the character within that location. STRICT REQUIREMENT, highest priority: the character's feet must be positioned exactly at the horizontal center and the BOTTOM edge of the WHITE area of the mask — not at the geometric center of the white area, not merely somewhere inside it, not shifted toward any other part of the frame (e.g. a tree, a wall, or any other visually prominent object) for compositional reasons.${zoneText} Treat this foot-placement point as a fixed, non-negotiable anchor, exactly as strictly as the requirement below to keep the black area unchanged. The BLACK area must remain pixel-identical to reference image #${idx} — do not alter, redraw, move, or crop anything outside the white masked area. Preserve the real location's appearance (layout, colors, decor, lighting) accurately everywhere outside the masked area.`;
     } else {
       scenePrompt += ` Reference image #${idx} shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
     }
@@ -2422,10 +2437,15 @@ async function submitMultiCharacterSceneImageForRow(
       // Mask gộp CHUNG 1 ảnh cho cả job — nhiều vùng trắng cùng lúc, tự nó KHÔNG phân biệt được vùng
       // nào cho ai (xem JobRow.location_reference_mask_zones), nên phải bù bằng câu chỉ dẫn văn bản
       // gán rõ từng người vào đúng vùng theo vị trí tương đối (trái/phải/giữa...).
+      // SỬA tiếp (mirror luồng 1 nhân vật: test thật trên Google Gemini cho thấy gõ thẳng số tọa độ
+      // chuẩn hoá bằng CHỮ SỐ vào prompt được tuân theo khá đúng) -- thêm số thật x/y (tâm vùng trắng),
+      // không chỉ mô tả định tính.
       const placementLines = refs
         .map((r) => {
           const zone = maskZonesForScene.find((z) => z.position === r.position);
-          return zone ? `${r.label} must be placed in the ${describeMaskZonePosition(zone)} of the white masked region` : null;
+          return zone
+            ? `${r.label} must be placed at normalized position x=${(zone.xPct + zone.wPct / 2).toFixed(3)}, y=${(zone.yPct + zone.hPct / 2).toFixed(3)} of the overall frame (where x=0/y=0 is top-left, x=1/y=1 is bottom-right) — in the ${describeMaskZonePosition(zone)} of the white masked region`
+            : null;
         })
         .filter((s): s is string => !!s)
         .join("; ");

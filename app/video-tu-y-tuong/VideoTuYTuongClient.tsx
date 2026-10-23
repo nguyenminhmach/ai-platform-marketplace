@@ -1239,8 +1239,10 @@ export default function VideoTuYTuongClient({
   // vùng trắng vẫn lệch khá xa (model tuân thủ "giữ nguyên vùng đen" tốt hơn hẳn "đặt đúng vùng
   // trắng") — thu nhỏ khung từ 22%x50% xuống 10%x25%, khung nhỏ hơn giảm diện tích model có thể "trôi"
   // ra ngoài ý đã đánh dấu.
-  const PLACEMENT_BOX_W = 0.1;
-  const PLACEMENT_BOX_H = 0.25;
+  // SỬA tiếp (phản hồi thật user: "vẽ to quá" -- vẫn còn to dù đã giảm từ 22%x50% xuống 10%x25%) --
+  // giảm tiếp xuống 6%x15%.
+  const PLACEMENT_BOX_W = 0.06;
+  const PLACEMENT_BOX_H = 0.15;
   function generatePositionMaskDataUrl(positions: { x: number; y: number }[], naturalW: number, naturalH: number): string {
     const rects = positions.map((p) => ({
       x: Math.max(0, Math.min(1 - PLACEMENT_BOX_W, p.x - PLACEMENT_BOX_W / 2)),
