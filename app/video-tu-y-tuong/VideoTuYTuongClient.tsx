@@ -3065,6 +3065,15 @@ export default function VideoTuYTuongClient({
   // Ô muốn đúng tỉ lệ ảnh thật (vd 9:16) thì chiều cao PHẢI tính từ chiều rộng cột đã đo được: rowHeight
   // = colWidth / (ratioW/ratioH). Đo thêm chiều RỘNG khung lưới (galleryGridRef) để tính đúng công thức.
   const [galleryGridWidthPx, setGalleryGridWidthPx] = useState<number | null>(null);
+  // SỬA (phản hồi thật user: "mỗi lần deploy xong lại bị tình trạng này" — viền đen quay lại sau mỗi lần
+  // tải trang) — nguyên nhân thật: projectJobs tải về BẤT ĐỒNG BỘ (fetch sau khi trang đã render xong),
+  // nên lúc effect này chạy LẦN ĐẦU, khối lưới ảnh (galleryGridRef) THƯỜNG CHƯA TỒN TẠI (projectJobs vẫn
+  // rỗng = []), effect bỏ qua luôn observer.observe(gridEl) — và vì dependency chỉ có
+  // isImageGalleryOverlay (không đổi khi ảnh tải xong), effect KHÔNG BAO GIỜ chạy lại để bắt kịp lúc
+  // khối lưới ảnh thật sự mount — galleryGridWidthPx bị kẹt ở null vĩnh viễn, rơi về "1fr" (đoán theo
+  // nội dung, bug cũ) mãi mãi cho tới khi khách đổi tab/dự án (kích hoạt lại effect qua
+  // isImageGalleryOverlay đổi giá trị, chỉ là trùng hợp). Thêm projectJobs.length vào dependency để
+  // effect CHẮC CHẮN chạy lại đúng lúc khối lưới ảnh vừa mount xong.
   useEffect(() => {
     if (!isImageGalleryOverlay) return;
     const wrapperEl = galleryWrapperRef.current;
@@ -3082,7 +3091,7 @@ export default function VideoTuYTuongClient({
     observer.observe(headerEl);
     if (gridEl) observer.observe(gridEl);
     return () => observer.disconnect();
-  }, [isImageGalleryOverlay]);
+  }, [isImageGalleryOverlay, projectJobs.length]);
 
   return (
     <div className="flex min-h-screen bg-black text-zinc-100">
