@@ -2751,14 +2751,25 @@ export default function VideoTuYTuongClient({
 
     try {
       // 1) Tra các @mention trong prompt tới đúng element trong kho tham chiếu của khách.
+      // SỬA (phản hồi thật user: "1 nhân vật đã có ảnh character vẫn tạo ảnh character" — gắn ảnh nhân
+      // vật từ kho tham chiếu qua nút "+"/picker KHÔNG tự chèn @mention vào ô prompt nữa (đổi trước đó,
+      // phải bấm thêm vào nhãn "@id" dưới ảnh mới chèn) — nên nếu khách chỉ gắn ảnh mà QUÊN bấm nhãn đó,
+      // mentionedIds rỗng, characterElements rỗng theo, rơi thẳng vào nhánh "ảnh tải rời" bên dưới — mất
+      // hẳn cơ chế cache sheet dù ảnh ĐÃ gắn đúng từ thư viện. Giờ lấy THÊM elementId từ promptImageMeta
+      // của mọi ảnh đã gắn (không cần có mặt trong câu chữ), gộp với mentionedIds — gắn ảnh là đủ để
+      // nhận diện đúng element, không bắt buộc phải bấm thêm bước chèn @mention nữa.
       const mentionedIds = extractMentionedElementIdsClient(rawText);
+      const attachedElementIds = promptImages
+        .map((url) => promptImageMeta[url]?.elementId)
+        .filter((id): id is string => !!id);
+      const relevantElementIds = Array.from(new Set([...mentionedIds, ...attachedElementIds]));
       let elements: ReferenceElement[] = [];
-      if (mentionedIds.length > 0) {
+      if (relevantElementIds.length > 0) {
         const res = await fetch("/api/reference-elements");
         const data = await res.json();
         if (res.ok && Array.isArray(data.elements)) elements = data.elements;
       }
-      const mentionedElements = elements.filter((el) => mentionedIds.includes(el.element_id));
+      const mentionedElements = elements.filter((el) => relevantElementIds.includes(el.element_id));
       const characterElements = mentionedElements.filter((el) => el.type === "character");
       const locationElements = mentionedElements.filter((el) => el.type === "location");
       const propElements = mentionedElements.filter((el) => el.type === "prop");
