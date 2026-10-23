@@ -144,8 +144,16 @@ export default function VideoTuYTuongClient({
   const [creatingProject, setCreatingProject] = useState(false);
   const [newProjectError, setNewProjectError] = useState<string | null>(null);
   async function handleCreateProject() {
-    if (!newProjectName.trim()) {
+    const trimmedName = newProjectName.trim();
+    if (!trimmedName) {
       setNewProjectError("Nhập tên dự án trước đã");
+      return;
+    }
+    // SỬA (phản hồi thật user: "2 dự án chung tên" — 2 dự án khác nhau cùng đặt tên "1" gây lẫn lộn
+    // trong sidebar) — chặn trùng tên ngay từ lúc tạo, so sánh không phân biệt hoa/thường + khoảng trắng
+    // thừa, để không thể vô tình tạo thêm 1 dự án trùng tên 1 dự án đã có.
+    if (contentProjects.some((p) => p.name.trim().toLowerCase() === trimmedName.toLowerCase())) {
+      setNewProjectError("Tên dự án này đã có rồi, đặt tên khác giúp em");
       return;
     }
     setCreatingProject(true);
@@ -186,6 +194,12 @@ export default function VideoTuYTuongClient({
     if (!name) return;
     const prev = contentProjects.find((p) => p.id === id)?.name;
     if (prev === name) return;
+    // SỬA (phản hồi thật user: "2 dự án chung tên" — cũng chặn trùng tên khi ĐỔI TÊN, không chỉ lúc
+    // tạo mới, loại trừ chính dự án đang đổi tên ra khỏi phép so sánh).
+    if (contentProjects.some((p) => p.id !== id && p.name.trim().toLowerCase() === name.toLowerCase())) {
+      alert("Tên dự án này đã có rồi, đặt tên khác giúp em");
+      return;
+    }
     setContentProjects((items) => items.map((p) => (p.id === id ? { ...p, name } : p)));
     try {
       const res = await fetch(`/api/content-projects/${id}`, {
