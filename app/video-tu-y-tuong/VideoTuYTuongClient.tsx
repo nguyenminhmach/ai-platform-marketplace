@@ -2896,22 +2896,31 @@ export default function VideoTuYTuongClient({
       // trắng chỉ thật sự có tác dụng với model fal-ai/gpt-image-2/edit (xem hasLocationMask trong
       // lib/story-video.ts, submitSceneImageForRow) -- model khác server tự bỏ qua, không cần lọc ở đây.
       let locationReferenceMaskUrl: string | undefined;
+      // SỬA (phản hồi thật user: vị trí vẫn lệch dù mask gửi đúng -- model tuân thủ "giữ nguyên vùng
+      // đen" tốt hơn hẳn "đặt đúng vùng trắng") -- gửi kèm THÊM 1 mô tả bằng CHỮ (trái/phải/giữa,
+      // trên/dưới) của đúng vùng trắng đó, dùng chung describeMaskZonePosition đã có sẵn cho nhánh
+      // nhiều nhân vật -- chỉ dẫn chữ thường được model tuân thủ chắc hơn vùng không gian thuần tuý.
+      let locationReferenceMaskZones: { position: number; xPct: number; yPct: number; wPct: number; hPct: number }[] | undefined;
       if (locationReferenceUrl) {
         const positionsForLocation = locationPositions[locationReferenceUrl];
-        // TAM THOI (debug, 2026-10-23): log de biet locationReferenceUrl co khop dung key da luu
-        // locationPositions khong -- nguoi dung bao vi tri sai du da chon dung model, can xac dinh xem
-        // mask co thuc su duoc tao/gui di khong hay bi "khop le" (positionsForLocation rong) roi roi vao
-        // nhanh khong co mask ma khong bao loi gi.
         console.log("[handlePromptCreate] locationReferenceUrl:", locationReferenceUrl, "locationPositions keys:", Object.keys(locationPositions), "positionsForLocation:", positionsForLocation);
         if (positionsForLocation && Object.keys(positionsForLocation).length > 0) {
           try {
             const { w, h } = await loadImageNaturalSize(locationReferenceUrl);
             const maskDataUrl = generatePositionMaskDataUrl(Object.values(positionsForLocation), w, h);
             locationReferenceMaskUrl = await uploadOutfitSwapImage(maskDataUrl);
-            console.log("[handlePromptCreate] Mask tao thanh cong:", locationReferenceMaskUrl);
+            const firstPos = Object.values(positionsForLocation)[0];
+            locationReferenceMaskZones = [
+              {
+                position: 0,
+                xPct: Math.max(0, Math.min(1 - PLACEMENT_BOX_W, firstPos.x - PLACEMENT_BOX_W / 2)),
+                yPct: Math.max(0, Math.min(1 - PLACEMENT_BOX_H, firstPos.y - PLACEMENT_BOX_H)),
+                wPct: PLACEMENT_BOX_W,
+                hPct: PLACEMENT_BOX_H,
+              },
+            ];
+            console.log("[handlePromptCreate] Mask tao thanh cong:", locationReferenceMaskUrl, "zone:", locationReferenceMaskZones);
           } catch (maskErr) {
-            // TAM THOI (debug): truoc day im lang nuot loi hoan toan -- log lai de biet neu loi thuc su
-            // xay ra o day (vd loadImageNaturalSize fail do CORS) khien mask khong duoc tao.
             console.error("[handlePromptCreate] Loi tao/tai mask:", maskErr);
           }
         }
@@ -2973,6 +2982,7 @@ export default function VideoTuYTuongClient({
           durationKey: storyDurationKey,
           locationReferenceUrl,
           locationReferenceMaskUrl,
+          locationReferenceMaskZones,
           itemReferenceUrls: itemReferenceUrls.length > 0 ? itemReferenceUrls : undefined,
           existingCharacterSheetUrl,
           characterReferenceElementId,

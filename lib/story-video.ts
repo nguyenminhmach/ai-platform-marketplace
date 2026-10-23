@@ -2013,6 +2013,7 @@ type SceneStageInput = Pick<
   | "genre_key"
   | "location_reference_url"
   | "location_reference_mask_url"
+  | "location_reference_mask_zones"
   | "item_reference_urls"
   | "continuous_motion"
   | "frame_chain_mode"
@@ -2106,6 +2107,7 @@ async function submitSceneImageForRow(
     | "image_resolution_key"
     | "location_reference_url"
     | "location_reference_mask_url"
+    | "location_reference_mask_zones"
     | "item_reference_urls"
   >,
   row: ImageSceneRefRow,
@@ -2252,9 +2254,16 @@ async function submitSceneImageForRow(
     // thủ "giữ nguyên vùng đen" (ràng buộc PHỦ ĐỊNH) tốt hơn hẳn "đặt đúng vùng trắng" (ràng buộc
     // DƯƠNG) -- viết lại câu chỉ dẫn vùng trắng mạnh/cụ thể hơn, nhấn đi nhấn lại đúng 1 ý (tâm nhân
     // vật phải trùng TÂM vùng trắng, không phải "ở đâu đó trong vùng trắng là được").
-    scenePrompt += hasLocationMask
-      ? ` Reference image #${idx} shows a REAL physical location, together with an inpainting mask (provided via mask_url) that marks EXACTLY where to place the character within that location. STRICT REQUIREMENT, highest priority: the character's feet/base must be positioned AT THE CENTER of the WHITE area of the mask — not merely somewhere inside it, not shifted toward any other part of the frame (e.g. a tree, a wall, or any other visually prominent object) for compositional reasons. Treat the white area's center as a fixed, non-negotiable anchor point, exactly as strictly as the requirement below to keep the black area unchanged. The BLACK area must remain pixel-identical to reference image #${idx} — do not alter, redraw, move, or crop anything outside the white masked area. Preserve the real location's appearance (layout, colors, decor, lighting) accurately everywhere outside the masked area.`
-      : ` Reference image #${idx} shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
+    if (hasLocationMask) {
+      // SỬA tiếp (cùng nguyên nhân): ngoài vùng trắng, thêm MÔ TẢ BẰNG CHỮ vị trí đó (vd "lower-left")
+      // -- dùng chung describeMaskZonePosition đã có sẵn cho nhánh nhiều nhân vật. Chỉ dẫn chữ là kênh
+      // THỨ 2, độc lập với mask hình ảnh -- model dễ tuân theo chữ hơn vùng không gian thuần tuý.
+      const zone = job.location_reference_mask_zones?.[0];
+      const zoneText = zone ? ` This white area is located in the ${describeMaskZonePosition(zone)} of the overall frame.` : "";
+      scenePrompt += ` Reference image #${idx} shows a REAL physical location, together with an inpainting mask (provided via mask_url) that marks EXACTLY where to place the character within that location. STRICT REQUIREMENT, highest priority: the character's feet/base must be positioned AT THE CENTER of the WHITE area of the mask — not merely somewhere inside it, not shifted toward any other part of the frame (e.g. a tree, a wall, or any other visually prominent object) for compositional reasons.${zoneText} Treat the white area's center as a fixed, non-negotiable anchor point, exactly as strictly as the requirement below to keep the black area unchanged. The BLACK area must remain pixel-identical to reference image #${idx} — do not alter, redraw, move, or crop anything outside the white masked area. Preserve the real location's appearance (layout, colors, decor, lighting) accurately everywhere outside the masked area.`;
+    } else {
+      scenePrompt += ` Reference image #${idx} shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
+    }
   }
   // Ép ảnh chụp thật — model dễ ngả sang phong cách minh hoạ/tranh vẽ khi scene_description dùng
   // ngôn từ giàu chất thơ (hoàng hôn, khu vườn hoa...) mà không có chỉ dẫn phong cách hình ảnh rõ ràng.
@@ -2915,9 +2924,11 @@ export async function submitStoryVideoJob(
   // hỗ trợ mask_url (xem buildImageRequestBody). Khách khoanh vùng ở frontend, tự sinh ảnh mask cùng
   // kích thước ảnh Bối cảnh gốc rồi tải lên, gửi URL đó vào đây.
   locationReferenceMaskUrl?: string,
-  // Nhiều nhân vật, nhiều vị trí trong CÙNG 1 ảnh Bối cảnh — chỉ có ý nghĩa khi rẽ sang nhánh nhiều
-  // nhân vật bên dưới (characters.length>=2); nhánh 1 nhân vật bỏ qua (không cần, chỉ 1 vị trí duy
-  // nhất, dùng đúng locationReferenceMaskUrl như hiện có). Xem JobRow.location_reference_mask_zones.
+  // Vốn chỉ dùng cho nhiều nhân vật (phân biệt vùng trắng nào cho ai). SỬA (phản hồi thật user, debug
+  // 2026-10-23): nhánh 1 nhân vật giờ CŨNG dùng tham số này — không phải để phân biệt nhiều người, mà
+  // để lấy MÔ TẢ BẰNG CHỮ (trái/phải/giữa...) của đúng 1 vùng trắng đó, gửi kèm mask hình ảnh (xem
+  // describeMaskZonePosition, submitSceneImageForRow) -- model tuân thủ chỉ dẫn CHỮ chắc hơn hẳn vùng
+  // không gian thuần tuý (xác nhận qua test thật: mask đúng, nền giữ nguyên, nhưng vị trí vẫn lệch).
   locationReferenceMaskZones?: LocationMaskZone[],
   continuousMotion?: boolean,
   // Frame-chaining (chỉ luồng 1 nhân vật ở v1, xem applyFrameChainVideoResult) — bỏ qua hoàn toàn nếu
@@ -3056,6 +3067,7 @@ export async function submitStoryVideoJob(
       genre_key: resolvedGenreKey,
       location_reference_url: locationReferenceUrl ?? null,
       location_reference_mask_url: locationReferenceMaskUrl ?? null,
+      location_reference_mask_zones: locationReferenceMaskZones ?? null,
       item_reference_urls: normalizeItemReferenceUrls(itemReferenceUrls),
       continuous_motion: continuousMotion === true,
       frame_chain_mode: frameChainMode === true,
@@ -3080,6 +3092,7 @@ export async function submitStoryVideoJob(
     video_model: videoEntry.model,
     aspect_ratio: aspectRatio,
     image_resolution_key: resolvedResolutionKey ?? null,
+    location_reference_mask_zones: locationReferenceMaskZones ?? null,
     character_sheet_url: null,
     character_angle_urls: null,
     genre_key: resolvedGenreKey,
@@ -5409,6 +5422,7 @@ async function checkFrameChainIdentity(
     | "character_angle_urls"
     | "location_reference_url"
     | "location_reference_mask_url"
+    | "location_reference_mask_zones"
     | "item_reference_urls"
   >
 ): Promise<boolean> {
@@ -5502,7 +5516,7 @@ async function applyFrameChainImageResult(jobId: number, sceneId: number) {
   const { data: job } = await supabase
     .from("story_video_jobs")
     .select(
-      "id, user_id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url, location_reference_mask_url, item_reference_urls, story_description, genre_key, video_provider_cost_vnd_per_scene"
+      "id, user_id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url, location_reference_mask_url, location_reference_mask_zones, item_reference_urls, story_description, genre_key, video_provider_cost_vnd_per_scene"
     )
     .eq("id", jobId)
     .single();
@@ -5657,7 +5671,7 @@ async function applyFrameChainVideoResult(jobId: number, sceneId: number, videoU
     const { data: job } = await supabase
       .from("story_video_jobs")
       .select(
-        "id, user_id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url, location_reference_mask_url, item_reference_urls, story_description, genre_key, video_provider_cost_vnd_per_scene"
+        "id, user_id, mini_app_id, video_model, aspect_ratio, video_duration_key, image_model, image_resolution_key, character_sheet_url, character_angle_urls, location_reference_url, location_reference_mask_url, location_reference_mask_zones, item_reference_urls, story_description, genre_key, video_provider_cost_vnd_per_scene"
       )
       .eq("id", jobId)
       .single();
