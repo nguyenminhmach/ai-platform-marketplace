@@ -1761,7 +1761,13 @@ export async function splitStoryIntoScenes(
     const userInput = reminder
       ? `${storyDescription}\n\n(Lưu ý: lần trước bạn trả sai định dạng. Chỉ trả về mảng JSON gồm đúng ${numScenes} object {description, camera_view}, không thêm gì khác.)`
       : storyDescription;
-    const { output } = await callOpenRouter(chatModel, 800, systemPrompt, userInput);
+    // SỬA (phản hồi thật user: AI báo "không chia được phân cảnh hợp lệ" LẶP LẠI dù đã thử lại, kể cả
+    // prompt rất đơn giản) -- maxTokens cũ (800) quá chật cho model mặc định (gemini-3-flash-preview,
+    // "thinking" model tốn 1 phần token suy nghĩ nội bộ TRƯỚC khi ra câu trả lời thật, xem chú thích ở
+    // classifyCharacterImage) cộng với JSON ~11 trường bắt buộc/cảnh -- JSON bị cắt cụt giữa chừng, nên
+    // thử lại cũng cắt cụt y hệt (lỗi tất định, không ngẫu nhiên). Nới lên 2000, khớp đúng mức đã dùng
+    // ổn cho generateStoryScript (cùng dạng JSON nhiều trường, xem lib/story-video.ts chỗ khác).
+    const { output } = await callOpenRouter(chatModel, 2000, systemPrompt, userInput);
     const cleaned = output.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
     let parsed: unknown;
     try {
@@ -1894,7 +1900,8 @@ export async function splitStoryIntoScenesMulti(
     const userInput = reminder
       ? `${storyDescription}\n\n(Lưu ý: lần trước bạn trả sai định dạng. Chỉ trả về mảng JSON gồm đúng ${numScenes} object {description, characters}, không thêm gì khác.)`
       : storyDescription;
-    const { output } = await callOpenRouter(chatModel, 900, systemPrompt, userInput);
+    // Xem chú thích mirror ở splitStoryIntoScenes (luồng 1 nhân vật) -- cùng lý do nới maxTokens.
+    const { output } = await callOpenRouter(chatModel, 2000, systemPrompt, userInput);
     const cleaned = output.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
     let parsed: unknown;
     try {
