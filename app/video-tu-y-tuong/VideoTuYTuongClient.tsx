@@ -1034,11 +1034,16 @@ export default function VideoTuYTuongClient({
   // nhân vật/địa điểm) âm thầm bỏ qua hẳn ảnh vật phẩm vì vẫn ở model 1-ảnh mặc định (xác nhận qua
   // job thật #127: item_reference_urls có dữ liệu nhưng image_model vẫn là flux-pro/kontext).
   useEffect(() => {
-    // SỬA (phản hồi thật user: "không chọn được model khác" — code cũ tự ép ngược về GPT Image 2 Edit
-    // bất kỳ khi nào có mask vị trí, không cho đổi model, không giải thích gì -- khách tưởng dropdown bị
-    // liệt). Bỏ hẳn nhánh ép ngược khi có mask -- giờ khách tự do chọn model, cảnh báo nhỏ hiện khi chọn
-    // model không hỗ trợ mask ngay tại onChange của dropdown (xem bên dưới), không tự đổi lại nữa.
-    if (storyLocationReferenceMaskUrl) return;
+    // Đã khoanh vùng đặt nhân vật (mask) — CHỈ GPT Image 2 Edit thật sự hỗ trợ mask_url, ưu tiên điều
+    // kiện này trước cả multi_image (GPT Image 2 Edit vốn cũng multi_image nên không xung đột).
+    if (storyLocationReferenceMaskUrl) {
+      const current = storyImageModels.find((m) => m.key === storyImageModelKey);
+      if (current && current.model !== "fal-ai/gpt-image-2/edit") {
+        const fallback = storyImageModels.find((m) => m.model === "fal-ai/gpt-image-2/edit");
+        if (fallback) setStoryImageModelKey(fallback.key);
+      }
+      return;
+    }
     if (storyExtraCharacters.length === 0 && !storyLocationReference && storyPrimaryItemReferences.length === 0) return;
     const current = storyImageModels.find((m) => m.key === storyImageModelKey);
     if (current && !current.multi_image) {
@@ -3817,20 +3822,7 @@ export default function VideoTuYTuongClient({
                     {storyImageModels.length > 0 ? (
                       <select
                         value={storyImageModelKey ?? ""}
-                        onChange={(e) => {
-                          const nextKey = e.target.value || null;
-                          setStoryImageModelKey(nextKey);
-                          // SỬA (phản hồi thật user: cho đổi model tự do, chỉ cảnh báo thay vì ép ngược
-                          // như trước) -- báo nhẹ khi model mới không hỗ trợ mask_url trong khi đang có
-                          // mask vị trí đã đánh dấu, để khách biết mask sẽ bị bỏ qua, không bị bất ngờ.
-                          if (storyLocationReferenceMaskUrl) {
-                            const next = storyImageModels.find((m) => m.key === nextKey);
-                            if (next && next.model !== "fal-ai/gpt-image-2/edit") {
-                              setCreateToast("Model này không hỗ trợ mask vị trí — vị trí đã đánh dấu sẽ bị bỏ qua");
-                              setTimeout(() => setCreateToast(null), 4000);
-                            }
-                          }
-                        }}
+                        onChange={(e) => setStoryImageModelKey(e.target.value || null)}
                         className="h-9 rounded-full bg-zinc-700 px-3 text-xs text-zinc-200 outline-none"
                       >
                         <option value="">model</option>
