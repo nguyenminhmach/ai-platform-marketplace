@@ -1809,7 +1809,7 @@ export async function splitStoryIntoScenes(
       // TAM THOI (debug, 2026-10-23): xem chu thich o nhanh "not-json" phia tren -- ly do giong het,
       // log them JSON.stringify(parsed) de biet dung truong nao sai/thieu.
       console.error(`[splitStoryIntoScenes] Sai cau truc, parsed:`, JSON.stringify(parsed));
-      throw new Error(`wrong-shape: ${JSON.stringify(parsed).slice(0, 300)}`);
+      throw new Error(`wrong-shape: ${JSON.stringify(parsed).slice(0, 1200)}`);
     }
     return (parsed as SceneSplitResult[]).map((s) => ({
       ...s,
