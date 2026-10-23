@@ -2893,14 +2893,21 @@ export default function VideoTuYTuongClient({
       let locationReferenceMaskUrl: string | undefined;
       if (locationReferenceUrl) {
         const positionsForLocation = locationPositions[locationReferenceUrl];
+        // TAM THOI (debug, 2026-10-23): log de biet locationReferenceUrl co khop dung key da luu
+        // locationPositions khong -- nguoi dung bao vi tri sai du da chon dung model, can xac dinh xem
+        // mask co thuc su duoc tao/gui di khong hay bi "khop le" (positionsForLocation rong) roi roi vao
+        // nhanh khong co mask ma khong bao loi gi.
+        console.log("[handlePromptCreate] locationReferenceUrl:", locationReferenceUrl, "locationPositions keys:", Object.keys(locationPositions), "positionsForLocation:", positionsForLocation);
         if (positionsForLocation && Object.keys(positionsForLocation).length > 0) {
           try {
             const { w, h } = await loadImageNaturalSize(locationReferenceUrl);
             const maskDataUrl = generatePositionMaskDataUrl(Object.values(positionsForLocation), w, h);
             locationReferenceMaskUrl = await uploadOutfitSwapImage(maskDataUrl);
-          } catch {
-            // Lỗi tạo/tải mask không chặn tạo ảnh/video -- rơi về không có mask, vẫn tạo bình thường
-            // (chỉ không đúng vị trí đã chọn).
+            console.log("[handlePromptCreate] Mask tao thanh cong:", locationReferenceMaskUrl);
+          } catch (maskErr) {
+            // TAM THOI (debug): truoc day im lang nuot loi hoan toan -- log lai de biet neu loi thuc su
+            // xay ra o day (vd loadImageNaturalSize fail do CORS) khien mask khong duoc tao.
+            console.error("[handlePromptCreate] Loi tao/tai mask:", maskErr);
           }
         }
       }
