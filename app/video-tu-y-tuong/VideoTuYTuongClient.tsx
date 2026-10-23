@@ -4017,8 +4017,18 @@ export default function VideoTuYTuongClient({
                     {storyScenes
                       .filter((s) => !!s.imageUrl)
                       .map((s) => (
+                        // SỬA (phản hồi thật user: "khung ảnh lộn xộn") — trước đây gắn cứng aspect-[9/16]
+                        // bất kể storyAspectRatio khách đã chọn (vd 16:9), ép ảnh ngang vào khung dọc rồi
+                        // object-cover cắt/méo trông lộn xộn. Giờ dùng đúng storyAspectRatio (mirror
+                        // projectTileRatioNumber ở lưới "Dự án") qua inline style aspectRatio.
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img key={s.id} src={s.imageUrl as string} alt="" className="aspect-[9/16] w-full rounded-xl object-cover" />
+                        <img
+                          key={s.id}
+                          src={s.imageUrl as string}
+                          alt=""
+                          style={{ aspectRatio: storyAspectRatio === "16:9" ? "16/9" : storyAspectRatio === "9:16" ? "9/16" : "1/1" }}
+                          className="w-full rounded-xl object-cover"
+                        />
                       ))}
                   </div>
                   {storyScenes[0]?.imageUrl && (
