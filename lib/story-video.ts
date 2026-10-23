@@ -1773,7 +1773,12 @@ export async function splitStoryIntoScenes(
     try {
       parsed = JSON.parse(cleaned);
     } catch {
-      throw new Error("not-json");
+      // TAM THOI (debug, 2026-10-23): log nguyen van output AI tra ve khi JSON.parse that bai -- khong
+      // truy duoc Vercel runtime logs qua MCP (403) de xem AI thuc su tra ve gi khi loi lap lai du da
+      // nang maxTokens. console.error van ghi vao Vercel function logs, xem duoc qua dashboard thu cong
+      // kể cả khi API đọc log bị chặn.
+      console.error(`[splitStoryIntoScenes] JSON.parse that bai, output AI tra ve:`, output);
+      throw new Error(`not-json: ${output.slice(0, 300)}`);
     }
     if (
       !Array.isArray(parsed) ||
@@ -1801,7 +1806,10 @@ export async function splitStoryIntoScenes(
               (s as { end_description: string }).end_description.trim()))
       )
     ) {
-      throw new Error("wrong-shape");
+      // TAM THOI (debug, 2026-10-23): xem chu thich o nhanh "not-json" phia tren -- ly do giong het,
+      // log them JSON.stringify(parsed) de biet dung truong nao sai/thieu.
+      console.error(`[splitStoryIntoScenes] Sai cau truc, parsed:`, JSON.stringify(parsed));
+      throw new Error(`wrong-shape: ${JSON.stringify(parsed).slice(0, 300)}`);
     }
     return (parsed as SceneSplitResult[]).map((s) => ({
       ...s,
@@ -1818,11 +1826,16 @@ export async function splitStoryIntoScenes(
 
   try {
     return await attempt();
-  } catch {
+  } catch (firstErr) {
     try {
       return await attempt("retry");
-    } catch {
-      throw new Error("AI không chia được phân cảnh hợp lệ, vui lòng thử lại hoặc viết ý tưởng rõ ràng hơn");
+    } catch (secondErr) {
+      // TAM THOI (debug, 2026-10-23): keo theo ly do that cua 2 lan thu vao thong bao loi cuoi cung --
+      // client hien thang storyError nay, nen khong can vao duoc Vercel logs van thay duoc nguyen nhan
+      // that ngay o UI. Go lai thanh thong bao gon sau khi xac dinh xong nguyen nhan that.
+      const r1 = firstErr instanceof Error ? firstErr.message : String(firstErr);
+      const r2 = secondErr instanceof Error ? secondErr.message : String(secondErr);
+      throw new Error(`AI không chia được phân cảnh hợp lệ (debug: lần 1="${r1}", lần 2="${r2}"), vui lòng thử lại hoặc viết ý tưởng rõ ràng hơn`);
     }
   }
 }
