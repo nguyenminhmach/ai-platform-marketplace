@@ -3774,7 +3774,31 @@ export default function VideoTuYTuongClient({
                       <span className="flex h-9 items-center rounded-full bg-zinc-700 px-3 text-xs text-zinc-400">model</span>
                     )}
 
-                    <span className="flex h-9 items-center rounded-full bg-zinc-700 px-3 text-xs text-zinc-400">{storyResolutionKey ?? "1080"}</span>
+                    {/* SỬA (phản hồi thật user: "thiết lập chức năng [chọn độ phân giải]" — storyResolutionKey
+                        đã có sẵn, được gửi lên server khi tạo ảnh, nhưng UI trước chỉ hiện <span> tĩnh,
+                        khách không bấm chọn được gì cả) — model nào có resolution_price_vnd (hiện chỉ GPT
+                        Image 2 Edit, xem migration-story-video-gpt-image2-resolution.sql) mới hiện dropdown
+                        thật; model không hỗ trợ (giá cố định, không theo độ phân giải) vẫn giữ nguyên
+                        <span> tĩnh như cũ. */}
+                    {(() => {
+                      const currentImageModel = storyImageModels.find((m) => m.key === storyImageModelKey);
+                      const resolutionOptions = currentImageModel?.resolution_price_vnd;
+                      return resolutionOptions ? (
+                        <select
+                          value={storyResolutionKey ?? Object.keys(resolutionOptions)[0]}
+                          onChange={(e) => setStoryResolutionKey(e.target.value)}
+                          className="h-9 rounded-full bg-zinc-700 px-3 text-xs text-zinc-200 outline-none"
+                        >
+                          {Object.entries(resolutionOptions).map(([key, priceVnd]) => (
+                            <option key={key} value={key}>
+                              {key} ({priceVnd.toLocaleString("vi-VN")}đ)
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="flex h-9 items-center rounded-full bg-zinc-700 px-3 text-xs text-zinc-400">{storyResolutionKey ?? "1080"}</span>
+                      );
+                    })()}
 
                     <select
                       value={storyAspectRatio}
