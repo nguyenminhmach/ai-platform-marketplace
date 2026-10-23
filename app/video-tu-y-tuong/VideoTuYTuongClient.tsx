@@ -3783,15 +3783,18 @@ export default function VideoTuYTuongClient({
                     {(() => {
                       const currentImageModel = storyImageModels.find((m) => m.key === storyImageModelKey);
                       const resolutionOptions = currentImageModel?.resolution_price_vnd;
+                      const selectedResolutionKey = storyResolutionKey ?? Object.keys(resolutionOptions ?? {})[0];
+                      const selectedPriceVnd = resolutionOptions?.[selectedResolutionKey];
                       return resolutionOptions ? (
                         <select
-                          value={storyResolutionKey ?? Object.keys(resolutionOptions)[0]}
+                          value={selectedResolutionKey}
                           onChange={(e) => setStoryResolutionKey(e.target.value)}
+                          title={selectedPriceVnd != null ? `${selectedPriceVnd.toLocaleString("vi-VN")}đ` : undefined}
                           className="h-9 rounded-full bg-zinc-700 px-3 text-xs text-zinc-200 outline-none"
                         >
                           {Object.entries(resolutionOptions).map(([key, priceVnd]) => (
-                            <option key={key} value={key}>
-                              {key} ({priceVnd.toLocaleString("vi-VN")}đ)
+                            <option key={key} value={key} title={`${priceVnd.toLocaleString("vi-VN")}đ`}>
+                              {key}
                             </option>
                           ))}
                         </select>
