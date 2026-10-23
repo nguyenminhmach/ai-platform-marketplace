@@ -1757,6 +1757,17 @@ export async function splitStoryIntoScenes(
   if (continuousMotion) systemPrompt += `\n\n${CONTINUOUS_MOTION_INSTRUCTION}`;
   if (frameChainMode) systemPrompt += `\n\n${FRAME_CHAIN_TURN_INSTRUCTION}`;
   if (allowScenePadding) systemPrompt += `\n\n${SCENE_PADDING_INSTRUCTION}`;
+  // SỬA (phản hồi thật user, debug 2026-10-23 -- xác nhận qua nguyên văn output AI thật): khi
+  // numScenes=1 (chế độ tạo ẢNH TĨNH, tab "hình ảnh"), nếu ý tưởng gốc chứa từ 2 hành động/tư thế
+  // riêng biệt trở lên (vd "đi đôi giày, đứng trên thảm cỏ" = ngồi xỏ giày + đứng dậy bước lên cỏ, 2
+  // tư thế khác hẳn nhau), AI vẫn cứ trả về MẢNG 2 PHẦN TỬ dù bị yêu cầu đúng 1 -- mâu thuẫn trực tiếp
+  // với quy tắc "không được bỏ sót hành động đổi tư thế lớn" ở trên (quy tắc đó viết cho trường hợp
+  // N>1, không tính tới N=1). Cả 2 lần thử (kể cả có câu nhắc lại "chỉ trả đúng N object") đều sai y
+  // hệt vì đây là xung đột NỘI DUNG, không phải lỗi định dạng ngẫu nhiên. Thêm chỉ dẫn RIÊNG, ưu tiên
+  // cao hơn, chỉ bật khi numScenes===1.
+  if (numScenes === 1) {
+    systemPrompt += `\n\nQUAN TRỌNG (ưu tiên cao hơn mọi quy tắc "đổi tư thế lớn phải thể hiện rõ ở 1 cảnh cụ thể" phía trên): N=1, đây là chế độ tạo 1 ẢNH TĨNH DUY NHẤT, không phải video nhiều cảnh. BẮT BUỘC trả về mảng JSON ĐÚNG 1 phần tử, kể cả khi ý tưởng gốc mô tả nhiều hơn 1 hành động/tư thế nối tiếp nhau (ví dụ "ngồi xỏ giày rồi đứng dậy bước lên cỏ" có 2 tư thế khác nhau) — trong trường hợp đó, chọn ĐÚNG 1 khoảnh khắc đại diện nhất (thường là khoảnh khắc SAU CÙNG/gần kết quả nhất của chuỗi hành động) để mô tả trong "description", bỏ qua các khoảnh khắc trung gian trước đó, TUYỆT ĐỐI không tách thành nhiều phần tử mảng dù nội dung có nhiều tư thế.`;
+  }
   async function attempt(reminder?: string): Promise<SceneSplitResult[]> {
     const userInput = reminder
       ? `${storyDescription}\n\n(Lưu ý: lần trước bạn trả sai định dạng. Chỉ trả về mảng JSON gồm đúng ${numScenes} object {description, camera_view}, không thêm gì khác.)`
@@ -1773,12 +1784,10 @@ export async function splitStoryIntoScenes(
     try {
       parsed = JSON.parse(cleaned);
     } catch {
-      // TAM THOI (debug, 2026-10-23): log nguyen van output AI tra ve khi JSON.parse that bai -- khong
-      // truy duoc Vercel runtime logs qua MCP (403) de xem AI thuc su tra ve gi khi loi lap lai du da
-      // nang maxTokens. console.error van ghi vao Vercel function logs, xem duoc qua dashboard thu cong
-      // kể cả khi API đọc log bị chặn.
+      // Log nguyên văn output AI trả về khi JSON.parse thất bại -- giữ lại để debug sau qua Vercel
+      // dashboard nếu lỗi tái diễn (API đọc log qua MCP từng bị 403, dashboard thủ công vẫn xem được).
       console.error(`[splitStoryIntoScenes] JSON.parse that bai, output AI tra ve:`, output);
-      throw new Error(`not-json: ${output.slice(0, 300)}`);
+      throw new Error("not-json");
     }
     if (
       !Array.isArray(parsed) ||
@@ -1806,10 +1815,11 @@ export async function splitStoryIntoScenes(
               (s as { end_description: string }).end_description.trim()))
       )
     ) {
-      // TAM THOI (debug, 2026-10-23): xem chu thich o nhanh "not-json" phia tren -- ly do giong het,
-      // log them JSON.stringify(parsed) de biet dung truong nao sai/thieu.
+      // Log y het chu thich o nhanh "not-json" phia tren -- giup chan doan truong nao sai/thieu neu lai
+      // gap loi nay (vd AI tra ve sai so luong phan tu mang so voi numScenes, xem chu thich nhanh
+      // numScenes===1 o dau ham -- da xac nhan la nguyen nhan that qua debug 2026-10-23).
       console.error(`[splitStoryIntoScenes] Sai cau truc, parsed:`, JSON.stringify(parsed));
-      throw new Error(`wrong-shape: ${JSON.stringify(parsed).slice(0, 1200)}`);
+      throw new Error("wrong-shape");
     }
     return (parsed as SceneSplitResult[]).map((s) => ({
       ...s,
@@ -1826,16 +1836,11 @@ export async function splitStoryIntoScenes(
 
   try {
     return await attempt();
-  } catch (firstErr) {
+  } catch {
     try {
       return await attempt("retry");
-    } catch (secondErr) {
-      // TAM THOI (debug, 2026-10-23): keo theo ly do that cua 2 lan thu vao thong bao loi cuoi cung --
-      // client hien thang storyError nay, nen khong can vao duoc Vercel logs van thay duoc nguyen nhan
-      // that ngay o UI. Go lai thanh thong bao gon sau khi xac dinh xong nguyen nhan that.
-      const r1 = firstErr instanceof Error ? firstErr.message : String(firstErr);
-      const r2 = secondErr instanceof Error ? secondErr.message : String(secondErr);
-      throw new Error(`AI không chia được phân cảnh hợp lệ (debug: lần 1="${r1}", lần 2="${r2}"), vui lòng thử lại hoặc viết ý tưởng rõ ràng hơn`);
+    } catch {
+      throw new Error("AI không chia được phân cảnh hợp lệ, vui lòng thử lại hoặc viết ý tưởng rõ ràng hơn");
     }
   }
 }
@@ -1907,6 +1912,11 @@ export async function splitStoryIntoScenesMulti(
   let systemPrompt = customInstructions?.trim() ? `${basePrompt}\n\nGhi chú thêm từ admin: ${customInstructions.trim()}` : basePrompt;
   if (continuousMotion) systemPrompt += `\n\n${CONTINUOUS_MOTION_INSTRUCTION_MULTI}`;
   if (allowScenePadding) systemPrompt += `\n\n${SCENE_PADDING_INSTRUCTION}`;
+  // Mirror đúng chỉ dẫn numScenes===1 ở splitStoryIntoScenes (luồng 1 nhân vật) -- cùng rủi ro, cùng
+  // nguyên nhân đã xác nhận qua debug 2026-10-23.
+  if (numScenes === 1) {
+    systemPrompt += `\n\nQUAN TRỌNG (ưu tiên cao hơn mọi quy tắc "đổi tư thế lớn phải thể hiện rõ ở 1 cảnh cụ thể" phía trên): N=1, đây là chế độ tạo 1 ẢNH TĨNH DUY NHẤT, không phải video nhiều cảnh. BẮT BUỘC trả về mảng JSON ĐÚNG 1 phần tử, kể cả khi ý tưởng gốc mô tả nhiều hơn 1 hành động/tư thế nối tiếp nhau — trong trường hợp đó, chọn ĐÚNG 1 khoảnh khắc đại diện nhất (thường là khoảnh khắc SAU CÙNG/gần kết quả nhất của chuỗi hành động) để mô tả, bỏ qua các khoảnh khắc trung gian trước đó, TUYỆT ĐỐI không tách thành nhiều phần tử mảng dù nội dung có nhiều tư thế.`;
+  }
   const maxIndex = characterLabels.length - 1;
 
   async function attempt(reminder?: string): Promise<MultiSceneSplitResult[]> {
