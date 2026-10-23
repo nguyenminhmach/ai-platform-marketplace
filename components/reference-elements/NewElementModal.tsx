@@ -25,6 +25,10 @@ export type ReferenceElement = {
   // — cache để luồng tạo video không phải tạo lại sheet mới mỗi lần @mention cùng 1 nhân vật (xem
   // migration-reference-element-character-sheet-cache.sql). null = chưa từng tạo sheet cho element này.
   character_sheet_url?: string | null;
+  // Bản đồ góc->ảnh đi kèm character_sheet_url (xem migration-reference-element-angle-coverage.sql) --
+  // cache của classifyAngleCoverage (ảnh thô đã tự đủ góc) HOẶC ghi ngược từ sheet do AI tạo. Chỉ có
+  // nghĩa khi character_sheet_url cũng có giá trị.
+  character_angle_urls?: Record<string, string> | null;
 };
 
 export const TYPE_LABEL: Record<ElementType, string> = {
@@ -33,8 +37,11 @@ export const TYPE_LABEL: Record<ElementType, string> = {
   prop: "Đạo cụ",
 };
 
-// Khớp mục 7 trong spec: "Giới hạn hiện tại: tối đa 5 ảnh/yếu tố khi tạo mới (mở rộng sau nếu cần)".
-const MAX_IMAGES = 5;
+// Nâng từ 5 -> 20 (theo yêu cầu user, 2026-10-23) -- mức 5 cũ chỉ là khởi điểm tạm thời (xem mục 7
+// spec gốc: "mở rộng sau nếu cần"), không phải giới hạn kỹ thuật -- khớp đúng trần thật của backend,
+// MAX_CHARACTER_IMAGES = 20 ảnh/nhân vật (lib/story-video.ts, MAX_CHARACTER_IMAGES_CLIENT ở
+// VideoTuYTuongClient.tsx) -- không còn giới hạn UI nào chặt hơn backend nữa.
+const MAX_IMAGES = 20;
 
 export function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {

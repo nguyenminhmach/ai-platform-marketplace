@@ -10,10 +10,12 @@ import {
   MAX_STORY_CHARACTERS,
   MAX_ITEM_REFERENCES,
   REQUIRES_CONTINUOUS_MOTION_VIDEO_KEYS,
+  CHARACTER_ANGLE_LABELS,
   type MultiCharacterInput,
   type ScriptSceneResult,
   type ScriptSceneResultMulti,
   type LocationMaskZone,
+  type CharacterAngleUrls,
 } from "@/lib/story-video";
 import { InsufficientCreditError } from "@/lib/credit-system";
 import { getAuthenticatedUserId } from "@/lib/auth-server";
@@ -27,6 +29,20 @@ function parseItemReferenceUrls(raw: unknown): string[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const filtered = raw.filter((u): u is string => typeof u === "string" && u.trim().length > 0).slice(0, MAX_ITEM_REFERENCES);
   return filtered.length > 0 ? filtered : undefined;
+}
+
+// Bản đồ góc->ảnh đi kèm existingCharacterSheetUrl (xem migration-reference-element-angle-coverage.sql)
+// -- không tin cấu trúc client tự gửi, lọc lại chỉ giữ key hợp lệ (đúng CHARACTER_ANGLE_LABELS) và
+// value là string URL không rỗng; rỗng hoàn toàn thì trả undefined (coi như không có, rơi về fallback
+// sheetUrl như trước đây, không throw lỗi chặn cả request).
+function parseCharacterAngleUrls(raw: unknown): CharacterAngleUrls | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const result: Partial<CharacterAngleUrls> = {};
+  for (const key of CHARACTER_ANGLE_LABELS) {
+    const value = (raw as Record<string, unknown>)[key];
+    if (typeof value === "string" && value) result[key] = value;
+  }
+  return Object.keys(result).length > 0 ? (result as CharacterAngleUrls) : undefined;
 }
 
 // Nhiều nhân vật, nhiều vị trí trong 1 ảnh Bối cảnh — lọc mềm (không throw): bỏ qua bất kỳ phần tử nào
@@ -87,6 +103,7 @@ export async function POST(req: Request) {
     characterAppearanceDescription,
     existingCharacterSheetUrl,
     characterReferenceElementId,
+    existingCharacterAngleUrls,
     // "Dự án" ở panel nhanh (content_projects) -- cột RIÊNG, không liên quan tới story_video_jobs.project_id
     // cũ (hệ thống "video nhiều chương" đã xoá) -- xem migration-story-video-jobs-content-project-link.sql.
     contentProjectId,
@@ -237,7 +254,8 @@ export async function POST(req: Request) {
       parsedPreplannedActionsMulti,
       hasAppearanceDescription ? trimmedAppearanceDescription : undefined,
       typeof existingCharacterSheetUrl === "string" && existingCharacterSheetUrl ? existingCharacterSheetUrl : undefined,
-      typeof characterReferenceElementId === "number" ? characterReferenceElementId : undefined
+      typeof characterReferenceElementId === "number" ? characterReferenceElementId : undefined,
+      parseCharacterAngleUrls(existingCharacterAngleUrls)
     );
     // Gắn job vào "Dự án" panel nhanh (content_projects) nếu đang mở 1 dự án — lỗi ở đây không làm
     // hỏng job (credit đã trừ, job đã chạy), chỉ log lại để không mất kết quả vì 1 lỗi phụ.

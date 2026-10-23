@@ -20,6 +20,11 @@ export type ReferenceElement = {
   image_urls: string[];
   created_at: string;
   character_sheet_url?: string | null;
+  // Bản đồ góc->ảnh (vd {front: url, back: url, three_quarter_left: url, three_quarter_right: url}) --
+  // cache của classifyAngleCoverage (ảnh thô đã đủ góc, dùng thẳng không cần gộp sheet) HOẶC ghi ngược
+  // từ cropCharacterSheetIntoAngles khi character_sheet_url do AI tạo (xem
+  // migration-reference-element-angle-coverage.sql). Chỉ có nghĩa khi character_sheet_url cũng có giá trị.
+  character_angle_urls?: Record<string, string> | null;
 };
 
 // @tên chỉ cho phép chữ thường/số/gạch dưới, không dấu, không khoảng trắng — để match an toàn bằng

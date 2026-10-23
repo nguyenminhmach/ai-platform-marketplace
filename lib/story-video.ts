@@ -354,6 +354,63 @@ export async function classifyAllAreSheets(imageUrls: string[]): Promise<boolean
   return true;
 }
 
+// Phân loại GÓC của 1 ảnh thô (không phải sheet) — dùng để trả lời "nhiều ảnh rời khách tải lên đã tự
+// đủ góc chưa", KHÁC classifyCharacterImage (chỉ phân biệt sheet/ảnh thường, không quan tâm góc nào).
+// Chỉ nhận diện 4 góc CỐT LÕI (đã thống nhất: thiếu bất kỳ góc nào trong 4 góc này thì lúc tạo cảnh
+// cần đúng góc đó sẽ không có gì tham khảo, buộc model tự bịa ngay lúc đó) -- "side"/"face" (2 góc phụ
+// còn lại trong CHARACTER_ANGLE_LABELS) không cần nhận diện riêng ở bước này, "face" coi như trùng
+// nhóm FRONT (đều thấy rõ mặt).
+const ANGLE_CLASSIFY_SYSTEM_PROMPT = `Bạn là trợ lý phân loại góc chụp nhân vật trong ảnh. Nhìn ảnh và trả lời DUY NHẤT 1 từ, không giải thích, không thêm chữ nào khác:
+- "FRONT" nếu mặt và/hoặc thân hướng thẳng hoặc gần thẳng về camera (nhìn rõ mặt).
+- "LEFT" nếu thân/mặt nghiêng sang trái so với camera (mọi mức độ nghiêng, không thấy rõ mặt thẳng).
+- "RIGHT" nếu thân/mặt nghiêng sang phải so với camera (mọi mức độ nghiêng, không thấy rõ mặt thẳng).
+- "BACK" nếu quay lưng hẳn lại camera, hoàn toàn không thấy mặt.
+- "UNKNOWN" nếu không phải ảnh người, hoặc không xác định rõ được góc nào trong 4 góc trên.`;
+
+async function classifyCharacterAngle(imageUrl: string): Promise<"front" | "left" | "right" | "back" | "unknown"> {
+  try {
+    const { output } = await callOpenRouter(
+      "google/gemini-3-flash-preview",
+      300,
+      ANGLE_CLASSIFY_SYSTEM_PROMPT,
+      "Phân loại góc chụp trong ảnh này.",
+      imageUrl
+    );
+    const cleaned = output.trim().toUpperCase();
+    if (cleaned.includes("FRONT")) return "front";
+    if (cleaned.includes("LEFT")) return "left";
+    if (cleaned.includes("RIGHT")) return "right";
+    if (cleaned.includes("BACK")) return "back";
+    return "unknown";
+  } catch (err) {
+    console.error("[classifyCharacterAngle] Lỗi gọi AI phân loại góc:", err);
+    return "unknown";
+  }
+}
+
+// Kiểm tra nhiều ảnh thô (của CÙNG 1 nhân vật) đã tự đủ 4 góc cốt lõi (front/left/right/back) chưa --
+// nếu đủ, trả về bản đồ góc->ảnh (đúng cấu trúc CharacterAngleUrls, dùng thẳng cho
+// selectReferenceImagesForScene, không cần gọi CHARACTER_SHEET_MODEL tốn credit). Nếu THIẾU dù chỉ 1
+// góc, trả về null -- gọi nơi dùng hàm này phải rơi về nhánh tạo sheet cũ (AI tự suy luận góc thiếu).
+// Ảnh trùng góc (vd 2 ảnh đều "front"): giữ ảnh gặp ĐẦU TIÊN, bỏ qua ảnh trùng sau -- không ảnh hưởng
+// tính đủ góc, chỉ đơn giản hoá bản đồ trả về.
+export async function classifyAngleCoverage(
+  imageUrls: string[]
+): Promise<Pick<CharacterAngleUrls, "front" | "three_quarter_left" | "three_quarter_right" | "back"> | null> {
+  const found: Partial<Record<"front" | "left" | "right" | "back", string>> = {};
+  for (const url of imageUrls) {
+    const angle = await classifyCharacterAngle(url);
+    if (angle !== "unknown" && !found[angle]) found[angle] = url;
+  }
+  if (!found.front || !found.left || !found.right || !found.back) return null;
+  return {
+    front: found.front,
+    three_quarter_left: found.left,
+    three_quarter_right: found.right,
+    back: found.back,
+  };
+}
+
 type SceneQcResult = { ok: boolean; issue?: string };
 
 function parseSceneQcResponse(output: string): SceneQcResult {
@@ -2854,7 +2911,12 @@ export async function submitStoryVideoJob(
   // - characterReferenceElementId: element CHƯA có sheet -> sau khi tạo sheet mới xong (webhook), ghi
   //   ngược URL vừa tạo về lại element này để lần @mention sau tái sử dụng (applyCharacterStageResult).
   existingCharacterSheetUrl?: string,
-  characterReferenceElementId?: number
+  characterReferenceElementId?: number,
+  // Bản đồ góc->ảnh đi kèm existingCharacterSheetUrl (nếu element đã có cache -- xem
+  // migration-reference-element-angle-coverage.sql) -- cho phép nhánh existingCharacterSheetUrl bên
+  // dưới gửi ĐÚNG ảnh góc cần cho mỗi cảnh (qua selectReferenceImagesForScene) thay vì luôn fallback về
+  // gửi cả sheetUrl như trước đây (sheet cache cũ không giữ lại angle_urls đã cắt).
+  existingCharacterAngleUrls?: CharacterAngleUrls
 ): Promise<{ jobId: number; newBalance: number }> {
   const resolvedNumScenes = preplannedActions ? preplannedActions.length : numScenes;
   if (resolvedNumScenes < MIN_SCENES || resolvedNumScenes > MAX_SCENES) {
@@ -2912,10 +2974,15 @@ export async function submitStoryVideoJob(
     reusedAngleUrls = (saved.angle_urls as CharacterAngleUrls | null) ?? null;
   } else if (existingCharacterSheetUrl) {
     // Element @mention đã có sẵn sheet từ lần tạo trước (xem migration-reference-element-character-
-    // sheet-cache.sql) -- dùng thẳng, không cần phân loại/tạo mới gì cả. Không có angle_urls đã cắt sẵn
-    // ở đây (khác story_characters) -- runSceneSplitStage/runSceneStage bên dưới tự cắt khi cần qua
-    // cropCharacterSheetIntoAngles, giống nhánh "uploaded_sheet"/"generated".
+    // sheet-cache.sql) -- dùng thẳng, không cần phân loại/tạo mới gì cả.
+    // SỬA (khoảng hở phát hiện lúc thêm migration-reference-element-angle-coverage.sql): trước đây
+    // KHÔNG có angle_urls đã cắt sẵn ở nhánh này (reusedAngleUrls luôn null phía dưới) -- mọi cảnh sau
+    // của job dùng lại element này đều fallback về gửi cả sheetUrl (xem selectReferenceImagesForScene),
+    // dù lần tạo đầu tiên (nếu character_source='generated') ĐÃ cắt sẵn angle_urls, chỉ là chưa ghi
+    // ngược cột này về reference_elements. Giờ dùng existingCharacterAngleUrls (đi kèm
+    // existingCharacterSheetUrl, do client đọc từ reference_elements.character_angle_urls gửi lên) nếu có.
     reusedImageUrl = existingCharacterSheetUrl;
+    reusedAngleUrls = existingCharacterAngleUrls ?? null;
   } else if (characterAppearanceDescription?.trim()) {
     // Chế độ "Mô tả bằng chữ" — không cần ảnh, bỏ qua hẳn yêu cầu MIN_CHARACTER_IMAGES.
   } else if (characterImageUrls.length < MIN_CHARACTER_IMAGES || characterImageUrls.length > MAX_CHARACTER_IMAGES) {
@@ -3047,6 +3114,13 @@ export async function submitStoryVideoJob(
       // sẵn (rõ ràng không cần tạo mới). Nếu có lẫn dù chỉ 1 ảnh thường: luôn tạo Character mới dùng
       // TOÀN BỘ ảnh làm tư liệu — tránh bỏ sót ảnh thường khách muốn AI tham chiếu thêm.
       const allAreSheets = skipEntirely ? true : await classifyAllAreSheets(characterImageUrls);
+      // Theo thảo luận user (2026-10-23): nhiều ảnh thô RỜI (không phải 1 sheet) đôi khi đã tự đủ 4 góc
+      // cốt lõi (front/left/right/back) -- gọi CHARACTER_SHEET_MODEL để AI "bịa" lại các góc này là vô
+      // ích (tốn credit) vì ảnh thật tự nó đã nhất quán giữa các cảnh, không như AI tự suy luận mỗi lần
+      // khác nhau (rủi ro "drift"). Chỉ gọi (tốn thêm vài lần AI phân loại rẻ) khi allAreSheets đã false
+      // và skipEntirely chưa tick -- 2 trường hợp đó đã xử lý xong ở nhánh if(allAreSheets) phía dưới.
+      const angleCoverage =
+        !allAreSheets && characterImageUrls.length >= 2 ? await classifyAngleCoverage(characterImageUrls) : null;
       if (allAreSheets) {
         const sheetUrl = characterImageUrls[0];
         // Thử cắt góc luôn cho sheet khách tự tải lên (uploaded_sheet — ĐÃ được AI phân loại xác nhận
@@ -3071,6 +3145,33 @@ export async function submitStoryVideoJob(
           sceneStageJob.character_angle_urls = angleUrls;
           // Xem chú thích ở nhánh reusedImageUrl phía trên — cùng lý do, đổi sang runSceneSplitStage để
           // dừng ở "scenes_ready" thay vì tốn credit tạo ảnh ngay.
+          await runSceneSplitStage(userId, sceneStageJob, finalStoryDescription, modelChatKey, preplannedActions);
+          return { jobId: job.id, newBalance: await getCreditBalance(userId) };
+        }
+      } else if (angleCoverage) {
+        await supabase
+          .from("story_video_jobs")
+          .update({
+            status: "character_ready",
+            character_sheet_url: angleCoverage.front,
+            character_source: "uploaded_sheet",
+            character_angle_urls: angleCoverage,
+          })
+          .eq("id", job.id);
+        // Ghi ngược về reference_elements (nếu @mention từ kho tham chiếu) để lần sau dùng lại luôn,
+        // không gọi AI phân loại góc lại -- mirror đúng write-back của applyCharacterStageResult.
+        if (characterReferenceElementId) {
+          await supabase
+            .from("reference_elements")
+            .update({ character_sheet_url: angleCoverage.front, character_angle_urls: angleCoverage })
+            .eq("id", characterReferenceElementId);
+        }
+        if (finalStoryDescription) {
+          sceneStageJob.character_sheet_url = angleCoverage.front;
+          // Chỉ có 4/6 key (thiếu side/face) -- selectReferenceImagesForScene tự fallback về sheetUrl
+          // (angleCoverage.front) khi cảnh cần đúng 2 góc phụ này, đúng thiết kế đã thống nhất (2 góc
+          // phụ không thuộc 4 góc cốt lõi bắt buộc).
+          sceneStageJob.character_angle_urls = angleCoverage as CharacterAngleUrls;
           await runSceneSplitStage(userId, sceneStageJob, finalStoryDescription, modelChatKey, preplannedActions);
           return { jobId: job.id, newBalance: await getCreditBalance(userId) };
         }
@@ -4566,10 +4667,13 @@ export async function applyCharacterStageResult(
   // SỬA (phản hồi thật user: "đã có ảnh character rồi vẫn tạo lại") — sheet vừa tạo xong MỚI (không
   // phải reused/text_described, 2 trường hợp đó không set character_reference_element_id lúc insert)
   // ghi ngược về lại reference_elements để lần @mention sau tái sử dụng, không tạo mới nữa.
+  // Ghi ngược LUÔN angle_urls đã cắt sẵn ở trên (angleUrls, có thể null nếu cắt lỗi) — khoảng hở trước
+  // đây chỉ ghi character_sheet_url, khiến lần dùng lại sau luôn fallback gửi cả sheet (xem chú thích ở
+  // nhánh existingCharacterSheetUrl, submitStoryVideoJob) dù đã cắt sẵn góc ngay từ lần đầu này.
   if (jobRow?.character_reference_element_id) {
     await supabase
       .from("reference_elements")
-      .update({ character_sheet_url: imageUrl })
+      .update({ character_sheet_url: imageUrl, character_angle_urls: angleUrls })
       .eq("id", jobRow.character_reference_element_id);
   }
 }

@@ -2821,6 +2821,11 @@ export default function VideoTuYTuongClient({
       // dụng nhánh ĐÚNG 1 nhân vật -- nhánh nhiều nhân vật (characters[]) chưa có cache này.
       let existingCharacterSheetUrl: string | undefined;
       let characterReferenceElementId: number | undefined;
+      // Đi kèm existingCharacterSheetUrl (nếu element có cache, xem
+      // migration-reference-element-angle-coverage.sql) -- cho backend gửi đúng ảnh góc cần cho mỗi
+      // cảnh thay vì luôn fallback gửi cả sheetUrl (xem chú thích ở existingCharacterSheetUrl,
+      // submitStoryVideoJob).
+      let existingCharacterAngleUrls: Record<string, string> | undefined;
 
       if (characterElements.length >= 2) {
         // 2+ nhân vật -> luồng nhiều nhân vật, mỗi người 1 entry riêng. Ảnh "+" tải rời gộp hết vào
@@ -2832,6 +2837,7 @@ export default function VideoTuYTuongClient({
       } else if (characterElements.length === 1) {
         if (characterElements[0].character_sheet_url) {
           existingCharacterSheetUrl = characterElements[0].character_sheet_url;
+          existingCharacterAngleUrls = characterElements[0].character_angle_urls ?? undefined;
           characterImageUrls = [existingCharacterSheetUrl];
         } else {
           characterReferenceElementId = characterElements[0].id;
@@ -2938,6 +2944,7 @@ export default function VideoTuYTuongClient({
           itemReferenceUrls: itemReferenceUrls.length > 0 ? itemReferenceUrls : undefined,
           existingCharacterSheetUrl,
           characterReferenceElementId,
+          existingCharacterAngleUrls,
           // SỬA (phản hồi thật user: gắn đúng vào "Dự án" ở panel nhanh) — contentProjectId là cột MỚI,
           // riêng (xem migration-story-video-jobs-content-project-link.sql), không đụng cột project_id
           // cũ (đã thuộc hệ thống "video nhiều chương" vừa xoá). Gửi cho CẢ 2 tab khi đang trong 1 dự án.

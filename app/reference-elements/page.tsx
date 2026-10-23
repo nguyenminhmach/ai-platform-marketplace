@@ -35,7 +35,15 @@ export default function ReferenceElementsPage() {
   async function handleDelete(id: number) {
     if (!confirm("Xoá phần tử này? Không thể hoàn tác.")) return;
     const res = await fetch(`/api/reference-elements/${id}`, { method: "DELETE" });
-    if (res.ok) setElements((prev) => prev.filter((el) => el.id !== id));
+    if (res.ok) {
+      setElements((prev) => prev.filter((el) => el.id !== id));
+      return;
+    }
+    // SỬA (phản hồi thật user: "không xóa được nhân vật") — trước đây im lặng bỏ qua khi !res.ok, khách
+    // tưởng nút không hoạt động. Giờ báo lỗi thật (vd FK constraint chặn vì nhân vật đã dùng tạo job —
+    // xem migration-reference-element-delete-fk-fix.sql).
+    const data = await res.json().catch(() => null);
+    alert(data?.error || "Không xoá được — có lỗi xảy ra");
   }
 
   if (authLoading) return null;
