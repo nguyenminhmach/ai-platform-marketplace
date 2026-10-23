@@ -1234,8 +1234,13 @@ export default function VideoTuYTuongClient({
   // ở trên — đáy khung đặt đúng tại y (chân chạm đất), giữa khung canh theo x. PLACEMENT_W/H là tỉ lệ
   // khung hình người đứng ước lượng (không cần chính xác tuyệt đối, chỉ cần đủ để model AI hiểu VÙNG nào
   // nên đặt nhân vật vào, không phải khung giới hạn cứng).
-  const PLACEMENT_BOX_W = 0.22;
-  const PLACEMENT_BOX_H = 0.5;
+  // SỬA (phản hồi thật user: "kích thước to quá" — xác nhận qua test thật, console log: mask tạo/gửi
+  // đúng, nền ảnh giữ y hệt ảnh gốc (chứng tỏ model nhận đúng mask), nhưng vị trí đặt nhân vật trong
+  // vùng trắng vẫn lệch khá xa (model tuân thủ "giữ nguyên vùng đen" tốt hơn hẳn "đặt đúng vùng
+  // trắng") — thu nhỏ khung từ 22%x50% xuống 10%x25%, khung nhỏ hơn giảm diện tích model có thể "trôi"
+  // ra ngoài ý đã đánh dấu.
+  const PLACEMENT_BOX_W = 0.1;
+  const PLACEMENT_BOX_H = 0.25;
   function generatePositionMaskDataUrl(positions: { x: number; y: number }[], naturalW: number, naturalH: number): string {
     const rects = positions.map((p) => ({
       x: Math.max(0, Math.min(1 - PLACEMENT_BOX_W, p.x - PLACEMENT_BOX_W / 2)),

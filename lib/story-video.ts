@@ -2247,8 +2247,13 @@ async function submitSceneImageForRow(
   });
   if (hasLocation) {
     const idx = hasLocationMask ? 1 : characterImages.length + itemUrls.length + 1;
+    // SỬA (phản hồi thật user, debug 2026-10-23 -- xác nhận qua test thật: mask tạo/gửi đúng, nền giữ
+    // y hệt ảnh gốc, nhưng vị trí nhân vật vẫn lệch khá xa khỏi vùng trắng đã đánh dấu) -- model tuân
+    // thủ "giữ nguyên vùng đen" (ràng buộc PHỦ ĐỊNH) tốt hơn hẳn "đặt đúng vùng trắng" (ràng buộc
+    // DƯƠNG) -- viết lại câu chỉ dẫn vùng trắng mạnh/cụ thể hơn, nhấn đi nhấn lại đúng 1 ý (tâm nhân
+    // vật phải trùng TÂM vùng trắng, không phải "ở đâu đó trong vùng trắng là được").
     scenePrompt += hasLocationMask
-      ? ` Reference image #${idx} shows a REAL physical location, together with an inpainting mask (provided via mask_url) that marks EXACTLY where to place the character within that location: the WHITE area of the mask is where the character must stand/be positioned, the BLACK area must remain pixel-identical to reference image #${idx} — do not alter, redraw, move, or crop anything outside the white masked area. Preserve the real location's appearance (layout, colors, decor, lighting) accurately everywhere outside the masked area.`
+      ? ` Reference image #${idx} shows a REAL physical location, together with an inpainting mask (provided via mask_url) that marks EXACTLY where to place the character within that location. STRICT REQUIREMENT, highest priority: the character's feet/base must be positioned AT THE CENTER of the WHITE area of the mask — not merely somewhere inside it, not shifted toward any other part of the frame (e.g. a tree, a wall, or any other visually prominent object) for compositional reasons. Treat the white area's center as a fixed, non-negotiable anchor point, exactly as strictly as the requirement below to keep the black area unchanged. The BLACK area must remain pixel-identical to reference image #${idx} — do not alter, redraw, move, or crop anything outside the white masked area. Preserve the real location's appearance (layout, colors, decor, lighting) accurately everywhere outside the masked area.`
       : ` Reference image #${idx} shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
   }
   // Ép ảnh chụp thật — model dễ ngả sang phong cách minh hoạ/tranh vẽ khi scene_description dùng
@@ -2416,7 +2421,9 @@ async function submitMultiCharacterSceneImageForRow(
         .filter((s): s is string => !!s)
         .join("; ");
       // Địa điểm giờ ở VỊ TRÍ ĐẦU (không còn CUỐI) vì có mask — xem khối referenceImages phía trên.
-      scenePrompt += ` The FIRST reference image shows a REAL physical location, together with an inpainting mask (provided via mask_url) that marks the area(s) where characters may be placed within that location: the WHITE area(s) of the mask are editable, the BLACK area must remain pixel-identical to that reference image — do not alter, redraw, move, or crop anything outside the white area(s). Within the white area(s): ${placementLines}. Preserve the real location's appearance (layout, colors, decor, lighting) accurately everywhere outside the masked area(s).`;
+      // Mirror đúng câu nhấn mạnh "tâm vùng trắng" đã thêm cho luồng 1 nhân vật (cùng nguyên nhân: model
+      // tuân thủ "giữ nguyên vùng đen" tốt hơn hẳn "đặt đúng vùng trắng").
+      scenePrompt += ` The FIRST reference image shows a REAL physical location, together with an inpainting mask (provided via mask_url) that marks the area(s) where characters may be placed within that location. STRICT REQUIREMENT, highest priority: each character's feet/base must be positioned AT THE CENTER of their respective white area — not merely somewhere inside it, not shifted for compositional reasons. Treat each white area's center as a fixed, non-negotiable anchor point, exactly as strictly as the requirement to keep the black area unchanged: the BLACK area must remain pixel-identical to that reference image — do not alter, redraw, move, or crop anything outside the white area(s). Within the white area(s): ${placementLines}. Preserve the real location's appearance (layout, colors, decor, lighting) accurately everywhere outside the masked area(s).`;
     } else {
       scenePrompt += ` The LAST reference image shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
     }
