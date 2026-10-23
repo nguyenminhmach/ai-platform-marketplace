@@ -528,8 +528,31 @@ export function LocationPositionStage3D({
     scene.add(transformControls.getHelper());
     transformControlsRef.current = transformControls;
 
+    // SỬA (phản hồi thật user: "khoá không cho nhân vật bị kéo vượt ra khỏi thảm") — thảm 3D rộng đúng
+    // X: -2.5..2.5, Z: -5..0 (xem buildFlatGroundGeometry/công thức (u-0.5)*5 và -(1-v)*5 ở trên) — nhân
+    // vật kéo ra ngoài vùng này sẽ "lơ lửng" ngoài thảm, không hợp lý. KHÔNG kẹp biên ngay trong lúc kéo
+    // (objectChange) vì bài học cũ: ghi đè obj.position giữa chừng phá vỡ cách TransformControls tự tính
+    // delta bước kéo tiếp theo, gây lệch trục Z (xem comment "kéo về trục Z thì ảnh 2D vị trí sai" bên
+    // dưới) — chỉ kẹp biên 1 LẦN DUY NHẤT ngay khi BUÔNG TAY (dragging-changed, value=false), không còn
+    // ảnh hưởng gì tới các bước kéo giữa chừng nữa.
+    const MAT_HALF_WIDTH = 2.5; // X: -2.5..2.5
+    const MAT_DEPTH = 5; // Z: -5..0
     transformControls.addEventListener("dragging-changed", (event) => {
       draggingTransformRef.current = !!event.value;
+      if (event.value) return; // vừa bắt đầu kéo -- không kẹp, chỉ kẹp lúc buông tay
+      const obj = transformControls.object;
+      const url = attachedCharacterUrlRef.current;
+      if (!obj) return;
+      const clampedX = Math.min(MAT_HALF_WIDTH, Math.max(-MAT_HALF_WIDTH, obj.position.x));
+      const clampedZ = Math.min(0, Math.max(-MAT_DEPTH, obj.position.z));
+      if (clampedX === obj.position.x && clampedZ === obj.position.z) return; // không vượt biên -- không cần làm gì thêm
+      obj.position.x = clampedX;
+      obj.position.z = clampedZ;
+      if (!url || !onCharacterMove || gizmoModeRef.current === "rotate") return;
+      const x = Math.min(1, Math.max(0, clampedX / 5 + 0.5));
+      const depth = Math.min(5, Math.max(0, -clampedZ));
+      const y = depthToY2DResolved(depth, groundCalibRef.current, horizonYRef.current, 5);
+      onCharacterMove(url, { x, y });
     });
     transformControls.addEventListener("objectChange", () => {
       const obj = transformControls.object;
