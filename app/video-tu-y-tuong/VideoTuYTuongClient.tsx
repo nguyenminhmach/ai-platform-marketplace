@@ -2283,6 +2283,15 @@ export default function VideoTuYTuongClient({
   // model/tỉ lệ/độ phân giải đang chọn) vào localStorage trình duyệt, keyed theo ĐÚNG dự án đang mở —
   // không cần DB/server mới, localStorage sống sót qua cả việc tắt/khởi động lại máy (ghi xuống đĩa thật,
   // khác RAM). Khôi phục tự động khi mở lại đúng dự án đó.
+  // Vị trí đứng của từng nhân vật trên 1 ảnh địa điểm cụ thể — keyed theo [locationUrl][characterUrl],
+  // toạ độ chuẩn hoá 0..1 (x/y tính từ góc trên-trái ảnh). Cài 1 lần, dùng lại mọi lần sau khi cùng
+  // ảnh địa điểm + nhân vật đó được gắn chung vào 1 prompt (xem mục 18-19 kế hoạch đã lưu memory).
+  // SỬA (phản hồi thật user: "di chuyển được nhưng không xoay được") — thêm rotationY tuỳ chọn (radian,
+  // quanh trục đứng), lưu cùng chỗ với x/y để không mất khi dựng lại mannequin 3D.
+  // Khai báo TRƯỚC khối ProjectDraft bên dưới (dời lên từ chỗ cũ) vì buildCurrentDraft/useEffect đọc
+  // biến này ngay trong dependency array -- phải có trước, không thì lỗi "used before initialization".
+  const [locationPositions, setLocationPositions] = useState<Record<string, Record<string, { x: number; y: number; rotationY?: number }>>>({});
+
   type ProjectDraft = {
     input: string;
     promptImages: string[];
@@ -2292,12 +2301,28 @@ export default function VideoTuYTuongClient({
     storyVideoModelKey: string | null;
     storyAspectRatio: string;
     storyResolutionKey: string | null;
+    // SỬA (phản hồi thật user: "anh đã đánh dấu vị trí rồi" nhưng ảnh tạo ra không đúng vị trí) --
+    // locationPositions trước đây KHÔNG nằm trong draft, chỉ sống trong useState thuần -- mất trắng mỗi
+    // khi tải lại trang/chuyển dự án rồi quay lại, trong khi phần còn lại của nháp (prompt, ảnh gắn) vẫn
+    // còn nguyên -- khiến khách tưởng đã đánh dấu (nhớ đã làm, thấy prompt/ảnh vẫn còn) nhưng thực ra
+    // toạ độ đã rơi mất từ lúc nào không hay. Giờ lưu kèm luôn, sống sót qua tải lại trang.
+    locationPositions: Record<string, Record<string, { x: number; y: number; rotationY?: number }>>;
   };
   function draftStorageKey(projectId: number) {
     return `video-tu-y-tuong-draft-project-${projectId}`;
   }
   function buildCurrentDraft(): ProjectDraft {
-    return { input, promptImages, promptImageMeta, promptMediaTab, storyImageModelKey, storyVideoModelKey, storyAspectRatio, storyResolutionKey };
+    return {
+      input,
+      promptImages,
+      promptImageMeta,
+      promptMediaTab,
+      storyImageModelKey,
+      storyVideoModelKey,
+      storyAspectRatio,
+      storyResolutionKey,
+      locationPositions,
+    };
   }
   function saveDraftFor(projectId: number) {
     try {
@@ -2314,7 +2339,7 @@ export default function VideoTuYTuongClient({
     const timer = setTimeout(() => saveDraftFor(activeProjectId), 500);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeProjectId, input, promptImages, promptImageMeta, promptMediaTab, storyImageModelKey, storyVideoModelKey, storyAspectRatio, storyResolutionKey]);
+  }, [activeProjectId, input, promptImages, promptImageMeta, promptMediaTab, storyImageModelKey, storyVideoModelKey, storyAspectRatio, storyResolutionKey, locationPositions]);
   // Khôi phục bản nháp khi MỞ (chuyển sang) 1 dự án — chỉ khôi phục 1 LẦN cho mỗi dự án mỗi lần mở (nhờ
   // restoredProjectIdRef), không ghi đè liên tục lên những gì khách đang gõ tiếp sau khi đã khôi phục.
   const restoredProjectIdRef = useRef<number | null>(null);
@@ -2333,18 +2358,13 @@ export default function VideoTuYTuongClient({
       if (draft.storyVideoModelKey !== undefined) setStoryVideoModelKey(draft.storyVideoModelKey);
       if (draft.storyAspectRatio) setStoryAspectRatio(draft.storyAspectRatio);
       if (draft.storyResolutionKey !== undefined) setStoryResolutionKey(draft.storyResolutionKey);
+      if (draft.locationPositions) setLocationPositions(draft.locationPositions);
     } catch {
       // nháp lỗi định dạng/hỏng -- bỏ qua, khách gõ lại từ đầu cho đúng dự án đó, không crash trang.
     }
   }, [activeProjectId]);
 
   const [zoomedPromptImage, setZoomedPromptImage] = useState<string | null>(null);
-  // Vị trí đứng của từng nhân vật trên 1 ảnh địa điểm cụ thể — keyed theo [locationUrl][characterUrl],
-  // toạ độ chuẩn hoá 0..1 (x/y tính từ góc trên-trái ảnh). Cài 1 lần, dùng lại mọi lần sau khi cùng
-  // ảnh địa điểm + nhân vật đó được gắn chung vào 1 prompt (xem mục 18-19 kế hoạch đã lưu memory).
-  // SỬA (phản hồi thật user: "di chuyển được nhưng không xoay được") — thêm rotationY tuỳ chọn (radian,
-  // quanh trục đứng), lưu cùng chỗ với x/y để không mất khi dựng lại mannequin 3D.
-  const [locationPositions, setLocationPositions] = useState<Record<string, Record<string, { x: number; y: number; rotationY?: number }>>>({});
   const [positionEditorActiveChar, setPositionEditorActiveChar] = useState<string | null>(null);
   // SỬA (phản hồi thật user: muốn kiểm chứng điểm 2D nào ứng điểm nào trong 3D mà không cần gắn hẳn 1
   // nhân vật thật) — chế độ "đánh dấu điểm test": bật lên thì bấm vào ảnh 2D thêm 1 chấm đỏ đánh số,
