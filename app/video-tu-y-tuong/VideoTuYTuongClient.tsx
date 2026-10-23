@@ -4475,6 +4475,18 @@ export default function VideoTuYTuongClient({
                     )}
                   </div>
                 )}
+                {/* Hiện trực tiếp tọa độ x/y (0-1) đã lưu cho MỖI nhân vật trên ảnh địa điểm này -- để
+                    khách/dev đọc trực tiếp trên màn hình ngay lúc đánh dấu, không cần mở DevTools
+                    Console (phản hồi thật user: "anh lưu vị trí thì em phải biết tọa độ rồi chứ"). */}
+                {isLocationEditor && Object.keys(assignments).length > 0 && (
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 rounded-lg bg-zinc-900/60 px-3 py-1.5 text-xs text-zinc-400">
+                    {Object.entries(assignments).map(([u, pos]) => (
+                      <span key={u}>
+                        {promptImageMeta[u]?.name || "Nhân vật"}: x={pos.x.toFixed(3)}, y={pos.y.toFixed(3)}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {/* Phương án A — 2 khung song song (2D trái, 3D phải), đồng bộ real-time — thay cho bản
                     tab-chuyển-qua-lại trước đó (user phản hồi không thấy/khó nhận ra). Khung 3D hiện khi
                     đã có địa hình (depthImageUrl) HOẶC đã có ít nhất 1 vị trí nhân vật — không bắt buộc
