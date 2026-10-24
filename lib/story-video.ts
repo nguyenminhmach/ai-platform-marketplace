@@ -1150,32 +1150,37 @@ export async function generateLocationBlockout(imageUrl: string): Promise<Locati
   // "Dựng khối 3D" gần nhất đều groundMaskUrl=null dù depthImageUrl (API khác, không dính lỗi) vẫn ra
   // bình thường. Bỏ "include_mask" (không có tác dụng gì, apply_mask mặc định đã là true sẵn). Thêm
   // console.error khi lỗi để không còn bị nuốt im lặng lần sau.
-  const [depthResult, groundResult, horizonY] = await Promise.all([
+  // SỬA tiếp (xác nhận qua log Vercel thật, 2026-10-24, 2 lần): fix tham số include_mask đã đúng --
+  // SAM-3 CHẠY THÀNH CÔNG (không còn lỗi request). Thử prompt liệt kê nhiều từ phân cách dấu phẩy
+  // ("ground, floor, grass,...") cũng KHÔNG ăn thua -- tài liệu Fal.ai chỉ có đúng 1 ví dụ prompt, luôn
+  // là 1 TỪ ĐƠN GIẢN DUY NHẤT ("wheel"), không có hướng dẫn nào về cú pháp nhiều-từ/OR -- rất có thể
+  // SAM-3 hiểu cả chuỗi dài đó như 1 cụm từ lạ, không khớp gì cả. Đổi hẳn chiến lược: thử LẦN LƯỢT từng
+  // từ đơn (không gộp chung 1 câu), dừng ngay khi có từ đầu tiên khớp được -- bao phủ nhiều loại địa
+  // hình khách có thể tải lên (sân/đường nhựa, cỏ tự nhiên, sàn nhà) mà không cần biết trước là loại
+  // nào. Chi phí thấp (~$0.005/lượt, chỉ chạy 1 lần/ảnh rồi cache) nên thử tối đa 3 lần vẫn rẻ.
+  const GROUND_PROMPT_CANDIDATES = ["ground", "grass", "floor"];
+  async function trySamGroundMask(): Promise<{ url?: string }[] | undefined> {
+    for (const prompt of GROUND_PROMPT_CANDIDATES) {
+      const result = await callFalSync("fal-ai/sam-3/image", { image_url: imageUrl, prompt, max_masks: 1 }).catch((err) => {
+        console.error(`[generateLocationBlockout] Lỗi gọi sam-3 (prompt="${prompt}"):`, err);
+        return null;
+      });
+      const masks = result?.masks as { url?: string }[] | undefined;
+      if (masks && masks.length > 0) return masks;
+      console.error(`[generateLocationBlockout] SAM-3 không tìm thấy vùng "${prompt}" cho ảnh: ${imageUrl}`);
+    }
+    return undefined;
+  }
+
+  const [depthResult, masks, horizonY] = await Promise.all([
     callFalSync("fal-ai/imageutils/depth", { image_url: imageUrl }).catch((err) => {
       console.error("[generateLocationBlockout] Lỗi gọi depth:", err);
       return null;
     }),
-    // SỬA tiếp (xác nhận qua log Vercel thật, 2026-10-24): fix tham số include_mask đã đúng -- SAM-3
-    // giờ CHẠY THÀNH CÔNG (không còn lỗi request), nhưng prompt "ground" quá chung chung, không khớp
-    // được với địa hình tự nhiên kiểu cỏ dại/đồng hoang/đồi (khác hẳn "ground" kiểu sân/đường nhựa/sàn
-    // nhà điển hình) -- SAM-3 trả về 0 mask. Liệt kê nhiều từ đồng nghĩa bề mặt đất tự nhiên, phân cách
-    // dấu phẩy (SAM-3 hỗ trợ nhiều lớp/từ khoá trong 1 prompt) để tăng khả năng khớp được với đa dạng
-    // loại địa hình khách có thể tải lên.
-    callFalSync("fal-ai/sam-3/image", {
-      image_url: imageUrl,
-      prompt: "ground, floor, grass, terrain, dirt, hillside, lawn, field, walkable surface",
-      max_masks: 1,
-    }).catch((err) => {
-      console.error("[generateLocationBlockout] Lỗi gọi sam-3:", err);
-      return null;
-    }),
+    trySamGroundMask(),
     estimateLocationHorizon(imageUrl),
   ]);
   const img = depthResult?.image as { url?: string } | undefined;
-  const masks = groundResult?.masks as { url?: string }[] | undefined;
-  if (groundResult && masks?.length === 0) {
-    console.error(`[generateLocationBlockout] SAM-3 chạy thành công nhưng không tìm thấy vùng "ground" nào cho ảnh: ${imageUrl}`);
-  }
   return { depthImageUrl: img?.url ?? null, groundMaskUrl: masks?.[0]?.url ?? null, horizonY };
 }
 
