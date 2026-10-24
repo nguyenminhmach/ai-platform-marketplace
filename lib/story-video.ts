@@ -4791,6 +4791,35 @@ export async function applyCharacterStageResult(
   }
 }
 
+// SỬA (phản hồi thật user: "tốc độ trả ảnh về của fal chậm hơn" -- đo thật bằng script xác nhận CDN
+// Fal.ai không cache, lần tải lại sau gần như không nhanh hơn lần đầu, trong khi Supabase Storage có
+// CDN/cache riêng, lần 2 nhanh gấp ~3 lần) — tải ảnh Fal.ai về ngay sau khi tạo xong và upload lại vào
+// Supabase Storage của mình, trả về URL Storage thay vì giữ URL fal.media gốc. Mọi lần khách mở lại dự
+// án sau đó tải từ CDN có cache, không phải chịu tốc độ/độ bất ổn của CDN bên thứ 3 mỗi lần. Lỗi mirror
+// (mạng, bucket...) KHÔNG được chặn job — trả về URL Fal.ai gốc để job vẫn tiếp tục bình thường, chỉ mất
+// tác dụng tăng tốc cho riêng ảnh đó.
+async function mirrorImageToStorage(userId: string, falImageUrl: string): Promise<string> {
+  try {
+    const res = await fetch(falImageUrl);
+    if (!res.ok) return falImageUrl;
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const contentType = res.headers.get("content-type") ?? "image/png";
+    const ext = contentType.includes("jpeg") || contentType.includes("jpg") ? "jpg" : contentType.includes("webp") ? "webp" : "png";
+    const filePath = `${userId}/${randomUUID()}.${ext}`;
+    const supabase = getSupabaseAdmin();
+    const { error } = await supabase.storage.from("story-video-scene-images").upload(filePath, buffer, { contentType, upsert: true });
+    if (error) {
+      console.error(`[mirrorImageToStorage] Upload lỗi (có thể chưa chạy migration tạo bucket), giữ URL Fal.ai gốc: ${error.message}`);
+      return falImageUrl;
+    }
+    const { data: publicUrlData } = supabase.storage.from("story-video-scene-images").getPublicUrl(filePath);
+    return publicUrlData.publicUrl;
+  } catch (err) {
+    console.error(`[mirrorImageToStorage] Lỗi tải/mirror ảnh, giữ URL Fal.ai gốc:`, err);
+    return falImageUrl;
+  }
+}
+
 // Gọi khi 1 ảnh giữ nhân vật (bước 1) của 1 cảnh tạo xong. Khi TẤT CẢ cảnh xong: nếu job bật
 // auto_video thì chuyển thẳng sang bước video, ngược lại DỪNG ở "images_ready" chờ khách xem trước
 // rồi tự bấm "Tạo video" (continueStoryVideoToVideoStage).
@@ -4823,7 +4852,7 @@ export async function applyImageStageResult(
     return;
   }
 
-  const imageUrl = extractImageUrl(falPayload);
+  let imageUrl = extractImageUrl(falPayload);
   if (!imageUrl) {
     if (isRegenerate) {
       console.error(`[story-video] Không tìm thấy URL ảnh khi tạo lại cảnh #${sceneId}`);
@@ -4848,6 +4877,15 @@ export async function applyImageStageResult(
     // Lỗi khi GỌI kiểm tra (vd OpenRouter tạm lỗi) không được chặn cả job — bỏ qua, coi như ảnh ổn,
     // để không biến 1 tính năng an toàn phụ thành điểm chặn job diện rộng.
     console.error(`[story-video] Lỗi kiểm tra ảnh đen cho cảnh #${sceneId}, coi như đạt:`, err);
+  }
+
+  // Mirror về Storage của mình (xem mirrorImageToStorage) -- chỉ mirror ảnh đã qua kiểm tra đen/hỏng ở
+  // trên, tránh tốn Storage cho ảnh lỗi.
+  {
+    const { data: jobForMirror } = await supabase.from("story_video_jobs").select("user_id").eq("id", jobId).single();
+    if (jobForMirror?.user_id) {
+      imageUrl = await mirrorImageToStorage(jobForMirror.user_id, imageUrl);
+    }
   }
 
   await supabase.from("story_video_scenes").update(stage === "image_end" ? { end_image_url: imageUrl } : { image_url: imageUrl }).eq("id", sceneId);

@@ -1,5 +1,8 @@
 "use client";
 
+// Đặt tên NextImage (không phải "Image") -- trùng tên với "Image" dựng sẵn của trình duyệt (new Image()),
+// vốn đang dùng ở nhiều chỗ khác trong file này để preload ảnh.
+import NextImage from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -2547,6 +2550,18 @@ export default function VideoTuYTuongClient({
   const [createToast, setCreateToast] = useState<string | null>(null);
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // SỬA (phản hồi thật user: "khối này là khối gì" chỉ vào khung rời "Đã dừng theo yêu cầu của bạn" khi
+  // đang ở workspace chung, chưa mở dự án nào) — khối storyError rời trước đây chỉ ẩn khi isImageGalleryOverlay
+  // (trong 1 dự án); ở workspace chung chưa có lưới ảnh nào để thay thế nên vẫn hiện khối to. Giờ bỏ hẳn
+  // khối rời này trong MỌI trường hợp, thay bằng createToast (tự ẩn sau vài giây, giống cách các lỗi
+  // validate khác đã dùng) -- không còn khung to chiếm chỗ, nhưng vẫn báo lỗi/hủy cho khách biết.
+  useEffect(() => {
+    if (!storyError) return;
+    setCreateToast(storyError);
+    const t = setTimeout(() => setCreateToast(null), 4500);
+    return () => clearTimeout(t);
+  }, [storyError]);
+
   // "Cài đặt camera" — bảng Máy ảnh/Thấu kính/Khẩu độ (xem ảnh tham khảo Higgsfield). Áp dụng CHUNG
   // cho cả video, giống cơ chế máy quay/ánh sáng trước đó: không cần cột DB mới, chỉ ghép guidance
   // text vào cuối storyDescription lúc submit. "Tự động" (null) = không ghép gì, giữ hành vi cũ.
@@ -3151,8 +3166,13 @@ export default function VideoTuYTuongClient({
       >
         {job.status === "done" && job.outputUrl ? (
           <button type="button" onClick={() => setStoryQuickZoomUrl(job.outputUrl)} className="block h-full w-full" title={job.prompt}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={job.outputUrl} alt="" className="h-full w-full object-contain" />
+            {/* SỬA (phản hồi thật user: "tải ảnh đã tạo chậm") — đo thật: ảnh Fal.ai trả về cỡ 1376x768,
+                1.7-1.8MB/ảnh (PNG), hiển thị trong ô lưới nhỏ -- <img> trước đây tải NGUYÊN FILE GỐC cho 1
+                ô vài trăm px, với lưới tới 100 ảnh/dự án là tải hàng trăm MB không cần thiết. Đổi sang
+                next/image (cần khai domain ở next.config.ts) -- Next.js tự resize + nén lại đúng kích
+                thước hiển thị thật, giảm hẳn dung lượng tải. fill + object-contain giữ đúng layout cũ.
+                loading="lazy" mặc định của next/image đã tự xử lý ảnh ngoài màn hình. */}
+            <NextImage src={job.outputUrl} alt="" fill sizes="(max-width: 768px) 33vw, 20vw" className="object-contain" />
           </button>
         ) : job.status === "failed" ? (
           <div
@@ -4166,17 +4186,13 @@ export default function VideoTuYTuongClient({
               lại sau khi hủy trong handleCancelStoryVideo). Lỗi validate chặn TRƯỚC KHI job được tạo (vd
               "cần ít nhất 1 ảnh nhân vật") đã dùng createToast riêng (xem handlePromptCreate), không
               phụ thuộc khối storyError này. */}
-          {((storyRunning && !isImageGalleryOverlay) || storyResult || (storyError && !isImageGalleryOverlay)) && (
+          {((storyRunning && !isImageGalleryOverlay) || storyResult) && (
             <div ref={storyResultRef} className="mt-8 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6">
               {storyRunning && !isImageGalleryOverlay && (
                 <div className="flex items-center justify-center gap-3 py-6 text-sm text-zinc-300">
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-600 border-t-amber-400" />
                   <span>{storyStatusText ?? "Đang xử lý..."}</span>
                 </div>
-              )}
-
-              {!storyRunning && storyError && (
-                <p className="text-center text-sm text-red-400">{storyError}</p>
               )}
 
               {!storyRunning && storyResult && (
