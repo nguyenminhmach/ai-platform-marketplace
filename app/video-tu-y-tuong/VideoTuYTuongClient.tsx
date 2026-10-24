@@ -2381,19 +2381,44 @@ export default function VideoTuYTuongClient({
     restoredProjectIdRef.current = activeProjectId;
     try {
       const raw = localStorage.getItem(draftStorageKey(activeProjectId));
-      if (!raw) return;
+      if (!raw) {
+        // SỬA (phản hồi thật user: "tạo dự án mới thì prompt không được lưu dữ liệu của dự án cũ") --
+        // dự án chưa từng có nháp (vừa tạo, hoặc chưa gõ gì bao giờ) trước đây bị bỏ qua hoàn toàn ở đây,
+        // để nguyên input/promptImages/mention... còn lại từ dự án vừa rời đi (hoặc workspace chung) --
+        // phải RESET VỀ RỖNG, không phải không làm gì.
+        setInput("");
+        setPromptImages([]);
+        setPromptImageMeta({});
+        setPromptMediaTab("video");
+        setStoryImageModelKey(initialImageModelKey);
+        setStoryVideoModelKey(initialVideoModelKey);
+        setStoryAspectRatio("16:9");
+        setStoryResolutionKey(initialResolutionKey);
+        setLocationPositions({});
+        return;
+      }
       const draft = JSON.parse(raw) as Partial<ProjectDraft>;
-      if (typeof draft.input === "string") setInput(draft.input);
-      if (Array.isArray(draft.promptImages)) setPromptImages(draft.promptImages);
-      if (draft.promptImageMeta) setPromptImageMeta(draft.promptImageMeta);
-      if (draft.promptMediaTab) setPromptMediaTab(draft.promptMediaTab);
-      if (draft.storyImageModelKey !== undefined) setStoryImageModelKey(draft.storyImageModelKey);
-      if (draft.storyVideoModelKey !== undefined) setStoryVideoModelKey(draft.storyVideoModelKey);
-      if (draft.storyAspectRatio) setStoryAspectRatio(draft.storyAspectRatio);
-      if (draft.storyResolutionKey !== undefined) setStoryResolutionKey(draft.storyResolutionKey);
-      if (draft.locationPositions) setLocationPositions(draft.locationPositions);
+      setInput(typeof draft.input === "string" ? draft.input : "");
+      setPromptImages(Array.isArray(draft.promptImages) ? draft.promptImages : []);
+      setPromptImageMeta(draft.promptImageMeta ?? {});
+      setPromptMediaTab(draft.promptMediaTab ?? "video");
+      setStoryImageModelKey(draft.storyImageModelKey !== undefined ? draft.storyImageModelKey : initialImageModelKey);
+      setStoryVideoModelKey(draft.storyVideoModelKey !== undefined ? draft.storyVideoModelKey : initialVideoModelKey);
+      setStoryAspectRatio(draft.storyAspectRatio ?? "16:9");
+      setStoryResolutionKey(draft.storyResolutionKey !== undefined ? draft.storyResolutionKey : initialResolutionKey);
+      setLocationPositions(draft.locationPositions ?? {});
     } catch {
-      // nháp lỗi định dạng/hỏng -- bỏ qua, khách gõ lại từ đầu cho đúng dự án đó, không crash trang.
+      // nháp lỗi định dạng/hỏng -- reset về rỗng, khách gõ lại từ đầu cho đúng dự án đó, không crash trang
+      // và không để sót dữ liệu dự án khác.
+      setInput("");
+      setPromptImages([]);
+      setPromptImageMeta({});
+      setPromptMediaTab("video");
+      setStoryImageModelKey(initialImageModelKey);
+      setStoryVideoModelKey(initialVideoModelKey);
+      setStoryAspectRatio("16:9");
+      setStoryResolutionKey(initialResolutionKey);
+      setLocationPositions({});
     }
   }, [activeProjectId]);
 
