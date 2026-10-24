@@ -1155,7 +1155,17 @@ export async function generateLocationBlockout(imageUrl: string): Promise<Locati
       console.error("[generateLocationBlockout] Lỗi gọi depth:", err);
       return null;
     }),
-    callFalSync("fal-ai/sam-3/image", { image_url: imageUrl, prompt: "ground", max_masks: 1 }).catch((err) => {
+    // SỬA tiếp (xác nhận qua log Vercel thật, 2026-10-24): fix tham số include_mask đã đúng -- SAM-3
+    // giờ CHẠY THÀNH CÔNG (không còn lỗi request), nhưng prompt "ground" quá chung chung, không khớp
+    // được với địa hình tự nhiên kiểu cỏ dại/đồng hoang/đồi (khác hẳn "ground" kiểu sân/đường nhựa/sàn
+    // nhà điển hình) -- SAM-3 trả về 0 mask. Liệt kê nhiều từ đồng nghĩa bề mặt đất tự nhiên, phân cách
+    // dấu phẩy (SAM-3 hỗ trợ nhiều lớp/từ khoá trong 1 prompt) để tăng khả năng khớp được với đa dạng
+    // loại địa hình khách có thể tải lên.
+    callFalSync("fal-ai/sam-3/image", {
+      image_url: imageUrl,
+      prompt: "ground, floor, grass, terrain, dirt, hillside, lawn, field, walkable surface",
+      max_masks: 1,
+    }).catch((err) => {
       console.error("[generateLocationBlockout] Lỗi gọi sam-3:", err);
       return null;
     }),
