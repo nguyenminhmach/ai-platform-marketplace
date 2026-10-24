@@ -4161,12 +4161,15 @@ export default function VideoTuYTuongClient({
           {/* SỬA (phản hồi thật user: nút "Tạo ảnh"/"Hủy" cho status "scenes_ready" giờ đã chuyển hẳn
               vào trong ô lưới (xem renderProjectJobTile) khi đang ở lưới dự án -- khung rời này không
               cần hiện lại nữa trong trường hợp đó, tránh trùng 2 nút cùng chức năng ở 2 nơi. */}
+          {/* SỬA tiếp (phản hồi thật user: "tại sao lại có khối này" chỉ vào khung nổi "Ảnh đã xong" +
+              nút "Tải ảnh" đè lên lưới) — cùng lý do: ô lưới (status "done") đã tự hiện đúng ảnh thật rồi
+              (bấm vào để phóng to), khung rời này chỉ dư thừa/trùng lặp khi đang ở lưới dự án. */}
           {!storyRunning &&
             !storyResult &&
             !storyError &&
             (storyStatus === "character_ready" ||
               (storyStatus === "scenes_ready" && !isImageGalleryOverlay) ||
-              (storyStatus === "images_ready" && storyQuickImageMode)) && (
+              (storyStatus === "images_ready" && storyQuickImageMode && !isImageGalleryOverlay)) && (
             <div className="mt-8 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6">
               {storyStatus === "character_ready" && storyCharacterSheetUrl && (
                 <div className="flex flex-col items-center gap-3">
