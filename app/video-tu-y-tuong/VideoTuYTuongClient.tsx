@@ -1041,16 +1041,11 @@ export default function VideoTuYTuongClient({
   // nhân vật/địa điểm) âm thầm bỏ qua hẳn ảnh vật phẩm vì vẫn ở model 1-ảnh mặc định (xác nhận qua
   // job thật #127: item_reference_urls có dữ liệu nhưng image_model vẫn là flux-pro/kontext).
   useEffect(() => {
-    // Đã khoanh vùng đặt nhân vật (mask) — CHỈ GPT Image 2 Edit thật sự hỗ trợ mask_url, ưu tiên điều
-    // kiện này trước cả multi_image (GPT Image 2 Edit vốn cũng multi_image nên không xung đột).
-    if (storyLocationReferenceMaskUrl) {
-      const current = storyImageModels.find((m) => m.key === storyImageModelKey);
-      if (current && current.model !== "fal-ai/gpt-image-2/edit") {
-        const fallback = storyImageModels.find((m) => m.model === "fal-ai/gpt-image-2/edit");
-        if (fallback) setStoryImageModelKey(fallback.key);
-      }
-      return;
-    }
+    // SỬA (phản hồi thật user, khôi phục lại -- kết luận cuối: gửi tọa độ bằng CHỮ giúp MỌI model đặt
+    // đúng vị trí gần đúng, không chỉ riêng GPT Image 2 Edit mới làm được như tưởng ban đầu) -- bỏ hẳn
+    // nhánh ép ngược model khi có mask vị trí, không cho tự đổi model nữa. Cảnh báo nhỏ (không phải ép
+    // ngược) hiện khi chọn model không hỗ trợ mask_url nằm ở onChange của chính dropdown, bên dưới.
+    if (storyLocationReferenceMaskUrl) return;
     if (storyExtraCharacters.length === 0 && !storyLocationReference && storyPrimaryItemReferences.length === 0) return;
     const current = storyImageModels.find((m) => m.key === storyImageModelKey);
     if (current && !current.multi_image) {
@@ -3948,7 +3943,18 @@ export default function VideoTuYTuongClient({
                     {storyImageModels.length > 0 ? (
                       <select
                         value={storyImageModelKey ?? ""}
-                        onChange={(e) => setStoryImageModelKey(e.target.value || null)}
+                        onChange={(e) => {
+                          const nextKey = e.target.value || null;
+                          setStoryImageModelKey(nextKey);
+                          // Cảnh báo nhẹ thay vì ép ngược -- xem chú thích ở useEffect phía trên.
+                          if (storyLocationReferenceMaskUrl) {
+                            const next = storyImageModels.find((m) => m.key === nextKey);
+                            if (next && next.model !== "fal-ai/gpt-image-2/edit") {
+                              setCreateToast("Model này không hỗ trợ mask vị trí — vị trí đã đánh dấu sẽ bị bỏ qua");
+                              setTimeout(() => setCreateToast(null), 4000);
+                            }
+                          }
+                        }}
                         className="h-9 rounded-full bg-zinc-700 px-3 text-xs text-zinc-200 outline-none"
                       >
                         <option value="">model</option>
