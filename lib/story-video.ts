@@ -1142,13 +1142,30 @@ async function estimateLocationHorizon(imageUrl: string): Promise<number> {
 // gọi AI lấy số liệu thô, tách riêng để test/gọi lại độc lập không tốn thêm tiền — việc hiệu chuẩn vị
 // trí 2D<->3D thật từ các kết quả này nằm ở LocationPositionStage3D.tsx (buildGroundDepthCalibration).
 export async function generateLocationBlockout(imageUrl: string): Promise<LocationBlockoutResult> {
+  // SỬA (phản hồi thật user, debug 2026-10-24 -- tra đúng tài liệu API Fal.ai thật xác nhận): tham số
+  // "include_mask" KHÔNG TỒN TẠI trong schema thật của fal-ai/sam-3/image (danh sách đúng: image_url,
+  // prompt, point_prompts, box_prompts, apply_mask, sync_mode, output_format, return_multiple_masks,
+  // max_masks, include_scores, include_boxes). Gửi tham số rác này nhiều khả năng khiến Fal.ai từ chối
+  // request -- lỗi bị .catch(() => null) nuốt im lặng, không log gì, khớp đúng hiện tượng 3 lần
+  // "Dựng khối 3D" gần nhất đều groundMaskUrl=null dù depthImageUrl (API khác, không dính lỗi) vẫn ra
+  // bình thường. Bỏ "include_mask" (không có tác dụng gì, apply_mask mặc định đã là true sẵn). Thêm
+  // console.error khi lỗi để không còn bị nuốt im lặng lần sau.
   const [depthResult, groundResult, horizonY] = await Promise.all([
-    callFalSync("fal-ai/imageutils/depth", { image_url: imageUrl }).catch(() => null),
-    callFalSync("fal-ai/sam-3/image", { image_url: imageUrl, prompt: "ground", include_mask: true, max_masks: 1 }).catch(() => null),
+    callFalSync("fal-ai/imageutils/depth", { image_url: imageUrl }).catch((err) => {
+      console.error("[generateLocationBlockout] Lỗi gọi depth:", err);
+      return null;
+    }),
+    callFalSync("fal-ai/sam-3/image", { image_url: imageUrl, prompt: "ground", max_masks: 1 }).catch((err) => {
+      console.error("[generateLocationBlockout] Lỗi gọi sam-3:", err);
+      return null;
+    }),
     estimateLocationHorizon(imageUrl),
   ]);
   const img = depthResult?.image as { url?: string } | undefined;
   const masks = groundResult?.masks as { url?: string }[] | undefined;
+  if (groundResult && masks?.length === 0) {
+    console.error(`[generateLocationBlockout] SAM-3 chạy thành công nhưng không tìm thấy vùng "ground" nào cho ảnh: ${imageUrl}`);
+  }
   return { depthImageUrl: img?.url ?? null, groundMaskUrl: masks?.[0]?.url ?? null, horizonY };
 }
 
