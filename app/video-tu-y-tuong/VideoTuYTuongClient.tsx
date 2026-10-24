@@ -1856,15 +1856,19 @@ export default function VideoTuYTuongClient({
 
   // Bước 2 của preview miễn phí (luồng 1 nhân vật) — khách đã xem bố cục Agent chọn ở status
   // "scenes_ready", bấm "Tạo ảnh" mới thật sự trừ credit + gọi model ảnh.
-  async function handleContinueToImages() {
-    if (!user || !storyJobId) return;
+  // overrideJobId (tuỳ chọn): xem chú thích tương tự ở handleCancelStoryVideo -- gọi tiếp đúng 1 job cụ
+  // thể từ ô trong lưới, tránh stale closure khi vừa setStoryJobId xong gọi luôn trong cùng 1 lần bấm.
+  async function handleContinueToImages(overrideJobId?: number) {
+    const targetJobId = overrideJobId ?? storyJobId;
+    if (!user || !targetJobId) return;
+    setStoryJobId(targetJobId);
     setStoryContinuingImages(true);
     setStoryError(null);
     try {
       const res = await fetch("/api/story-video/continue-to-images", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId: storyJobId }),
+        body: JSON.stringify({ jobId: targetJobId }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -1876,7 +1880,7 @@ export default function VideoTuYTuongClient({
       setStoryContinuingImages(false);
       setStoryRunning(true);
       setStoryStatusText(`Đang tạo ảnh cho ${storyScenePreviews?.length ?? numScenes} phân cảnh...`);
-      pollStoryVideoStatus(storyJobId);
+      pollStoryVideoStatus(targetJobId);
     } catch {
       setStoryError("Không kết nối được tới server");
       setStoryContinuingImages(false);
@@ -1915,13 +1919,18 @@ export default function VideoTuYTuongClient({
   // chỉ từ các cảnh đã có video, không chờ đủ tất cả cảnh nữa.
   // Khách chủ động bấm "Dừng tạo" khi job đang chạy dở — dừng hẳn, xem cancelStoryVideoJob() trong
   // lib/story-video.ts (KHÔNG hoàn credit các cảnh đã tốn trước đó, đúng lựa chọn của khách).
-  async function handleCancelStoryVideo() {
+  // overrideJobId (tuỳ chọn): gọi hủy đúng 1 job cụ thể từ ô trong lưới (vd "scenes_ready"), không phụ
+  // thuộc storyJobId hiện tại -- cần vì setStoryJobId là async, gọi setStoryJobId(job.id) rồi gọi hàm
+  // này ngay trong CÙNG 1 lần bấm vẫn đọc giá trị storyJobId CŨ (stale closure), không phải job.id vừa
+  // set.
+  async function handleCancelStoryVideo(overrideJobId?: number) {
+    const targetJobId = overrideJobId ?? storyJobId;
     if (storyPollRef.current) clearInterval(storyPollRef.current);
     // SỬA (phản hồi thật user: nút "Hủy" phải luôn thoát được trạng thái "Đang tạo..." kể cả khi
     // storyJobId chưa kịp set (request ban đầu còn treo, chưa có phản hồi trả về id) -- trước đây hàm
     // này return sớm nếu thiếu storyJobId, y hệt lỗi đang muốn sửa (không thoát được trạng thái treo).
     // Không có jobId thì không có gì để báo hủy phía server -- chỉ reset lại UI phía client.
-    if (!user || !storyJobId) {
+    if (!user || !targetJobId) {
       setStoryRunning(false);
       setStoryStatusText(null);
       setStoryError("Đã hủy theo yêu cầu của bạn");
@@ -1932,7 +1941,7 @@ export default function VideoTuYTuongClient({
       const res = await fetch("/api/story-video/cancel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId: storyJobId }),
+        body: JSON.stringify({ jobId: targetJobId }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -3096,6 +3105,39 @@ export default function VideoTuYTuongClient({
             <span className="text-lg">⚠️</span>
             <span className="line-clamp-3 text-[10px] text-red-300">{job.errorMessage ?? "Có lỗi xảy ra"}</span>
           </div>
+        ) : job.status === "scenes_ready" ? (
+          // SỬA (phản hồi thật user: "cái này phải hiện thị trên ô phân cảnh đầu tiên và chưa có nút
+          // hủy") — trước đây status "scenes_ready" (đã chia cảnh xong, CHƯA tạo ảnh thật, chờ khách
+          // chủ động bấm) rơi vào nhánh spinner mặc định bên dưới, hiện sai chữ "Đang tạo..." dù chưa hề
+          // có gì đang chạy -- đồng thời nút "Tạo ảnh"/"Hủy" thật lại nằm ở 1 khung tách riêng bên dưới
+          // lưới. Giờ đưa thẳng 2 nút đó vào trong chính ô này.
+          <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-2 text-center">
+            <span className="text-[10px] text-zinc-400">Đã chia cảnh — chờ tạo ảnh</span>
+            <div className="flex gap-1.5">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleContinueToImages(job.id);
+                }}
+                disabled={storyContinuingImages}
+                className="rounded-full border border-fuchsia-500 bg-fuchsia-500/20 px-2.5 py-1 text-[10px] font-medium text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {storyContinuingImages ? "Đang xử lý..." : "Tạo ảnh"}
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleCancelStoryVideo(job.id);
+                }}
+                disabled={storyCancelling}
+                className="rounded-full border border-zinc-500 px-2.5 py-1 text-[10px] font-medium text-zinc-300 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {storyCancelling ? "Đang hủy..." : "Hủy"}
+              </button>
+            </div>
+          </div>
         ) : (
           <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-center text-zinc-400">
             <span className="animate-pulse text-lg">⏳</span>
@@ -3789,7 +3831,7 @@ export default function VideoTuYTuongClient({
                 {storyRunning && (
                   <button
                     type="button"
-                    onClick={handleCancelStoryVideo}
+                    onClick={() => handleCancelStoryVideo()}
                     disabled={storyCancelling}
                     className="rounded-full border-2 border-zinc-500 bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-60"
                   >
@@ -4025,7 +4067,7 @@ export default function VideoTuYTuongClient({
                   {storyRunning && (
                     <button
                       type="button"
-                      onClick={handleCancelStoryVideo}
+                      onClick={() => handleCancelStoryVideo()}
                       disabled={storyCancelling}
                       className="rounded-full border-2 border-zinc-500 bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-60"
                     >
@@ -4093,11 +4135,14 @@ export default function VideoTuYTuongClient({
               "done", không loại trừ hết các trạng thái KHÁC 3 nhánh bên trong thật sự xử lý (nhất là từ
               khi tab "video" bỏ dừng ở "images_ready", status tiến thẳng qua generating_videos/stitching
               mà không khớp nhánh nào) — liệt kê đúng 3 trạng thái CÓ nội dung hiện ra thay vì loại trừ. */}
+          {/* SỬA (phản hồi thật user: nút "Tạo ảnh"/"Hủy" cho status "scenes_ready" giờ đã chuyển hẳn
+              vào trong ô lưới (xem renderProjectJobTile) khi đang ở lưới dự án -- khung rời này không
+              cần hiện lại nữa trong trường hợp đó, tránh trùng 2 nút cùng chức năng ở 2 nơi. */}
           {!storyRunning &&
             !storyResult &&
             !storyError &&
             (storyStatus === "character_ready" ||
-              storyStatus === "scenes_ready" ||
+              (storyStatus === "scenes_ready" && !isImageGalleryOverlay) ||
               (storyStatus === "images_ready" && storyQuickImageMode)) && (
             <div className="mt-8 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6">
               {storyStatus === "character_ready" && storyCharacterSheetUrl && (
@@ -4124,7 +4169,7 @@ export default function VideoTuYTuongClient({
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={handleContinueToImages}
+                      onClick={() => handleContinueToImages()}
                       disabled={storyContinuingImages}
                       className="rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 px-5 py-2 text-sm font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
                     >
