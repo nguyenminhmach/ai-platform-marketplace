@@ -1953,6 +1953,12 @@ export default function VideoTuYTuongClient({
       setStoryError("Đã dừng theo yêu cầu của bạn");
       setStoryRunning(false);
       setStoryStatusText(null);
+      setStoryContinuingImages(false);
+      // SỬA (phản hồi thật user: "xóa khối này đi" -- khối storyError rời không còn hiện khi đang ở
+      // lưới dự án) -- phải tải lại lưới để ô tương ứng đổi đúng sang trạng thái "cancelled" (xem nhánh
+      // mới trong renderProjectJobTile), không thì ô vẫn kẹt ở trạng thái cũ (vd "scenes_ready"/spinner)
+      // không ai biết job đã bị hủy.
+      if (activeProjectId) loadProjectJobs();
     } catch {
       setStoryError("Không kết nối được tới server");
     } finally {
@@ -3025,6 +3031,14 @@ export default function VideoTuYTuongClient({
       const data = await res.json();
       if (!res.ok) {
         setStoryError(data.error ?? "Có lỗi xảy ra");
+        // SỬA (phản hồi thật user: "xóa khối này đi" -- khối storyError rời bị ẩn khi isImageGalleryOverlay,
+        // xem điều kiện hiện khối phía dưới) -- lỗi loại này xảy ra SAU khi fetch xong nhưng TRƯỚC khi có
+        // job (server validate fail, chưa insert) nên không có ô lưới nào để báo lỗi; dùng createToast
+        // (tự ẩn sau vài giây) làm kênh thay thế, tránh lỗi bị nuốt im lặng hoàn toàn.
+        if (isImageGalleryOverlay) {
+          setCreateToast(data.error ?? "Có lỗi xảy ra");
+          setTimeout(() => setCreateToast(null), 4500);
+        }
         setStoryRunning(false);
         setStoryStatusText(null);
         setOptimisticPendingTile(false);
@@ -3104,6 +3118,13 @@ export default function VideoTuYTuongClient({
           >
             <span className="text-lg">⚠️</span>
             <span className="line-clamp-3 text-[10px] text-red-300">{job.errorMessage ?? "Có lỗi xảy ra"}</span>
+          </div>
+        ) : job.status === "cancelled" ? (
+          // SỬA (phản hồi thật user: "xóa khối này đi" chỉ vào khối storyError rời "Đã dừng theo yêu
+          // cầu của bạn") — ô lưới giờ tự báo trạng thái hủy, không cần khối chữ rời nữa.
+          <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-2 text-center text-zinc-500">
+            <span className="text-lg">⊘</span>
+            <span className="text-[10px]">Đã hủy</span>
           </div>
         ) : job.status === "scenes_ready" ? (
           // SỬA (phản hồi thật user: "cái này phải hiện thị trên ô phân cảnh đầu tiên và chưa có nút
@@ -4084,12 +4105,14 @@ export default function VideoTuYTuongClient({
 
           {/* Khu vực tiến trình/kết quả — hiện ngay dưới prompt bar sau khi bấm "tạo". */}
           {/* SỬA (phản hồi thật user: "trạng thái đang xử lý phải hiện NGAY TRONG ô phân cảnh đầu tiên,
-              không phải khung chữ riêng bên dưới") — khi đang ở lưới dự án (isImageGalleryOverlay), ô
-              lạc quan đầu lưới đã tự hiện "Đang tạo..." rồi (xem renderProjectJobTile), khung riêng này
-              không cần hiện lại spinner nữa trong trường hợp đó -- storyError vẫn phải hiện ở đây vì có
-              những lỗi validate (vd "cần ít nhất 1 ảnh nhân vật") chặn TRƯỚC KHI job được tạo, không có
-              ô nào trong lưới để báo lỗi đó. */}
-          {((storyRunning && !isImageGalleryOverlay) || storyResult || storyError) && (
+              không phải khung chữ riêng bên dưới" + sau đó "xóa khối này đi" chỉ thẳng vào khối
+              storyError "Đã dừng theo yêu cầu của bạn") — khi đang ở lưới dự án (isImageGalleryOverlay),
+              ẩn hẳn khối rời này (storyRunning LẪN storyError) -- ô lưới đã/sẽ tự phản ánh đúng trạng
+              thái (xem renderProjectJobTile, nhánh "cancelled" mới thêm bên dưới + loadProjectJobs() gọi
+              lại sau khi hủy trong handleCancelStoryVideo). Lỗi validate chặn TRƯỚC KHI job được tạo (vd
+              "cần ít nhất 1 ảnh nhân vật") đã dùng createToast riêng (xem handlePromptCreate), không
+              phụ thuộc khối storyError này. */}
+          {((storyRunning && !isImageGalleryOverlay) || storyResult || (storyError && !isImageGalleryOverlay)) && (
             <div ref={storyResultRef} className="mt-8 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6">
               {storyRunning && !isImageGalleryOverlay && (
                 <div className="flex items-center justify-center gap-3 py-6 text-sm text-zinc-300">
