@@ -2277,7 +2277,18 @@ async function submitSceneImageForRow(
           : "";
       scenePrompt += ` Reference image #${idx} shows a REAL physical location, together with an inpainting mask (provided via mask_url) that marks EXACTLY where to place the character within that location. STRICT REQUIREMENT, highest priority: the character's feet must be positioned exactly at the horizontal center and the BOTTOM edge of the WHITE area of the mask — not at the geometric center of the white area, not merely somewhere inside it, not shifted toward any other part of the frame (e.g. a tree, a wall, or any other visually prominent object) for compositional reasons.${zoneText} Treat this foot-placement point as a fixed, non-negotiable anchor, exactly as strictly as the requirement below to keep the black area unchanged. The BLACK area must remain pixel-identical to reference image #${idx} — do not alter, redraw, move, or crop anything outside the white masked area. Preserve the real location's appearance (layout, colors, decor, lighting) accurately everywhere outside the masked area.`;
     } else {
-      scenePrompt += ` Reference image #${idx} shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.`;
+      // SỬA (phản hồi thật user, khôi phục lại sau khi lỡ revert chung với phần dropdown nghi vấn ở
+      // c3972db -- user tự xác nhận lại qua test thật: viết rõ tọa độ bằng CHỮ vào prompt giúp model
+      // đặt vị trí gần đúng hơn hẳn, KHÔNG CHỈ riêng gpt-image-2/edit mới làm được -- áp dụng cho MỌI
+      // model, không chỉ model hỗ trợ mask_url) -- gửi kèm tọa độ chữ ở đây, độc lập với mask hình ảnh.
+      const zone = job.location_reference_mask_zones?.[0];
+      const anchorX = zone ? zone.xPct + zone.wPct / 2 : undefined;
+      const anchorY = zone ? zone.yPct + zone.hPct : undefined;
+      const positionText =
+        zone && anchorX !== undefined && anchorY !== undefined
+          ? ` The character's feet must be positioned exactly at normalized position x=${anchorX.toFixed(3)}, y=${anchorY.toFixed(3)} of the overall frame (where x=0/y=0 is the top-left corner and x=1/y=1 is the bottom-right corner) — this is in the ${describeMaskZonePosition(zone)} of the frame. Treat this as a precise, non-negotiable placement, not a loose suggestion.`
+          : "";
+      scenePrompt += ` Reference image #${idx} shows a REAL physical location — place this scene at that exact real location, preserving its real appearance (layout, colors, decor, lighting) accurately. Do not invent a different location.${positionText}`;
     }
   }
   // Ép ảnh chụp thật — model dễ ngả sang phong cách minh hoạ/tranh vẽ khi scene_description dùng
