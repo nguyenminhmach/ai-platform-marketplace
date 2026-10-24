@@ -148,13 +148,20 @@ function movingAverage1D(arr: number[], radius: number): number[] {
   return out;
 }
 
-// Dựng bảng hiệu chuẩn "hàng ảnh <-> độ gần/xa thật" cho 1 ảnh bối cảnh — gọi 1 lần khi ảnh có đủ
-// depthImageUrl + groundMaskUrl (giống buildTerrainGeometry), cache lại trong state, dùng cho MỌI lượt
-// quy đổi 2D<->3D sau đó (đặt nhân vật từ ảnh 2D, đọc lại vị trí khi kéo gizmo trong 3D...).
-async function buildGroundDepthCalibration(depthUrl: string, groundMaskUrl: string | null | undefined): Promise<GroundCalibration | null> {
-  if (!groundMaskUrl) return null; // không có mask đất -- không đủ dữ liệu, gọi nơi dùng tự rơi về công thức horizonY
+// Dựng bảng hiệu chuẩn "hàng ảnh <-> độ gần/xa thật" cho 1 ảnh bối cảnh — gọi 1 lần khi ảnh có
+// depthImageUrl, cache lại trong state, dùng cho MỌI lượt quy đổi 2D<->3D sau đó (đặt nhân vật từ ảnh
+// 2D, đọc lại vị trí khi kéo gizmo trong 3D, và từ giờ CẢ texture phủ sàn — xem buildFlatGroundGeometry).
+// SỬA (phản hồi thật user, đo thật bằng script và phát hiện): bản cũ CHỈ lấy dữ liệu depth map ở những
+// hàng mà SAM-3 coi là "đất" (groundMaskUrl, alpha > 5%) — trên ảnh nhiều sương mù/núi xa, dải "đất chắc
+// chắn" đó có khi chỉ chiếm ~36% chiều cao ảnh, khiến 64% còn lại (trời, núi xa, cây mờ sương) HOÀN TOÀN
+// không có dữ liệu, mọi điểm bấm trong vùng đó đều bị kẹp về cùng 1 giá trị "xa nhất", không phân biệt
+// được gì (đã đo và vẽ biểu đồ xác nhận). Giờ dùng TOÀN BỘ depth map (mọi hàng, không lọc qua mask) —
+// model depth (fal-ai/imageutils/depth) vốn đã ước lượng độ sâu tương đối cho MỌI pixel kể cả trời/cây,
+// không chỉ riêng vùng đất — đổi lại độ chính xác tuyệt đối ở vùng đất thật để lấy ĐỘ PHỦ ĐẦY ĐỦ cho
+// toàn ảnh, đúng mục đích mới (dùng để đặt camera, cần liên tục/trực quan hơn là chính xác tuyệt đối).
+async function buildGroundDepthCalibration(depthUrl: string): Promise<GroundCalibration | null> {
   try {
-    const [depthImg, maskImg] = await Promise.all([loadImageEl(depthUrl), loadImageEl(groundMaskUrl)]);
+    const depthImg = await loadImageEl(depthUrl);
     const w = depthImg.naturalWidth || depthImg.width;
     const h = depthImg.naturalHeight || depthImg.height;
     if (!w || !h) return null;
@@ -167,44 +174,23 @@ async function buildGroundDepthCalibration(depthUrl: string, groundMaskUrl: stri
     dCtx.drawImage(depthImg, 0, 0);
     const depthData = dCtx.getImageData(0, 0, w, h).data;
 
-    // Mask có thể khác kích thước ảnh gốc (SAM-3 tự co giãn theo input) — vẽ co giãn về ĐÚNG kích thước
-    // ảnh độ sâu để đối chiếu đúng pixel-với-pixel.
-    const mCanvas = document.createElement("canvas");
-    mCanvas.width = w;
-    mCanvas.height = h;
-    const mCtx = mCanvas.getContext("2d");
-    if (!mCtx) return null;
-    mCtx.drawImage(maskImg, 0, 0, w, h);
-    const maskData = mCtx.getImageData(0, 0, w, h).data;
-
-    const rowBrightnessSum = new Float64Array(h);
-    const rowWeightSum = new Float64Array(h);
+    // Không còn lọc theo mask -- lấy độ sáng trung bình CẢ HÀNG, cho MỌI hàng ảnh (rows = 0..h-1 đủ hết).
+    const rowBrightness: number[] = new Array(h);
     for (let y = 0; y < h; y++) {
+      let sum = 0;
       for (let x = 0; x < w; x++) {
         const idx = (y * w + x) * 4;
-        const alpha = maskData[idx + 3] / 255; // mask SAM-3: alpha = độ chắc chắn là "đất"
-        if (alpha < 0.05) continue;
-        const brightness = (depthData[idx] + depthData[idx + 1] + depthData[idx + 2]) / 3;
-        rowBrightnessSum[y] += brightness * alpha;
-        rowWeightSum[y] += alpha;
+        sum += (depthData[idx] + depthData[idx + 1] + depthData[idx + 2]) / 3;
       }
+      rowBrightness[y] = sum / w;
     }
-
-    const rows: number[] = [];
-    const rowBrightness: number[] = [];
-    for (let y = 0; y < h; y++) {
-      // Hàng cần tối thiểu ~2% bề rộng ảnh là đất mới tính — tránh vài điểm lẻ (nhiễu mask) tạo ra 1
-      // điểm dữ liệu không đáng tin trong bảng hiệu chuẩn.
-      if (rowWeightSum[y] > w * 0.02) {
-        rows.push(y);
-        rowBrightness.push(rowBrightnessSum[y] / rowWeightSum[y]);
-      }
-    }
-    if (rows.length < 10) return null; // quá ít dữ liệu đất (ảnh toàn nhà/trời, gần như không thấy đất) -- không đủ tin cậy
 
     // Độ sáng CÀNG CAO = CÀNG GẦN (quy ước Midas, xem ghi chú ở loadImageEl) -- nearnessRaw tăng dần theo
-    // độ gần, đúng chiều mong muốn luôn, không cần tự dò chiều.
-    const nearnessRaw = movingAverage1D(rowBrightness, 5); // làm mượt theo hàng, giảm nhiễu điểm ảnh thật
+    // độ gần, đúng chiều mong muốn luôn, không cần tự dò chiều. Cửa sổ làm mượt rộng hơn bản cũ (9 thay vì
+    // 5) để giảm hiện tượng "đoạn phẳng" (plateau) do nhiễu điểm ảnh cục bộ tạo ra khi ép đơn điệu bên
+    // dưới (đã đo thấy xảy ra thật trên dải dữ liệu hẹp trước đây, vẫn có thể xảy ra dù hiếm hơn khi phủ
+    // toàn bộ ảnh).
+    const nearnessRaw = movingAverage1D(rowBrightness, 9);
 
     // Ép ĐƠN ĐIỆU TĂNG DẦN theo thứ tự hàng (ảnh thật luôn có nhiễu cục bộ phá vỡ tính đơn điệu lý
     // thuyết của 1 mặt phẳng đất hoàn hảo) — bắt buộc để nghịch đảo (độ sâu -> hàng) có nghĩa. Dùng
@@ -221,10 +207,14 @@ async function buildGroundDepthCalibration(depthUrl: string, groundMaskUrl: stri
     const lo = pct(0.05);
     const hi = pct(0.95);
     const range = hi - lo || 1;
-    const nearness = new Float32Array(rows.length);
-    for (let i = 0; i < rows.length; i++) nearness[i] = Math.min(1, Math.max(0, (monotone[i] - lo) / range));
+    const rows = new Float32Array(h);
+    const nearness = new Float32Array(h);
+    for (let i = 0; i < h; i++) {
+      rows[i] = i;
+      nearness[i] = Math.min(1, Math.max(0, (monotone[i] - lo) / range));
+    }
 
-    return { rows: new Float32Array(rows), nearness, imgHeight: h };
+    return { rows, nearness, imgHeight: h };
   } catch {
     return null; // lỗi tải/đọc ảnh -- nơi dùng tự rơi về công thức horizonY
   }
@@ -279,24 +269,41 @@ function depthToY2DResolved(depth: number, calib: GroundCalibration | null, hori
 
 // Sàn phẳng DUY NHẤT cho mọi ảnh bối cảnh (không còn nhánh địa hình gồ ghề nữa, xem ghi chú ở
 // buildGroundDepthCalibration phía trên) — dựng 1 mặt lưới phẳng RÕ RÀNG, cùng kích thước footprint
-// (5x5) và phong cách màu nhất quán (xám sáng + khung dây), worldY luôn = 0 — cho khung 3D luôn có mặt
-// sàn rõ để nhân vật đứng lên.
-function buildFlatGroundGeometry(gridW = 24, gridH = 20): THREE.BufferGeometry {
+// (5x5) và phong cách màu nhất quán (xám sáng + khung dây), worldY luôn = 0 (KHÔNG lồi lõm gì, vẫn đúng
+// quyết định cũ "luôn giữ sàn phẳng") — cho khung 3D luôn có mặt sàn rõ để nhân vật đứng lên.
+// SỬA (phản hồi thật user: "texture và vị trí nhân vật không trùng toạ độ" — đo thật và xác nhận đúng,
+// texture bản cũ dùng công thức TUYẾN TÍNH cho Z trong khi vị trí nhân vật dùng bảng hiệu chuẩn PHI
+// TUYẾN TÍNH thật, 2 công thức khác nhau trên cùng 1 trục) — giờ truyền calib/horizonY vào đây, dùng
+// ĐÚNG 1 hàm y2DToDepthResolved duy nhất (giống hệt hàm tính vị trí nhân vật) để suy Z cho từng HÀNG lưới
+// — khoảng cách giữa các hàng không còn đều nhau nữa (co giãn theo đúng bảng thật), nhưng sàn vẫn phẳng
+// tuyệt đối (Y=0), không phải lưới địa hình gồ ghề. UV giữ nguyên tuyến tính theo v gốc (không đổi) vì đó
+// chỉ là toạ độ LẤY MẪU trên ảnh texture (không gian pixel ảnh, độc lập với vị trí thế giới 3D).
+// SỬA (phản hồi thật user, chốt lại: "xóa sam đi mà hiệu ứng trên thảm 3D vẫn còn" — tắt texture rồi mà
+// dải sương mù vẫn hiện trên chính sàn xám, vì mist trộn thẳng vào màu đỉnh lưới của CẢ sàn gốc, không
+// riêng gì lớp texture đã tắt) — bỏ hẳn hiệu ứng màu sương, sàn luôn 1 màu xám đồng nhất, không gradient.
+function buildFlatGroundGeometry(
+  gridW = 24,
+  gridH = 20,
+  calib: GroundCalibration | null = null,
+  horizonY = 0.5,
+  maxDepth = 5,
+  nearColor = new THREE.Color(0x475569)
+): THREE.BufferGeometry {
   const positions = new Float32Array(gridW * gridH * 3);
   const colors = new Float32Array(gridW * gridH * 3);
   const uvs = new Float32Array(gridW * gridH * 2);
-  const FLAT_COLOR = new THREE.Color(0x475569);
   for (let iy = 0; iy < gridH; iy++) {
     for (let ix = 0; ix < gridW; ix++) {
       const u = ix / (gridW - 1);
       const v = iy / (gridH - 1);
       const vi = (iy * gridW + ix) * 3;
+      const z = -y2DToDepthResolved(v, calib, horizonY, maxDepth);
       positions[vi] = (u - 0.5) * 5;
       positions[vi + 1] = 0;
-      positions[vi + 2] = -(1 - v) * 5;
-      colors[vi] = FLAT_COLOR.r;
-      colors[vi + 1] = FLAT_COLOR.g;
-      colors[vi + 2] = FLAT_COLOR.b;
+      positions[vi + 2] = z;
+      colors[vi] = nearColor.r;
+      colors[vi + 1] = nearColor.g;
+      colors[vi + 2] = nearColor.b;
       const ui = (iy * gridW + ix) * 2;
       uvs[ui] = u;
       // Three.js mẫu texture với v=0 ở MÉP DƯỚI ảnh (quy ước flipY mặc định), còn v hình học ở đây ứng
@@ -433,13 +440,13 @@ export function LocationPositionStage3D({
       setGroundCalib(null);
       return;
     }
-    buildGroundDepthCalibration(depthImageUrl, groundMaskUrl).then((calib) => {
+    buildGroundDepthCalibration(depthImageUrl).then((calib) => {
       if (!cancelled) setGroundCalib(calib);
     });
     return () => {
       cancelled = true;
     };
-  }, [depthImageUrl, groundMaskUrl]);
+  }, [depthImageUrl]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -447,12 +454,20 @@ export function LocationPositionStage3D({
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setClearColor(0x000000, 0);
+    // SỬA (phản hồi thật user: "vẫn nhoè" sau khi đã bật anisotropic filtering) — renderer.setPixelRatio
+    // chưa từng được gọi, Three.js mặc định render ở tỉ lệ 1:1 pixel bất kể màn hình thật có mật độ điểm
+    // ảnh cao hơn (Windows scale 125%/150%, màn Retina...), khiến CẢ KHUNG 3D (không riêng texture) bị
+    // render ở độ phân giải thấp hơn thật rồi phóng to lên — đây mới là nguyên nhân chính của nhoè chung,
+    // anisotropy chỉ xử lý được phần nhoè do góc nhìn chéo. Giới hạn ở 2 để tránh quá tải GPU trên màn
+    // hình có pixel ratio rất cao.
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 3));
     mount.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
     const scene = new THREE.Scene();
-    scene.add(new THREE.AmbientLight(0xffffff, 0.8));
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+    // SỬA (phản hồi thật user: "cho sáng lên tí nữa") — tăng nhẹ cả 2 nguồn sáng.
+    scene.add(new THREE.AmbientLight(0xffffff, 1.1));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
     dirLight.position.set(1, 3, 2);
     scene.add(dirLight);
 
@@ -757,15 +772,16 @@ export function LocationPositionStage3D({
     forceRerender((n) => n + 1);
   }, [testPoints, horizonY, groundCalib]);
 
-  // Dựng lưới địa hình (heightmap) từ ảnh độ sâu — thay cho khối hộp vuông vức trước đây, cho hình
-  // dạng lồi lõm giống địa hình thật (núi/vách đá nhô ra, chỗ xa lõm vào) thay vì khối chữ nhật phẳng
-  // lì. Vẽ cả mặt đặc (mờ) lẫn khung dây (wireframe) đè lên — khớp đúng kiểu "low-poly wireframe" đã
-  // tham khảo, dễ nhìn rõ hình khối khi xoay.
+  // Dựng sàn phẳng (worldY luôn = 0) từ bảng hiệu chuẩn thật (groundCalib) khi có, hoặc công thức
+  // horizonY đơn giản khi chưa có — ĐÚNG 1 nguồn duy nhất, cùng hàm y2DToDepthResolved mà vị trí nhân vật
+  // đang dùng (xem SỬA ở buildFlatGroundGeometry phía trên). Trước đây effect này chỉ chạy 1 lần lúc mount
+  // (deps []), dùng công thức tuyến tính cứng — giờ phải chạy lại mỗi khi groundCalib/horizonY đổi (ảnh
+  // vừa dựng khối 3D xong, hoặc đổi sang ảnh khác) để sàn luôn khớp đúng vị trí nhân vật.
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
     scene.children.filter((c) => c.userData.isLocationBlock).forEach((c) => scene.remove(c));
-    const flatGeo = buildFlatGroundGeometry();
+    const flatGeo = buildFlatGroundGeometry(24, 20, groundCalib, horizonY, 5);
     const flatSolid = new THREE.Mesh(
       flatGeo,
       new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, flatShading: true, side: THREE.DoubleSide })
@@ -779,18 +795,22 @@ export function LocationPositionStage3D({
     flatOutline.userData.isLocationBlock = true;
     scene.add(flatOutline);
     forceRerender((n) => n + 1);
-  }, []);
+  }, [groundCalib, horizonY]);
 
-  // Phủ ảnh đất thật (groundMaskUrl, đã được SAM-3 cắt theo đúng vùng đất) lên trên mặt sàn xám -- SỬA
-  // (yêu cầu thật user: "trải lên trên thảm 3D") -- tách effect riêng (không gộp vào effect dựng sàn ở
-  // trên) vì sàn chỉ cần dựng 1 lần (deps []), còn texture cần load lại mỗi khi groundMaskUrl đổi (ảnh
-  // bối cảnh khác). Dùng alphaTest để vùng ngoài mask (alpha thấp, không phải đất) không che mất sàn xám
-  // bên dưới, lệch nhẹ lên trục Y để tránh z-fighting với mặt sàn gốc.
+  // Phủ ảnh đất thật (groundMaskUrl, đã được SAM-3 cắt theo đúng vùng đất) lên trên mặt sàn xám -- yêu cầu
+  // thật user ban đầu: "trải lên trên thảm 3D". SỬA (phản hồi thật user mới nhất: "cho khối lưới 3D thành
+  // màu xám không có hiệu ứng làm lóa mắt") -- sau khi sửa 1 lỗi hiển thị (bóng cây mờ lem nhem) thì PHÁT
+  // SINH lỗi khác trên 1 ảnh khác (mảng tam giác trắng chói mắt rải rác, do mask SAM-3 của ảnh đó có nhiều
+  // vùng "đất" nhỏ lẻ/nhiễu rải rác thay vì 1 khối liền) -- quyết định TẮT HẲN tính năng phủ texture này
+  // (quay lại đúng sàn xám đơn giản + lớp sương, vốn ổn định không lỗi), vì độ ổn định quan trọng hơn hiệu
+  // ứng trực quan phụ này. Giữ nguyên code bên dưới (không xoá) để bật lại dễ dàng nếu cần.
+  // SỬA (phản hồi thật user: "em phải giữ sam lại, đằng này em đã xóa nó đi") -- bật lại, giữ texture.
+  const ENABLE_GROUND_TEXTURE_OVERLAY = true;
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
     scene.children.filter((c) => c.userData.isGroundTexture).forEach((c) => scene.remove(c));
-    if (!groundMaskUrl) return;
+    if (!groundMaskUrl || !ENABLE_GROUND_TEXTURE_OVERLAY) return;
     let cancelled = false;
     const loader = new THREE.TextureLoader();
     loader.load(groundMaskUrl, (texture) => {
@@ -799,14 +819,34 @@ export function LocationPositionStage3D({
         return;
       }
       texture.colorSpace = THREE.SRGBColorSpace;
+      // SỬA (phản hồi thật user: "ảnh SAM nhòe") — sàn nhìn CHÉO XUỐNG (góc nhìn gần như song song mặt
+      // sàn), đúng trường hợp dễ bị nhoè nhất với texture 3D (mipmap lọc đều mọi hướng dù 1 trục trong
+      // ảnh bị nén mạnh hơn trục kia theo góc nhìn) — bật anisotropic filtering (lọc có hướng) theo đúng
+      // mức tối đa GPU hỗ trợ để giữ nét khi nhìn chéo, thay vì mặc định blur đều.
+      texture.anisotropy = rendererRef.current?.capabilities.getMaxAnisotropy() ?? 1;
+      // SỬA (phản hồi thật user: "cho nét hơn được không") — tắt hẳn mipmap (texture.generateMipmaps),
+      // bắt GPU luôn lấy mẫu ở ĐÚNG độ phân giải gốc của ảnh SAM-3 thay vì tự chọn mipmap level thấp hơn
+      // (vốn luôn mờ hơn gốc, dù có anisotropy). Chấp nhận đánh đổi: có thể hơi lấm tấm (aliasing/shimmer)
+      // khi nhìn từ rất xa -- nhưng đây là khung xem trước tĩnh, không phải cảnh động, nét > mượt.
+      texture.generateMipmaps = false;
+      texture.minFilter = THREE.LinearFilter;
       const mesh = new THREE.Mesh(
-        buildFlatGroundGeometry(),
-        new THREE.MeshStandardMaterial({
+        // nearColor = trắng (1,1,1) -- nhân với texture không đổi màu ảnh thật gần camera, chỉ pha dần
+        // sang màu sương (MIST_COLOR) về phía xa, xem buildFlatGroundGeometry phía trên.
+        buildFlatGroundGeometry(24, 20, groundCalib, horizonY, 5, new THREE.Color(0xffffff)),
+        // SỬA (phản hồi thật user: mảng tam giác trắng chói mắt rải rác quanh viền vùng texture) — đã đo
+        // thật dữ liệu mask (script inspect_mask_alpha.js): alpha SẠCH, chỉ 0 hoặc ~1, không có viền mờ,
+        // RGB dưới vùng alpha=0 cũng sạch (0,0,0), không phải dữ liệu rác -- loại trừ nguyên nhân do ảnh
+        // mask lỗi. Thực nghiệm xác nhận: TẮT hẳn mesh texture (giữ nguyên sàn xám cùng hình học warp) thì
+        // HẾT HẲN tam giác trắng -- vậy lỗi nằm ở cách ÁNH SÁNG tương tác với MeshStandardMaterial trên
+        // hình học warp phi tuyến mới (tam giác ở vùng dốc có pháp tuyến nghiêng gắt, bắt sáng trực tiếp
+        // từ đèn hướng -> bị cháy sáng trắng cục bộ). Đổi sang MeshBasicMaterial (không tính ánh sáng, vẽ
+        // đúng màu texture + vertexColors nhân vào, không phụ thuộc góc pháp tuyến/đèn) -- loại bỏ hẳn khả
+        // năng cháy sáng vì ánh sáng, vốn dĩ cũng hợp lý hơn cho 1 lớp phủ ảnh tham chiếu phẳng.
+        new THREE.MeshBasicMaterial({
           map: texture,
-          transparent: true,
-          alphaTest: 0.1,
-          roughness: 0.95,
-          metalness: 0,
+          vertexColors: true,
+          alphaTest: 0.5,
           side: THREE.DoubleSide,
         })
       );
@@ -819,7 +859,7 @@ export function LocationPositionStage3D({
       cancelled = true;
       scene.children.filter((c) => c.userData.isGroundTexture).forEach((c) => scene.remove(c));
     };
-  }, [groundMaskUrl]);
+  }, [groundMaskUrl, groundCalib, horizonY]);
 
   // Tìm đúng mannequin bị bấm trúng (nếu có) bằng raycasting — bấm trúng khoảng trống/địa hình thì
   // KHÔNG làm gì cả (địa hình luôn đứng yên, đúng yêu cầu).

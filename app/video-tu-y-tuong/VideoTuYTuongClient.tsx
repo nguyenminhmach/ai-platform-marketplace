@@ -4836,6 +4836,27 @@ export default function VideoTuYTuongClient({
                         </div>
                       );
                     })()}
+                  {/* SỬA (phản hồi thật user: "khi chưa tạo 3D thì nút xem rõ ràng, khi đã tạo xong 3D nút
+                      bị tụt xuống khó xem") — "Xác nhận vị trí" trước đây nằm NGOÀI cả grid 2 cột (dưới
+                      cùng toàn khung), nên khi cột 3D cao hơn hẳn cột ảnh 2D, nút này bị đẩy xuống khuất
+                      màn hình. Chuyển vào CÙNG cột với ảnh 2D (như cụm "Dựng khối 3D"/"Dựng lại" đã làm
+                      trước đó) để luôn thấy ngay dưới ảnh, không phụ thuộc chiều cao cột 3D bên cạnh. */}
+                  {isLocationEditor && (
+                    <div className="flex flex-wrap items-center gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setZoomedPromptImage(null)}
+                        className="rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 px-4 py-2 text-sm font-medium text-white"
+                      >
+                        Xác nhận vị trí
+                      </button>
+                      {characters.length > 0 && (
+                        <span className="text-xs text-zinc-400">
+                          Đã đặt {Object.keys(assignments).length}/{characters.length} nhân vật
+                        </span>
+                      )}
+                    </div>
+                  )}
                   </div>
                   {isLocationEditor && show3DPanel && (
                     <div className="flex flex-col gap-1.5">
@@ -4883,22 +4904,6 @@ export default function VideoTuYTuongClient({
                     </div>
                   )}
                 </div>
-                {isLocationEditor && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setZoomedPromptImage(null)}
-                      className="rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 px-4 py-2 text-sm font-medium text-white"
-                    >
-                      Xác nhận vị trí
-                    </button>
-                    {characters.length > 0 && (
-                      <span className="text-xs text-zinc-400">
-                        Đã đặt {Object.keys(assignments).length}/{characters.length} nhân vật
-                      </span>
-                    )}
-                  </div>
-                )}
               </div>
             </div>
           );
