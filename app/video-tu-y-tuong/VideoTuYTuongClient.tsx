@@ -95,6 +95,13 @@ export default function VideoTuYTuongClient({
     createdAt: string;
   };
   const [projectJobs, setProjectJobs] = useState<ProjectJobItem[]>([]);
+  // SỬA (phản hồi thật user: "bấm Tạo phải lập tức chia lưới + hiện 'đang tạo' ngay trong ô đầu tiên,
+  // không phải khung chữ riêng bên dưới") — projectJobs chỉ có dữ liệu THẬT sau khi loadProjectJobs()
+  // fetch xong (có độ trễ mạng); trong lúc đó (đặc biệt lần đầu tiên dự án còn 0 job) lưới không có gì
+  // để hiện, rơi về thông báo "chưa có nội dung nào" + khung trạng thái tách riêng bên dưới. Thêm 1 ô
+  // "lạc quan" (optimistic placeholder, chưa có ID thật) hiện NGAY lúc bấm "Tạo", trước khi server kịp
+  // trả lời -- đủ để lưới hiện ra ngay, ô đầu tiên tự mang trạng thái "Đang tạo...".
+  const [optimisticPendingTile, setOptimisticPendingTile] = useState(false);
   function loadProjectJobs() {
     if (!activeProjectId) {
       setProjectJobs([]);
@@ -1909,8 +1916,17 @@ export default function VideoTuYTuongClient({
   // Khách chủ động bấm "Dừng tạo" khi job đang chạy dở — dừng hẳn, xem cancelStoryVideoJob() trong
   // lib/story-video.ts (KHÔNG hoàn credit các cảnh đã tốn trước đó, đúng lựa chọn của khách).
   async function handleCancelStoryVideo() {
-    if (!user || !storyJobId) return;
     if (storyPollRef.current) clearInterval(storyPollRef.current);
+    // SỬA (phản hồi thật user: nút "Hủy" phải luôn thoát được trạng thái "Đang tạo..." kể cả khi
+    // storyJobId chưa kịp set (request ban đầu còn treo, chưa có phản hồi trả về id) -- trước đây hàm
+    // này return sớm nếu thiếu storyJobId, y hệt lỗi đang muốn sửa (không thoát được trạng thái treo).
+    // Không có jobId thì không có gì để báo hủy phía server -- chỉ reset lại UI phía client.
+    if (!user || !storyJobId) {
+      setStoryRunning(false);
+      setStoryStatusText(null);
+      setStoryError("Đã hủy theo yêu cầu của bạn");
+      return;
+    }
     setStoryCancelling(true);
     try {
       const res = await fetch("/api/story-video/cancel", {
@@ -2775,6 +2791,8 @@ export default function VideoTuYTuongClient({
     setStoryJobId(null);
     setStoryStatus(null);
     setStoryStatusText("Đang chuẩn bị...");
+    // Chỉ áp dụng cho tab "hình ảnh" (lưới dự án) -- tab "video" không dùng lưới này.
+    if (quickImage && activeProjectId) setOptimisticPendingTile(true);
 
     try {
       // 1) Tra các @mention trong prompt tới đúng element trong kho tham chiếu của khách.
@@ -3000,10 +3018,14 @@ export default function VideoTuYTuongClient({
         setStoryError(data.error ?? "Có lỗi xảy ra");
         setStoryRunning(false);
         setStoryStatusText(null);
+        setOptimisticPendingTile(false);
         return;
       }
 
       window.dispatchEvent(new Event("balance-updated"));
+      // Job thật đã có ID (đã insert xong phía server) -- gỡ ô lạc quan ngay, loadProjectJobs() fetch
+      // lại sẽ lấy đúng ô thật thay vào, không cần đợi gỡ (tránh hiện trùng 2 ô "đang tạo").
+      setOptimisticPendingTile(false);
       if (activeProjectId) loadProjectJobs();
       setStoryJobId(data.jobId);
       setStoryStatusText("Đang xử lý ảnh Character...");
@@ -3012,6 +3034,7 @@ export default function VideoTuYTuongClient({
       setStoryError(err instanceof Error ? err.message : "Không kết nối được tới server");
       setStoryRunning(false);
       setStoryStatusText(null);
+      setOptimisticPendingTile(false);
     }
   }
 
@@ -3153,7 +3176,10 @@ export default function VideoTuYTuongClient({
     observer.observe(headerEl);
     if (gridEl) observer.observe(gridEl);
     return () => observer.disconnect();
-  }, [isImageGalleryOverlay, projectJobs.length]);
+    // optimisticPendingTile thêm vào deps: ô lạc quan khiến lưới mount SỚM HƠN projectJobs thật (xem
+    // handlePromptCreate) -- effect phải chạy lại đúng lúc đó để gắn ResizeObserver, không đợi tới khi
+    // projectJobs thật có dữ liệu.
+  }, [isImageGalleryOverlay, projectJobs.length, optimisticPendingTile]);
 
   return (
     <div className="flex min-h-screen bg-black text-zinc-100">
@@ -3356,38 +3382,58 @@ export default function VideoTuYTuongClient({
                   Thoát dự án
                 </button>
               </div>
-              {projectJobs.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-zinc-600 p-8 text-center text-sm text-zinc-400">
-                  Dự án này chưa có nội dung nào — tạo ảnh bên dưới sẽ tự gom vào đây.
-                </div>
-              ) : (
+              {(() => {
+                // SỬA (phản hồi thật user: "bấm Tạo phải lập tức chia lưới + hiện 'đang tạo' ngay trong
+                // ô đầu tiên") -- ghép ô lạc quan vào ĐẦU mảng job thật khi đang chờ server trả lời, để
+                // lưới hiện ra NGAY lúc bấm "Tạo" (không đợi projectJobs thật tải xong), ô đầu tiên tự
+                // mang trạng thái "Đang tạo..." qua đúng nhánh status mặc định của renderProjectJobTile
+                // (status khác "done"/"failed" -> hiện spinner).
+                const optimisticTile: ProjectJobItem = {
+                  id: -1,
+                  kind: "prompt_image",
+                  prompt: "",
+                  status: "processing",
+                  outputUrl: null,
+                  errorMessage: null,
+                  createdAt: new Date().toISOString(),
+                };
+                const displayJobs = optimisticPendingTile ? [optimisticTile, ...projectJobs] : projectJobs;
+                if (displayJobs.length === 0) {
+                  return (
+                    <div className="rounded-2xl border border-dashed border-zinc-600 p-8 text-center text-sm text-zinc-400">
+                      Dự án này chưa có nội dung nào — tạo ảnh bên dưới sẽ tự gom vào đây.
+                    </div>
+                  );
+                }
                 // SỬA (phản hồi thật user: "9:16 vẫn còn viền đen" — "em đo lại các chiều khung hình
                 // xem" — đo lại phát hiện công thức cũ (chiều cao hàng = chiều cao khung / 2) KHÔNG liên
                 // quan gì tới chiều RỘNG cột hay tỉ lệ ảnh thật đang chọn, chỉ tình cờ gần đúng — giờ tính
                 // ĐÚNG công thức: rowHeight = chiều rộng 1 cột (đo thật, trừ khe hở) / tỉ lệ ảnh
                 // (projectTileRatioNumber) — ô sẽ khớp CHÍNH XÁC tỉ lệ ảnh đang chọn, hết viền đen khi
                 // ảnh thật đúng tỉ lệ đó.
-                <div
-                  ref={galleryGridRef}
-                  className="-mx-6 grid min-h-0 gap-1 overflow-y-auto px-2"
-                  style={{
-                    height: galleryGridHeightPx != null ? `${galleryGridHeightPx}px` : undefined,
-                    flex: galleryGridHeightPx != null ? "none" : "1 1 0%",
-                    gridTemplateColumns: `repeat(${projectGridColsCount}, minmax(0, 1fr))`,
-                    gridAutoRows:
-                      galleryGridWidthPx != null
-                        ? `${((galleryGridWidthPx - (projectGridColsCount - 1) * 4) / projectGridColsCount / projectTileRatioNumber).toFixed(2)}px`
-                        : "1fr",
-                  }}
-                >
-                  {projectJobs.map((job) => renderProjectJobTile(job, true))}
-                  {Array.from({
-                    length:
-                      Math.max(projectGridColsCount * 2, Math.ceil(projectJobs.length / projectGridColsCount) * projectGridColsCount) -
-                      projectJobs.length,
-                  }).map((_, i) => renderEmptyProjectTile(`empty-${i}`, true))}
-                </div>
-              )}
+                return (
+                  <div
+                    ref={galleryGridRef}
+                    className="-mx-6 grid min-h-0 gap-1 overflow-y-auto px-2"
+                    style={{
+                      height: galleryGridHeightPx != null ? `${galleryGridHeightPx}px` : undefined,
+                      flex: galleryGridHeightPx != null ? "none" : "1 1 0%",
+                      gridTemplateColumns: `repeat(${projectGridColsCount}, minmax(0, 1fr))`,
+                      gridAutoRows:
+                        galleryGridWidthPx != null
+                          ? `${((galleryGridWidthPx - (projectGridColsCount - 1) * 4) / projectGridColsCount / projectTileRatioNumber).toFixed(2)}px`
+                          : "1fr",
+                    }}
+                  >
+                    {displayJobs.map((job) => renderProjectJobTile(job, true))}
+                    {Array.from({
+                      length:
+                        Math.max(projectGridColsCount * 2, Math.ceil(displayJobs.length / projectGridColsCount) * projectGridColsCount) -
+                        displayJobs.length,
+                    }).map((_, i) => renderEmptyProjectTile(`empty-${i}`, true))}
+                  </div>
+                );
+              })()}
             </div>
           ) : activeProjectId ? (
             <div className="mb-4">
@@ -3725,15 +3771,32 @@ export default function VideoTuYTuongClient({
 
               {/* Nút "Tạo" — NẰM TRONG khối ô prompt (không tách khối riêng), nhưng tự nó có viền tím
                   ĐẬM (border dày, màu rõ) + nền màu tím NHẠT hơn viền (không phải đen/zinc-950 nữa). */}
-              <button
-                type="button"
-                onClick={() => handlePromptCreate()}
-                disabled={storyRunning}
-                style={{ boxShadow: "0 0 32px -3px rgba(217,70,239,0.8)" }}
-                className="w-full rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 py-2 text-base font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {storyRunning ? "Đang tạo..." : "Tạo"}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => handlePromptCreate()}
+                  disabled={storyRunning}
+                  style={{ boxShadow: "0 0 32px -3px rgba(217,70,239,0.8)" }}
+                  className="flex-1 rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 py-2 text-base font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {storyRunning ? "Đang tạo..." : "Tạo"}
+                </button>
+                {/* SỬA (phản hồi thật user: "để tránh bị kẹt khi đang tạo khiến app không xoá được" --
+                    trước đây nút "Hủy" (handleCancelStoryVideo) đã viết sẵn nhưng CHƯA TỪNG được gắn vào
+                    JSX nào -- khi request treo (mạng chậm, server không phản hồi...), khách không có
+                    cách nào thoát khỏi trạng thái "Đang tạo..." ngoài tải lại trang. Luôn hiện nút này
+                    khi storyRunning, không chỉ ẩn/disable chờ xong. */}
+                {storyRunning && (
+                  <button
+                    type="button"
+                    onClick={handleCancelStoryVideo}
+                    disabled={storyCancelling}
+                    className="rounded-full border-2 border-zinc-500 bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {storyCancelling ? "Đang hủy..." : "Hủy"}
+                  </button>
+                )}
+              </div>
               </div>
             </div>
           ) : null}
@@ -3947,15 +4010,29 @@ export default function VideoTuYTuongClient({
                   className="w-full resize-none bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
                 />
 
-                <button
-                  type="button"
-                  onClick={handlePromptImageCreate}
-                  disabled={storyRunning}
-                  style={{ boxShadow: "0 0 32px -3px rgba(217,70,239,0.8)" }}
-                  className="w-full rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 py-2 text-base font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {storyRunning ? "Đang tạo..." : "Tạo"}
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePromptImageCreate}
+                    disabled={storyRunning}
+                    style={{ boxShadow: "0 0 32px -3px rgba(217,70,239,0.8)" }}
+                    className="flex-1 rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 py-2 text-base font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {storyRunning ? "Đang tạo..." : "Tạo"}
+                  </button>
+                  {/* Mirror đúng nút "Hủy" đã thêm cho handlePromptCreate -- cùng cờ storyRunning, cùng
+                      rủi ro treo. */}
+                  {storyRunning && (
+                    <button
+                      type="button"
+                      onClick={handleCancelStoryVideo}
+                      disabled={storyCancelling}
+                      className="rounded-full border-2 border-zinc-500 bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {storyCancelling ? "Đang hủy..." : "Hủy"}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -3964,9 +4041,15 @@ export default function VideoTuYTuongClient({
           {createToast && <p className="mt-3 text-center text-xs text-amber-400">{createToast}</p>}
 
           {/* Khu vực tiến trình/kết quả — hiện ngay dưới prompt bar sau khi bấm "tạo". */}
-          {(storyRunning || storyResult || storyError) && (
+          {/* SỬA (phản hồi thật user: "trạng thái đang xử lý phải hiện NGAY TRONG ô phân cảnh đầu tiên,
+              không phải khung chữ riêng bên dưới") — khi đang ở lưới dự án (isImageGalleryOverlay), ô
+              lạc quan đầu lưới đã tự hiện "Đang tạo..." rồi (xem renderProjectJobTile), khung riêng này
+              không cần hiện lại spinner nữa trong trường hợp đó -- storyError vẫn phải hiện ở đây vì có
+              những lỗi validate (vd "cần ít nhất 1 ảnh nhân vật") chặn TRƯỚC KHI job được tạo, không có
+              ô nào trong lưới để báo lỗi đó. */}
+          {((storyRunning && !isImageGalleryOverlay) || storyResult || storyError) && (
             <div ref={storyResultRef} className="mt-8 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6">
-              {storyRunning && (
+              {storyRunning && !isImageGalleryOverlay && (
                 <div className="flex items-center justify-center gap-3 py-6 text-sm text-zinc-300">
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-600 border-t-amber-400" />
                   <span>{storyStatusText ?? "Đang xử lý..."}</span>
@@ -4038,14 +4121,31 @@ export default function VideoTuYTuongClient({
                   <p className="text-sm text-zinc-300">
                     Đã chia {storyScenePreviews?.length ?? 0} phân cảnh (xem miễn phí, chưa tốn credit) — bấm "Tạo ảnh" để AI vẽ ảnh thật cho từng cảnh.
                   </p>
-                  <button
-                    type="button"
-                    onClick={handleContinueToImages}
-                    disabled={storyContinuingImages}
-                    className="rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 px-5 py-2 text-sm font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {storyContinuingImages ? "Đang xử lý..." : "Tạo ảnh"}
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={handleContinueToImages}
+                      disabled={storyContinuingImages}
+                      className="rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 px-5 py-2 text-sm font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {storyContinuingImages ? "Đang xử lý..." : "Tạo ảnh"}
+                    </button>
+                    {/* SỬA (phản hồi thật user: nút "Tạo ảnh" bị kẹt ở "Đang xử lý..." không thoát ra
+                        được -- thêm nút hủy cục bộ, chỉ reset lại cờ phía client vì bước này (request
+                        ban đầu gọi continue-to-images) chưa kịp tạo job con nào phía server để hủy. */}
+                    {storyContinuingImages && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStoryContinuingImages(false);
+                          setStoryError("Đã hủy theo yêu cầu của bạn");
+                        }}
+                        className="rounded-full border-2 border-zinc-500 bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-600"
+                      >
+                        Hủy
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 
