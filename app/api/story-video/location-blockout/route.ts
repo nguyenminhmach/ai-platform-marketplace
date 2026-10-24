@@ -1,6 +1,6 @@
 import { generateLocationBlockout } from "@/lib/story-video";
 import { getAuthenticatedUserId } from "@/lib/auth-server";
-import { getLocationBlockout, saveLocationBlockout } from "@/lib/location-blockouts";
+import { deleteLocationBlockout, getLocationBlockout, saveLocationBlockout } from "@/lib/location-blockouts";
 
 // SỬA (phản hồi thật user: "trên app không thấy" — dữ liệu CÓ trong DB, nhưng app chỉ lấy lại khi khách
 // chủ động bấm nút "Dựng khối 3D" lần nữa, không tự hiện khi mở lại ảnh) — thêm GET chỉ kiểm tra cache,
@@ -51,6 +51,24 @@ export async function POST(req: Request) {
       // dụng cache cho lần sau, khách vẫn thấy khối 3D bình thường ở lần này.
     });
     return Response.json(result);
+  } catch (err) {
+    return Response.json({ error: err instanceof Error ? err.message : "Có lỗi xảy ra" }, { status: 500 });
+  }
+}
+
+// Xoá cache cũ cho 1 ảnh để khách bấm "Dựng lại" dựng khối 3D từ đầu (gọi lại AI) -- xem nút "🔁 Dựng
+// lại" ở VideoTuYTuongClient.tsx, chỉ hiện khi đã có kết quả (status "done").
+export async function DELETE(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const imageUrl = searchParams.get("imageUrl");
+
+  const userId = await getAuthenticatedUserId();
+  if (!userId) return Response.json({ error: "Chưa đăng nhập" }, { status: 401 });
+  if (!imageUrl) return Response.json({ error: "Thiếu imageUrl" }, { status: 400 });
+
+  try {
+    await deleteLocationBlockout(userId, imageUrl);
+    return Response.json({ ok: true });
   } catch (err) {
     return Response.json({ error: err instanceof Error ? err.message : "Có lỗi xảy ra" }, { status: 500 });
   }

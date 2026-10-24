@@ -2427,8 +2427,11 @@ export default function VideoTuYTuongClient({
     >
   >({});
 
-  async function handleBuildLocationBlockout(imageUrl: string) {
-    if (locationBlockout[imageUrl]?.status === "loading" || locationBlockout[imageUrl]?.status === "done") return;
+  async function handleBuildLocationBlockout(imageUrl: string, force = false) {
+    // force=true (dùng khi "Dựng lại", xem handleRebuildLocationBlockout) bỏ qua guard này -- state
+    // locationBlockout vẫn còn giá trị cũ ("done") ngay sau setLocationBlockout xoá key do closure cũ
+    // chưa re-render kịp, guard bình thường sẽ chặn nhầm lần gọi lại này.
+    if (!force && (locationBlockout[imageUrl]?.status === "loading" || locationBlockout[imageUrl]?.status === "done")) return;
     setLocationBlockout((prev) => ({ ...prev, [imageUrl]: { status: "loading" } }));
     try {
       const res = await fetch("/api/story-video/location-blockout", {
@@ -2452,6 +2455,26 @@ export default function VideoTuYTuongClient({
         ...prev,
         [imageUrl]: { status: "error", error: err instanceof Error ? err.message : "Có lỗi xảy ra" },
       }));
+    }
+  }
+
+  const [locationBlockoutRebuilding, setLocationBlockoutRebuilding] = useState(false);
+  // SỬA (phản hồi thật user: "mở ra đã có sẵn, không xóa được để dựng lại") -- trước đây 1 khi đã có kết
+  // quả (status "done", dù vừa tạo hay khôi phục từ DB) thì cả nút UI (disabled) và route POST (trả cache
+  // ngay, không gọi lại AI) đều chặn hẳn việc dựng lại, chỉ xoá được qua Supabase SQL Editor thủ công --
+  // giờ xoá cache trong DB (route DELETE) rồi gọi lại handleBuildLocationBlockout bình thường.
+  async function handleRebuildLocationBlockout(imageUrl: string) {
+    setLocationBlockoutRebuilding(true);
+    try {
+      await fetch(`/api/story-video/location-blockout?imageUrl=${encodeURIComponent(imageUrl)}`, { method: "DELETE" });
+      setLocationBlockout((prev) => {
+        const next = { ...prev };
+        delete next[imageUrl];
+        return next;
+      });
+      await handleBuildLocationBlockout(imageUrl, true);
+    } finally {
+      setLocationBlockoutRebuilding(false);
     }
   }
 
@@ -4694,6 +4717,11 @@ export default function VideoTuYTuongClient({
                     phải có nhân vật trước mới dựng được địa hình (phản hồi thật user). Trên màn hẹp tự
                     xếp chồng (grid-cols-1) nhờ lg:grid-cols-2. */}
                 <div className={isLocationEditor ? `grid gap-3 ${show3DPanel ? "lg:grid-cols-[1fr_1.3fr]" : ""}` : ""}>
+                  {/* Bọc ảnh 2D + cụm nút "Dựng khối 3D"/"Dựng lại" chung 1 div -- để cả 2 nằm cùng 1 CỘT
+                      của grid 2 cột (self-start giữ cho cột này không bị kéo cao theo khung 3D bên cạnh,
+                      xem SỬA bên dưới). Nếu không bọc, 2 div con trực tiếp của grid.cols-2 sẽ tự chia mỗi
+                      div 1 cột khác nhau, đẩy cụm nút ra NGANG hàng khung 3D thay vì nằm dưới ảnh. */}
+                  <div className={isLocationEditor ? "flex flex-col self-start" : ""}>
                   <div
                     // SỬA (phản hồi thật user — test điểm 5 rơi ra NGOÀI ảnh, lộ ra toạ độ MỌI điểm bị
                     // tính sai): CSS Grid mặc định kéo giãn item con cho bằng chiều cao cả hàng
@@ -4746,6 +4774,44 @@ export default function VideoTuYTuongClient({
                         </div>
                       ))}
                   </div>
+                  {/* SỬA (phản hồi thật user: "cho nút dựng 3d và tạo lại lên sát dưới ảnh 2d") — trước
+                      đây cụm nút này nằm ở CUỐI, dưới hẳn cả khung 3D bên phải (khung 3D cao hơn ảnh 2D
+                      nhiều nên bị đẩy khuất xuống dưới màn hình) — giờ đặt ngay sát dưới ảnh 2D, trong
+                      cùng cột, để luôn thấy được không cần cuộn. */}
+                  {isLocationEditor &&
+                    (() => {
+                      const blockout = locationBlockout[zoomedPromptImage];
+                      return (
+                        <div className="flex flex-wrap items-center gap-2 pt-2">
+                          <button
+                            type="button"
+                            onClick={() => handleBuildLocationBlockout(zoomedPromptImage)}
+                            disabled={blockout?.status === "loading" || blockout?.status === "done"}
+                            title="Phân tích ảnh để dựng khối 3D theo đúng những gì có trong ảnh — chỉ tốn phí nhỏ, gọi 1 lần/ảnh"
+                            className="rounded-full border border-zinc-600 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-700 disabled:cursor-default disabled:opacity-70"
+                          >
+                            {blockout?.status === "loading"
+                              ? "⏳ Đang dựng khối 3D..."
+                              : blockout?.status === "done"
+                                ? "✅ Đã dựng khối 3D"
+                                : "🧱 Dựng khối 3D"}
+                          </button>
+                          {(blockout?.status === "done" || blockout?.status === "error") && (
+                            <button
+                              type="button"
+                              onClick={() => handleRebuildLocationBlockout(zoomedPromptImage)}
+                              disabled={locationBlockoutRebuilding}
+                              title="Xoá khối 3D đã dựng và gọi lại AI từ đầu cho ảnh này"
+                              className="rounded-full border border-zinc-600 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-700 disabled:cursor-default disabled:opacity-70"
+                            >
+                              {locationBlockoutRebuilding ? "⏳ Đang dựng lại..." : "🔁 Dựng lại"}
+                            </button>
+                          )}
+                          {blockout?.status === "error" && <span className="text-xs text-red-400">{blockout.error}</span>}
+                        </div>
+                      );
+                    })()}
+                  </div>
                   {isLocationEditor && show3DPanel && (
                     <div className="flex flex-col gap-1.5">
                       <span className="text-xs text-zinc-400">Xem 3D — kéo chuột để xoay:</span>
@@ -4792,40 +4858,22 @@ export default function VideoTuYTuongClient({
                     </div>
                   )}
                 </div>
-                {isLocationEditor &&
-                  (() => {
-                    const blockout = locationBlockout[zoomedPromptImage];
-                    return (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setZoomedPromptImage(null)}
-                          className="rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 px-4 py-2 text-sm font-medium text-white"
-                        >
-                          Xác nhận vị trí
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleBuildLocationBlockout(zoomedPromptImage)}
-                          disabled={blockout?.status === "loading" || blockout?.status === "done"}
-                          title="Phân tích ảnh để dựng khối 3D theo đúng những gì có trong ảnh — chỉ tốn phí nhỏ, gọi 1 lần/ảnh"
-                          className="rounded-full border border-zinc-600 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-700 disabled:cursor-default disabled:opacity-70"
-                        >
-                          {blockout?.status === "loading"
-                            ? "⏳ Đang dựng khối 3D..."
-                            : blockout?.status === "done"
-                              ? "✅ Đã dựng khối 3D"
-                              : "🧱 Dựng khối 3D"}
-                        </button>
-                        {characters.length > 0 && (
-                          <span className="text-xs text-zinc-400">
-                            Đã đặt {Object.keys(assignments).length}/{characters.length} nhân vật
-                          </span>
-                        )}
-                        {blockout?.status === "error" && <span className="text-xs text-red-400">{blockout.error}</span>}
-                      </div>
-                    );
-                  })()}
+                {isLocationEditor && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setZoomedPromptImage(null)}
+                      className="rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 px-4 py-2 text-sm font-medium text-white"
+                    >
+                      Xác nhận vị trí
+                    </button>
+                    {characters.length > 0 && (
+                      <span className="text-xs text-zinc-400">
+                        Đã đặt {Object.keys(assignments).length}/{characters.length} nhân vật
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           );

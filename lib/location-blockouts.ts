@@ -34,6 +34,16 @@ export async function getLocationBlockout(userId: string, imageUrl: string): Pro
   };
 }
 
+// SỬA (phản hồi thật user: "mở ra đã có sẵn, không xóa được để dựng lại") -- cache cũ (ground_mask_url
+// null do code lỗi trước đây, hoặc khách muốn test lại sau khi sửa code) trước giờ phải xoá tay qua
+// Supabase SQL Editor mới dựng lại được, không có cách nào làm từ trên app -- thêm hàm xoá + nút "Dựng
+// lại" ở UI (xem route DELETE và handleRebuildLocationBlockout trong VideoTuYTuongClient.tsx).
+export async function deleteLocationBlockout(userId: string, imageUrl: string): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase.from("location_blockouts").delete().eq("user_id", userId).eq("image_url", imageUrl);
+  if (error) throw new Error(error.message);
+}
+
 export async function saveLocationBlockout(userId: string, row: LocationBlockoutRow): Promise<void> {
   const supabase = getSupabaseAdmin();
   const { error } = await supabase.from("location_blockouts").upsert(

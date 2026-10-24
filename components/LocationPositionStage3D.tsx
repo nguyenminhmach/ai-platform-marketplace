@@ -284,6 +284,7 @@ function depthToY2DResolved(depth: number, calib: GroundCalibration | null, hori
 function buildFlatGroundGeometry(gridW = 24, gridH = 20): THREE.BufferGeometry {
   const positions = new Float32Array(gridW * gridH * 3);
   const colors = new Float32Array(gridW * gridH * 3);
+  const uvs = new Float32Array(gridW * gridH * 2);
   const FLAT_COLOR = new THREE.Color(0x475569);
   for (let iy = 0; iy < gridH; iy++) {
     for (let ix = 0; ix < gridW; ix++) {
@@ -296,6 +297,11 @@ function buildFlatGroundGeometry(gridW = 24, gridH = 20): THREE.BufferGeometry {
       colors[vi] = FLAT_COLOR.r;
       colors[vi + 1] = FLAT_COLOR.g;
       colors[vi + 2] = FLAT_COLOR.b;
+      const ui = (iy * gridW + ix) * 2;
+      uvs[ui] = u;
+      // Three.js mẫu texture với v=0 ở MÉP DƯỚI ảnh (quy ước flipY mặc định), còn v hình học ở đây ứng
+      // với MÉP TRÊN ảnh gốc (v=0 -> xa/horizon, xem Z bên trên) -- phải lật lại mới khớp đúng ảnh gốc.
+      uvs[ui + 1] = 1 - v;
     }
   }
   const indices: number[] = [];
@@ -311,6 +317,7 @@ function buildFlatGroundGeometry(gridW = 24, gridH = 20): THREE.BufferGeometry {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  geo.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
   geo.setIndex(indices);
   geo.computeVertexNormals();
   return geo;
@@ -773,6 +780,46 @@ export function LocationPositionStage3D({
     scene.add(flatOutline);
     forceRerender((n) => n + 1);
   }, []);
+
+  // Phủ ảnh đất thật (groundMaskUrl, đã được SAM-3 cắt theo đúng vùng đất) lên trên mặt sàn xám -- SỬA
+  // (yêu cầu thật user: "trải lên trên thảm 3D") -- tách effect riêng (không gộp vào effect dựng sàn ở
+  // trên) vì sàn chỉ cần dựng 1 lần (deps []), còn texture cần load lại mỗi khi groundMaskUrl đổi (ảnh
+  // bối cảnh khác). Dùng alphaTest để vùng ngoài mask (alpha thấp, không phải đất) không che mất sàn xám
+  // bên dưới, lệch nhẹ lên trục Y để tránh z-fighting với mặt sàn gốc.
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    scene.children.filter((c) => c.userData.isGroundTexture).forEach((c) => scene.remove(c));
+    if (!groundMaskUrl) return;
+    let cancelled = false;
+    const loader = new THREE.TextureLoader();
+    loader.load(groundMaskUrl, (texture) => {
+      if (cancelled) {
+        texture.dispose();
+        return;
+      }
+      texture.colorSpace = THREE.SRGBColorSpace;
+      const mesh = new THREE.Mesh(
+        buildFlatGroundGeometry(),
+        new THREE.MeshStandardMaterial({
+          map: texture,
+          transparent: true,
+          alphaTest: 0.1,
+          roughness: 0.95,
+          metalness: 0,
+          side: THREE.DoubleSide,
+        })
+      );
+      mesh.position.y = 0.01;
+      mesh.userData.isGroundTexture = true;
+      scene.add(mesh);
+      forceRerender((n) => n + 1);
+    });
+    return () => {
+      cancelled = true;
+      scene.children.filter((c) => c.userData.isGroundTexture).forEach((c) => scene.remove(c));
+    };
+  }, [groundMaskUrl]);
 
   // Tìm đúng mannequin bị bấm trúng (nếu có) bằng raycasting — bấm trúng khoảng trống/địa hình thì
   // KHÔNG làm gì cả (địa hình luôn đứng yên, đúng yêu cầu).
