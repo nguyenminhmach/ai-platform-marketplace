@@ -1158,7 +1158,10 @@ export async function generateLocationBlockout(imageUrl: string): Promise<Locati
   // từ đơn (không gộp chung 1 câu), dừng ngay khi có từ đầu tiên khớp được -- bao phủ nhiều loại địa
   // hình khách có thể tải lên (sân/đường nhựa, cỏ tự nhiên, sàn nhà) mà không cần biết trước là loại
   // nào. Chi phí thấp (~$0.005/lượt, chỉ chạy 1 lần/ảnh rồi cache) nên thử tối đa 3 lần vẫn rẻ.
-  const GROUND_PROMPT_CANDIDATES = ["ground", "grass", "floor"];
+  // SỬA (phản hồi thật user: ảnh phố cổ đường nhựa/vỉa hè lát đá -> ground_mask_url ra null, không có
+  // texture phủ sàn) — 3 từ cũ chỉ phủ đất tự nhiên/sàn trong nhà, không khớp đường phố đô thị. Thêm các
+  // từ khoá cho bề mặt lát/nhựa đường — vẫn thử LẦN LƯỢT từng từ đơn, dừng ngay khi khớp.
+  const GROUND_PROMPT_CANDIDATES = ["ground", "road", "street", "pavement", "sidewalk", "grass", "floor"];
   async function trySamGroundMask(): Promise<{ url?: string }[] | undefined> {
     for (const prompt of GROUND_PROMPT_CANDIDATES) {
       const result = await callFalSync("fal-ai/sam-3/image", { image_url: imageUrl, prompt, max_masks: 1 }).catch((err) => {
