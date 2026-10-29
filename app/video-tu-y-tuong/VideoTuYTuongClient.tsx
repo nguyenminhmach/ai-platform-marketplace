@@ -699,6 +699,16 @@ export default function VideoTuYTuongClient({
   const [storyResult, setStoryResult] = useState<string | null>(null);
   const [storyError, setStoryError] = useState<string | null>(null);
   const storyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // SỬA (phản hồi thật user: "khi mình đang tạo mà hủy" bị kẹt) — gốc lỗi: bấm "Hủy" lúc request tạo/
+  // tiếp tục job (handlePromptCreate/handleContinueToScenes/handleContinueToImages) CÒN ĐANG CHẠY DỞ
+  // (chưa có jobId nên handleCancelStoryVideo chỉ reset được UI phía client, chưa báo hủy lên server
+  // được) — vài giây sau request đó mới xong, code cũ VÔ ĐIỀU KIỆN setStoryJobId + pollStoryVideoStatus,
+  // tự ý khôi phục lại trạng thái "đang tạo" dù khách đã bấm Hủy, trông như app bị kẹt/không hủy được.
+  // Cờ này bật ngay khi bấm Hủy, tắt lại khi khách chủ động bấm 1 hành động tạo/tiếp tục MỚI — những nơi
+  // vừa await xong request vừa set jobId/polling đều phải kiểm tra cờ này trước, nếu đã bị hủy thì gọi
+  // luôn /api/story-video/cancel cho job vừa tạo (không để job chạy mồ côi phía server) rồi dừng, không
+  // khôi phục UI nữa.
+  const storyCancelledRef = useRef(false);
   // SỬA (phản hồi thật user: "tách đoạn code tạo ảnh/tạo video cho đúng chức năng từng tab, dùng lại
   // đúng pipeline đã chạy ổn định") — tab "hình ảnh" TRƯỚC ĐÂY gọi hẳn 1 pipeline riêng (lib/prompt-
   // image.ts), yếu hơn hẳn luồng Character/chia cảnh/ảnh phân cảnh đã chứng minh chạy đúng ở tab
@@ -1819,6 +1829,7 @@ export default function VideoTuYTuongClient({
 
   async function handleContinueToScenes() {
     if (!user || !storyJobId || !input.trim()) return;
+    storyCancelledRef.current = false;
     setStoryContinuingScenes(true);
     setStoryError(null);
     try {
@@ -1843,6 +1854,14 @@ export default function VideoTuYTuongClient({
       // cũ nên vẫn phát sự kiện bình thường.
       if (data.newBalance !== null) window.dispatchEvent(new Event("balance-updated"));
       setStoryContinuingScenes(false);
+      if (storyCancelledRef.current) {
+        fetch("/api/story-video/cancel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobId: storyJobId }),
+        }).catch(() => {});
+        return;
+      }
       setStoryRunning(true);
       setStoryStatusText("Đang chia phân cảnh...");
       pollStoryVideoStatus(storyJobId);
@@ -1859,6 +1878,7 @@ export default function VideoTuYTuongClient({
   async function handleContinueToImages(overrideJobId?: number) {
     const targetJobId = overrideJobId ?? storyJobId;
     if (!user || !targetJobId) return;
+    storyCancelledRef.current = false;
     setStoryJobId(targetJobId);
     setStoryContinuingImages(true);
     setStoryError(null);
@@ -1876,6 +1896,14 @@ export default function VideoTuYTuongClient({
       }
       window.dispatchEvent(new Event("balance-updated"));
       setStoryContinuingImages(false);
+      if (storyCancelledRef.current) {
+        fetch("/api/story-video/cancel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobId: targetJobId }),
+        }).catch(() => {});
+        return;
+      }
       setStoryRunning(true);
       setStoryStatusText(`Đang tạo ảnh cho ${storyScenePreviews?.length ?? numScenes} phân cảnh...`);
       pollStoryVideoStatus(targetJobId);
@@ -1923,6 +1951,7 @@ export default function VideoTuYTuongClient({
   // set.
   async function handleCancelStoryVideo(overrideJobId?: number) {
     const targetJobId = overrideJobId ?? storyJobId;
+    storyCancelledRef.current = true;
     if (storyPollRef.current) clearInterval(storyPollRef.current);
     // SỬA (phản hồi thật user: nút "Hủy" phải luôn thoát được trạng thái "Đang tạo..." kể cả khi
     // storyJobId chưa kịp set (request ban đầu còn treo, chưa có phản hồi trả về id) -- trước đây hàm
@@ -2857,6 +2886,7 @@ export default function VideoTuYTuongClient({
       return;
     }
 
+    storyCancelledRef.current = false;
     setStoryQuickImageMode(quickImage);
     setStoryRunning(true);
     setStoryResult(null);
@@ -3108,6 +3138,17 @@ export default function VideoTuYTuongClient({
       // lại sẽ lấy đúng ô thật thay vào, không cần đợi gỡ (tránh hiện trùng 2 ô "đang tạo").
       setOptimisticPendingTile(false);
       if (activeProjectId) loadProjectJobs();
+      if (storyCancelledRef.current) {
+        // Khách đã bấm "Hủy" trong lúc request này còn đang chạy dở (xem storyCancelledRef) -- job vừa
+        // insert xong phía server, báo hủy ngay cho đúng job đó, không khôi phục lại trạng thái "đang
+        // tạo" nữa (trước đây rơi thẳng xuống dưới, tự ý resume khiến app trông như bị kẹt sau khi hủy).
+        fetch("/api/story-video/cancel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobId: data.jobId }),
+        }).catch(() => {});
+        return;
+      }
       setStoryJobId(data.jobId);
       setStoryStatusText("Đang xử lý ảnh Character...");
       pollStoryVideoStatus(data.jobId);
@@ -3269,7 +3310,35 @@ export default function VideoTuYTuongClient({
   const galleryWrapperRef = useRef<HTMLDivElement | null>(null);
   const galleryHeaderRef = useRef<HTMLDivElement | null>(null);
   const galleryGridRef = useRef<HTMLDivElement | null>(null);
+  // SỬA (phản hồi thật user: đánh dấu 2 ảnh, lưới tràn xuống đè/khuất sau khối prompt nổi phía dưới) —
+  // gốc lỗi: khối prompt (bọc trong promptBarWrapperRef) dùng position:absolute/bottom-0, RA KHỎI LUỒNG
+  // document hẳn nên KHÔNG chiếm chỗ -- công thức cũ "available = wrapperEl.clientHeight -
+  // headerEl.offsetHeight" tính hết chiều cao khung cha, không hề trừ đi phần bị khối prompt che ở dưới,
+  // nên lưới "available" tính ra CAO HƠN khoảng trống thật sự còn nhìn thấy được, tràn xuống bị khối
+  // prompt đè lên trên. Đo thêm chiều cao thật của khối prompt (promptBarWrapperRef) để trừ đúng.
+  const promptBarWrapperRef = useRef<HTMLDivElement | null>(null);
+  // SỬA (phản hồi thật user: "không cần co lại, bỏ giới hạn đó đi, cứ để kích thước đúng như bên chưa có
+  // ảnh trong ô prompt" rồi sau đó bắt đúng bằng A/B test "4 cột lúc chưa gắn ảnh, 3 cột lúc đã gắn" ở
+  // CÙNG 1 cỡ cửa sổ -- xác nhận bản sửa lần trước (cộng ngược offsetHeight hàng ảnh) vẫn SAI) — lý do
+  // thật: khối prompt là `flex items-start` 2 CỘT (trái: chip+prompt, phải: toggle+nút Tạo) -- chiều cao
+  // cả khối = max(cột trái, cột phải), KHÔNG PHẢI cộng dồn tuyến tính. Lúc CHƯA gắn ảnh, cột PHẢI
+  // (toggle+nút Tạo) cao hơn cột trái -> cả khối cao theo cột phải (hằng số, không đổi). Lúc ĐÃ gắn ảnh,
+  // cột trái cao thêm (hàng thumbnail) VƯỢT QUA cột phải -> cả khối đổi sang cao theo cột trái -- mức
+  // tăng thật sự KHÔNG BẰNG đúng chiều cao hàng ảnh (vì trước đó cột phải vẫn "ăn bớt" 1 phần chênh lệch)
+  // -- công thức "trừ rồi cộng ngược y hệt chiều cao hàng ảnh" bị THỪA, khiến "available" tính dư ra một
+  // khoảng, hàng cao hơn thật, kéo theo ít cột hơn (3 thay vì 4) khi đã gắn ảnh. Đo riêng 2 cột (trái/
+  // phải) để tính lại ĐÚNG theo max(), xem promptLeftColRef/promptRightColRef trong effect bên dưới.
+  const promptImagesRowRef = useRef<HTMLDivElement | null>(null);
+  const promptLeftColRef = useRef<HTMLDivElement | null>(null);
+  const promptRightColRef = useRef<HTMLDivElement | null>(null);
   const [galleryGridHeightPx, setGalleryGridHeightPx] = useState<number | null>(null);
+  // SỬA (phản hồi thật user: 1:1 "bỏ giới hạn đó đi mình cho 6 cột thôi... hàng dưới không bị giới hạn
+  // bởi khung prompt") -- số cột vẫn phải TÍNH (không gán cứng 6), nhưng khi tính PHẢI bỏ luôn giới hạn
+  // của khung prompt khỏi chiều cao dùng để tính (không chỉ bỏ ở bước lấp chiều rộng như lần sửa trước) --
+  // đo thêm 1 chiều cao "không giới hạn" = khung cha trừ tiêu đề, KHÔNG trừ promptBarHeight nữa, riêng cho
+  // 1:1 dùng chiều cao này để tính số cột/kích thước ô, nên hàng dưới mới thật sự không bị giới hạn bởi
+  // khung prompt ngay từ bước tính số cột, không phải tràn ra sau khi đã tính xong như bản trước.
+  const [galleryGridUnconstrainedHeightPx, setGalleryGridUnconstrainedHeightPx] = useState<number | null>(null);
   // SỬA (phản hồi thật user: "9:16 vẫn không kín khung, còn viền đen" — "em đo lại các chiều khung hình
   // xem" — đo lại mới phát hiện: công thức cũ tính chiều cao hàng = "chiều cao khung / 2", HOÀN TOÀN
   // không liên quan tới chiều RỘNG cột hay tỉ lệ ảnh đang chọn — chỉ tình cờ gần đúng ở vài trường hợp.
@@ -3290,22 +3359,70 @@ export default function VideoTuYTuongClient({
     const wrapperEl = galleryWrapperRef.current;
     const headerEl = galleryHeaderRef.current;
     const gridEl = galleryGridRef.current;
+    const promptBarEl = promptBarWrapperRef.current;
+    const promptImagesRowEl = promptImagesRowRef.current;
+    const promptLeftColEl = promptLeftColRef.current;
+    const promptRightColEl = promptRightColRef.current;
     if (!wrapperEl || !headerEl) return;
+    // SỬA (phản hồi thật user: "màn hình các ô bị nháy") — gốc lỗi: gridEl.clientWidth đo được BAO GỒM
+    // cả việc thanh cuộn dọc có đang hiện hay không (overflow-y-auto) -- số cột/chiều rộng cột tính ra
+    // từ đó LẠI ảnh hưởng ngược tới chiều cao nội dung (càng nhiều cột, cột càng hẹp, hàng càng thấp),
+    // có thể đẩy nội dung tràn qua/dưới ngưỡng cần cuộn, khiến thanh cuộn tự ẩn/hiện liên tục -> vòng lặp
+    // phản hồi (ẩn thanh cuộn -> rộng ra -> đổi cột -> tràn -> hiện thanh cuộn -> hẹp lại -> đổi cột ->
+    // hết tràn -> ẩn thanh cuộn -> ...) -> nháy liên tục. Khoá luôn khoảng chừa chỗ cho thanh cuộn
+    // (scrollbarGutter: stable, xem style bên dưới) để clientWidth không còn đổi theo việc có cuộn hay
+    // không nữa, cắt đứt vòng lặp. Thêm làm tròn + bỏ qua setState khi giá trị không đổi (dù hiếm khi còn
+    // cần sau khi khoá gutter) để chặn luôn phần dao động rất nhỏ (sub-pixel) còn sót lại.
+    // Hàng thumbnail ảnh đã gắn (promptImagesRowEl) chỉ xuất hiện khi promptImages.length > 0 -- chiều
+    // cao của nó CỘNG THÊM 1 khe hở "gap-3" (12px) mà chính nó tạo ra trong cột trái (so với lúc không có
+    // hàng này) phải trừ ra khỏi chiều cao cột trái để tính ĐÚNG cột trái "như chưa gắn ảnh". Khối prompt
+    // là flex items-start 2 cột (trái/phải), chiều cao cả khối = max(trái, phải), KHÔNG PHẢI cộng dồn --
+    // "phần khung" (padding/viền của khối ngoài, không đổi dù có ảnh hay không) = chiều cao khối NGOÀI đo
+    // được trừ đi max(2 cột) đo được NGAY LÚC ĐÓ (tự hiệu chỉnh, không gán cứng số padding). Từ đó suy
+    // ra chiều cao khối prompt "như chưa gắn ảnh" = phần khung + max(cột trái đã trừ hàng ảnh, cột phải).
+    const PROMPT_IMAGES_ROW_GAP_PX = 12;
     const recompute = () => {
-      const available = wrapperEl.clientHeight - headerEl.offsetHeight;
-      if (available > 0) setGalleryGridHeightPx(available);
-      if (gridEl && gridEl.clientWidth > 0) setGalleryGridWidthPx(gridEl.clientWidth);
+      const promptBarHeight = promptBarEl?.offsetHeight ?? 0;
+      const leftColHeight = promptLeftColEl?.offsetHeight ?? 0;
+      const rightColHeight = promptRightColEl?.offsetHeight ?? 0;
+      const innerRowHeight = Math.max(leftColHeight, rightColHeight);
+      const chrome = promptBarEl ? promptBarHeight - innerRowHeight : 0;
+      const promptImagesRowHeight = promptImagesRowEl ? promptImagesRowEl.offsetHeight + PROMPT_IMAGES_ROW_GAP_PX : 0;
+      const leftColHeightWithoutImages = Math.max(0, leftColHeight - promptImagesRowHeight);
+      const normalizedPromptBarHeight = promptBarEl
+        ? chrome + Math.max(leftColHeightWithoutImages, rightColHeight)
+        : promptBarHeight;
+      const available = Math.round(wrapperEl.clientHeight - headerEl.offsetHeight - normalizedPromptBarHeight);
+      if (available > 0) {
+        setGalleryGridHeightPx((prev) => (prev === available ? prev : available));
+      }
+      // Chiều cao "không giới hạn bởi khung prompt" -- y hệt "available" nhưng KHÔNG trừ
+      // normalizedPromptBarHeight, dành riêng cho chế độ tràn (xem isFillWidthOverflow bên dưới).
+      const unconstrained = Math.round(wrapperEl.clientHeight - headerEl.offsetHeight);
+      if (unconstrained > 0) {
+        setGalleryGridUnconstrainedHeightPx((prev) => (prev === unconstrained ? prev : unconstrained));
+      }
+      if (gridEl && gridEl.clientWidth > 0) {
+        const width = Math.round(gridEl.clientWidth);
+        setGalleryGridWidthPx((prev) => (prev === width ? prev : width));
+      }
     };
     recompute();
     const observer = new ResizeObserver(recompute);
     observer.observe(wrapperEl);
     observer.observe(headerEl);
     if (gridEl) observer.observe(gridEl);
+    if (promptBarEl) observer.observe(promptBarEl);
+    if (promptImagesRowEl) observer.observe(promptImagesRowEl);
+    if (promptLeftColEl) observer.observe(promptLeftColEl);
+    if (promptRightColEl) observer.observe(promptRightColEl);
     return () => observer.disconnect();
     // optimisticPendingTile thêm vào deps: ô lạc quan khiến lưới mount SỚM HƠN projectJobs thật (xem
     // handlePromptCreate) -- effect phải chạy lại đúng lúc đó để gắn ResizeObserver, không đợi tới khi
-    // projectJobs thật có dữ liệu.
-  }, [isImageGalleryOverlay, projectJobs.length, optimisticPendingTile]);
+    // projectJobs thật có dữ liệu. promptImages.length thêm vào deps: hàng thumbnail ảnh (promptImagesRowEl)
+    // chỉ MOUNT/UNMOUNT theo đúng điều kiện này -- effect phải chạy lại đúng lúc đó để gắn/gỡ observer cho
+    // nó, không đợi tới khi 1 dependency khác tình cờ đổi.
+  }, [isImageGalleryOverlay, projectJobs.length, optimisticPendingTile, promptImages.length]);
 
   return (
     <div className="flex min-h-screen bg-black text-zinc-100">
@@ -3466,8 +3583,24 @@ export default function VideoTuYTuongClient({
       </aside>
 
       {/* Khối nội dung chính TÁCH RIÊNG khỏi sidebar — sidebar vuông góc, dính sát viền trang; khối
-          này mới có bo góc + lề ngoài, nền sáng hơn (zinc-800) các khối con bên trong (zinc-900). */}
-      <main className="m-3 flex min-w-0 flex-1 overflow-y-auto rounded-[32px] bg-zinc-700">
+          này mới có bo góc + lề ngoài. SỬA (phản hồi thật user: đổi nền sang gradient đen->tím->trắng
+          theo đúng ảnh mẫu) — màu đo thật từ ảnh mẫu (10 điểm dừng, lấy bằng sharp), dùng
+          backgroundAttachment: "fixed" để gradient luôn giữ đúng hình dạng theo khung nhìn, không bị
+          "dùng hết" rồi lặp lại/cắt cụt khi nội dung trang dài phải cuộn. */}
+      <main
+        className="m-3 flex min-w-0 flex-1 overflow-y-auto rounded-[32px]"
+        style={{
+          // SỬA (phản hồi thật user: "cho mờ đi thêm 1 tý") — ban đầu thử filter: saturate()/brightness()
+          // trên chính <main>, nhưng filter áp dụng cho CẢ nội dung con bên trong (chữ/thẻ/ảnh), không chỉ
+          // riêng nền — làm mờ luôn cả UI thật, sai ý. Đổi sang tính lại TRỰC TIẾP từng màu gradient (giảm
+          // độ bão hoà ~35%, giảm độ sáng ~10%), chỉ ảnh hưởng đúng nền, không đụng nội dung.
+          // SỬA tiếp (phản hồi thật user: "giảm độ trắng xuống 1 chút xíu") — giảm nhẹ độ sáng của 2 mốc
+          // cuối cùng (92%, 100%), giữ nguyên mọi vị trí/màu khác.
+          background:
+            "linear-gradient(to bottom, #06040d 0%, #06060e 14%, #080812 26%, #0a0716 38%, #0f0823 48%, #15093b 56%, #1e0a5d 64%, #401c88 72%, #60498a 82%, #7257a3 92%, #8b8891 100%)",
+          backgroundAttachment: "fixed",
+        }}
+      >
         {/* SỬA (phản hồi thật user: "đẩy 2 khối hình ảnh/video và khối viết prompt xuống sát mép dưới")
             — min-h-full + flex-col để khối "mt-auto" bên dưới (bọc quanh 2 khối chip+prompt) có chỗ đẩy
             xuống đáy khung thay vì đứng ngay dưới tiêu đề như trước. */}
@@ -3524,40 +3657,136 @@ export default function VideoTuYTuongClient({
                   createdAt: new Date().toISOString(),
                 };
                 const displayJobs = optimisticPendingTile ? [optimisticTile, ...projectJobs] : projectJobs;
-                if (displayJobs.length === 0) {
-                  return (
-                    <div className="rounded-2xl border border-dashed border-zinc-600 p-8 text-center text-sm text-zinc-400">
-                      Dự án này chưa có nội dung nào — tạo ảnh bên dưới sẽ tự gom vào đây.
-                    </div>
-                  );
+                // SỬA (phản hồi thật user: "không, anh muốn khi nhấn chọn vào nút tỷ lệ trong dự án là
+                // hiện luôn" — trước đây dự án RỖNG chỉ hiện 1 dòng chữ, không có lưới nào cả, nên đổi
+                // tỷ lệ ảnh không thấy gì thay đổi, phải đợi tạo xong ảnh thật mới thấy lưới) — bỏ hẳn
+                // nhánh "return sớm" khi rỗng, LUÔN render lưới thật (toàn ô trống dashed nếu chưa có
+                // job nào) để đổi tỷ lệ ảnh (storyAspectRatio) là thấy ngay số cột/hàng cập nhật tức
+                // thì, không cần tạo ảnh thật trước.
+                // SỬA (phản hồi thật user: "không, em phải tính đúng, còn thừa bao nhiêu thì để trống
+                // sang bên phải") -- trước đây LÀM TRÒN số cột rồi ép minmax(0,1fr) giãn đều lấp hết
+                // chiều rộng -> ô bị kéo giãn/co lại khỏi đúng tỉ lệ để vừa khít, không còn chính xác.
+                // Giờ đổi lại đúng yêu cầu: KHÔNG làm tròn, KHÔNG giãn ô -- lấy số cột NGUYÊN LỚN NHẤT
+                // (Math.floor) sao cho mỗi cột ĐÚNG CHÍNH XÁC chiều rộng lý tưởng (rowHeight × tỉ lệ ảnh,
+                // gán cứng px chứ không phải 1fr), phần dư còn lại (chưa đủ 1 cột trọn vẹn) để TRỐNG bên
+                // phải, không kéo giãn ô cuối cùng để lấp đầy.
+                // SỬA (phản hồi thật user: "thanh trượt để làm gì" chỉ vào thanh cuộn ngang mới xuất
+                // hiện) -- công thức Math.floor ở trên CHƯA trừ khe hở (gap-1 = 4px) GIỮA các cột, nên
+                // N cột thật ra chiếm N×idealColWidthPx + (N-1)×4px, vượt quá chiều rộng khung đo được 1
+                // chút -> trình duyệt tự bật overflow-x:auto (theo spec CSS, overflow-y khác "visible" thì
+                // overflow-x mặc định cũng tự thành "auto"), ra thanh cuộn ngang dù chỉ lệch vài px. Đưa
+                // khe hở vào đúng phương trình (N×w + (N-1)×gap ≤ khung) rồi khoá hẳn overflow-x: hidden
+                // để chắc chắn không bao giờ cuộn ngang, kể cả khi còn sai số làm tròn rất nhỏ.
+                // SỬA (phản hồi thật user: "16:9 cho cố định 4 cột..." rồi sau đó "không, lúc mình code ở
+                // HD và đối chiếu sang 2K thì sai rồi") -- số "4 cột" từng gán cứng cho riêng 16:9 chỉ là
+                // ĐOÁN mắt thường khớp ở 1 độ phân giải cụ thể lúc test (HD), không phải công thức tính --
+                // sai lệch ngay khi đổi sang màn hình khác (2K, 4K...) vì không co giãn theo chiều rộng
+                // khung thật. Bỏ hẳn nhánh gán cứng "4", quay lại DÙNG CHUNG đúng 1 công thức tính cho MỌI
+                // tỉ lệ (kể cả 16:9): số cột = Math.floor(chiều rộng khung thật / (rowHeight cố định theo
+                // "luôn đúng 2 hàng" × tỉ lệ ảnh)) -- công thức này tự scale đúng theo bất kỳ độ phân giải
+                // màn hình nào vì mọi số liệu đều đo trực tiếp bằng ResizeObserver lúc chạy, không có số
+                // nào gán cứng tay nữa.
+                const GRID_GAP_PX = 4;
+                // SỬA (phản hồi thật user: "em làm riêng từng tỷ lệ 1 thôi" -- đứng sau sự cố sửa 9:16
+                // lại vô tình đụng luôn 1:1 do dùng chung 1 điều kiện) -- từ đây viết tách HẲN 3 nhánh độc
+                // lập theo đúng storyAspectRatio, không còn biến gộp chung (isFillWidthOverflow) nào nữa.
+                // Mỗi nhánh tự đứng riêng, sửa nhánh nào chỉ nhánh đó đổi, không lo ảnh hưởng chéo nữa.
+                const unconstrainedRowHeightPx =
+                  galleryGridUnconstrainedHeightPx != null ? (galleryGridUnconstrainedHeightPx - GRID_GAP_PX) / 2 : null;
+
+                let computedColsCount: number;
+                let idealColWidthPx: number | null;
+                let rowHeightPx: number | null;
+
+                if (storyAspectRatio === "9:16") {
+                  // SỬA (phản hồi thật user: "tỷ lệ 9:16 là 2 hàng 6 cột" rồi "cho 7 cột 2 hàng") -- đồng
+                  // bộ đúng công thức đã chốt cho 1:1 và 16:9: số cột CỐ ĐỊNH = 7, rìa 10px mỗi bên, chiều
+                  // rộng tính TRƯỚC, chiều cao suy ra từ chiều rộng ÷ tỉ lệ ảnh -- không giới hạn bởi khung
+                  // prompt, tràn thì cuộn, dư thì để nguyên, y hệt 2 tỉ lệ kia.
+                  const FIXED_MARGIN_PER_SIDE_PX = 10;
+                  const FIXED_COLS_COUNT_9BY16 = 7;
+                  const innerWidthPx = galleryGridWidthPx != null ? galleryGridWidthPx - 2 * FIXED_MARGIN_PER_SIDE_PX : null;
+                  const tileWidthPx =
+                    innerWidthPx != null
+                      ? (innerWidthPx - (FIXED_COLS_COUNT_9BY16 - 1) * GRID_GAP_PX) / FIXED_COLS_COUNT_9BY16
+                      : null;
+                  computedColsCount = FIXED_COLS_COUNT_9BY16;
+                  idealColWidthPx = tileWidthPx;
+                  rowHeightPx = tileWidthPx != null ? tileWidthPx / projectTileRatioNumber : null;
+                } else if (storyAspectRatio === "1:1") {
+                  // SỬA (phản hồi thật user: "yêu cầu là 5 ô vậy mà em làm 7 ô" -- số liệu thật đo qua
+                  // DevTools (getBoundingClientRect) xác nhận: ĐÚNG 5 cột + vuông theo quy tắc rìa 10px
+                  // VỐN ĐÃ tự tràn ~87px qua khung prompt rồi -- không cần công thức riêng biệt/multiplier
+                  // nào cả. Lần đầu tiên thử bản này, em kết luận "không tràn" là do đọc nhầm ảnh chụp,
+                  // không phải do công thức sai. Quay lại bản đơn giản nhất: 5 cột cố định, vuông, chiều
+                  // rộng = (chiều rộng khung thật − 20px rìa) ÷ 5.
+                  const FIXED_MARGIN_PER_SIDE_PX = 10;
+                  const FIXED_COLS_COUNT_1BY1 = 5;
+                  const innerWidthPx = galleryGridWidthPx != null ? galleryGridWidthPx - 2 * FIXED_MARGIN_PER_SIDE_PX : null;
+                  const squareTileSizePx =
+                    innerWidthPx != null
+                      ? (innerWidthPx - (FIXED_COLS_COUNT_1BY1 - 1) * GRID_GAP_PX) / FIXED_COLS_COUNT_1BY1
+                      : null;
+                  computedColsCount = FIXED_COLS_COUNT_1BY1;
+                  idealColWidthPx = squareTileSizePx;
+                  rowHeightPx = squareTileSizePx;
+                } else {
+                  // 16:9 -- SỬA (phản hồi thật user: "em áp dụng nó sang tỷ lệ 16:9 là 2 hàng 4 cột") --
+                  // áp dụng đúng công thức đã chốt cho 1:1: số cột CỐ ĐỊNH = 4, rìa 10px mỗi bên, không
+                  // giới hạn bởi khung prompt (rowHeight tính từ colWidth ÷ tỉ lệ ảnh, không ép vừa khung
+                  // chứa) -- tràn thì cuộn, dư thì để nguyên, y hệt 1:1.
+                  const FIXED_MARGIN_PER_SIDE_PX = 10;
+                  const FIXED_COLS_COUNT_16BY9 = 4;
+                  const innerWidthPx = galleryGridWidthPx != null ? galleryGridWidthPx - 2 * FIXED_MARGIN_PER_SIDE_PX : null;
+                  const tileWidthPx =
+                    innerWidthPx != null
+                      ? (innerWidthPx - (FIXED_COLS_COUNT_16BY9 - 1) * GRID_GAP_PX) / FIXED_COLS_COUNT_16BY9
+                      : null;
+                  computedColsCount = FIXED_COLS_COUNT_16BY9;
+                  idealColWidthPx = tileWidthPx;
+                  rowHeightPx = tileWidthPx != null ? tileWidthPx / projectTileRatioNumber : null;
                 }
-                // SỬA (phản hồi thật user: "9:16 vẫn còn viền đen" — "em đo lại các chiều khung hình
-                // xem" — đo lại phát hiện công thức cũ (chiều cao hàng = chiều cao khung / 2) KHÔNG liên
-                // quan gì tới chiều RỘNG cột hay tỉ lệ ảnh thật đang chọn, chỉ tình cờ gần đúng — giờ tính
-                // ĐÚNG công thức: rowHeight = chiều rộng 1 cột (đo thật, trừ khe hở) / tỉ lệ ảnh
-                // (projectTileRatioNumber) — ô sẽ khớp CHÍNH XÁC tỉ lệ ảnh đang chọn, hết viền đen khi
-                // ảnh thật đúng tỉ lệ đó.
                 return (
-                  <div
-                    ref={galleryGridRef}
-                    className="-mx-6 grid min-h-0 gap-1 overflow-y-auto px-2"
-                    style={{
-                      height: galleryGridHeightPx != null ? `${galleryGridHeightPx}px` : undefined,
-                      flex: galleryGridHeightPx != null ? "none" : "1 1 0%",
-                      gridTemplateColumns: `repeat(${projectGridColsCount}, minmax(0, 1fr))`,
-                      gridAutoRows:
-                        galleryGridWidthPx != null
-                          ? `${((galleryGridWidthPx - (projectGridColsCount - 1) * 4) / projectGridColsCount / projectTileRatioNumber).toFixed(2)}px`
-                          : "1fr",
-                    }}
-                  >
-                    {displayJobs.map((job) => renderProjectJobTile(job, true))}
-                    {Array.from({
-                      length:
-                        Math.max(projectGridColsCount * 2, Math.ceil(displayJobs.length / projectGridColsCount) * projectGridColsCount) -
-                        displayJobs.length,
-                    }).map((_, i) => renderEmptyProjectTile(`empty-${i}`, true))}
-                  </div>
+                  <>
+                    {displayJobs.length === 0 && (
+                      <p className="mb-2 text-center text-sm text-zinc-400">
+                        Dự án này chưa có nội dung nào — tạo ảnh bên dưới sẽ tự gom vào đây.
+                      </p>
+                    )}
+                    <div
+                      ref={galleryGridRef}
+                      className="no-scrollbar -mx-6 grid min-h-0 gap-1 overflow-y-auto overflow-x-hidden px-2"
+                      style={{
+                        height: galleryGridHeightPx != null ? `${galleryGridHeightPx}px` : undefined,
+                        flex: galleryGridHeightPx != null ? "none" : "1 1 0%",
+                        gridTemplateColumns:
+                          idealColWidthPx != null
+                            ? `repeat(${computedColsCount}, ${idealColWidthPx.toFixed(2)}px)`
+                            : `repeat(${computedColsCount}, minmax(0, 1fr))`,
+                        // SỬA (phản hồi thật user, riêng tỉ lệ 1:1: "chia lại 5 cột và tính làm sao cho
+                        // chừa rìa bên trái và rìa bên phải bằng nhau") -- trước đây MỌI tỉ lệ đều
+                        // justifyContent: "start" (lưới dính sát trái, khoảng dư dồn hết bên phải). Riêng
+                        // 1:1 đổi sang "center" để khoảng dư chia đều 2 bên, rìa trái/phải bằng nhau. 9:16
+                        // và 16:9 CHƯA đụng tới (giữ "start" như cũ) vì đang làm riêng từng tỉ lệ 1, chưa
+                        // tới lượt chúng.
+                        justifyContent: storyAspectRatio === "1:1" ? "center" : "start",
+                        // SỬA (phản hồi thật user: "em đã không kéo hàng 2 xuống mà em lại làm cho hàng 2
+                        // chiều cao bị ngắn lại rồi") -- thử "Xpx 1fr" cho hàng 2 tự giãn đã SAI: khi hàng
+                        // 1 (cỡ cố định) đã to hơn cả khung chứa (màn hình rộng), phần "1fr" không còn
+                        // chỗ trống nào để giãn, bị co gần về 0 thay vì tràn ra ngoài như hàng 1 -- hiểu
+                        // sai cách CSS 1fr hoạt động. Trả lại gridAutoRows đều cho mọi hàng (bản đã xác
+                        // nhận hoạt động đúng: 2 hàng bằng nhau, tự tràn + cuộn được khi màn hình đủ rộng).
+                        gridAutoRows: rowHeightPx != null ? `${rowHeightPx.toFixed(2)}px` : "1fr",
+                      }}
+                    >
+                      {displayJobs.map((job) => renderProjectJobTile(job, true))}
+                      {Array.from({
+                        length:
+                          Math.max(computedColsCount * 2, Math.ceil(displayJobs.length / computedColsCount) * computedColsCount) -
+                          displayJobs.length,
+                      }).map((_, i) => renderEmptyProjectTile(`empty-${i}`, true))}
+                    </div>
+                  </>
                 );
               })()}
             </div>
@@ -3575,21 +3804,27 @@ export default function VideoTuYTuongClient({
                   Thoát dự án
                 </button>
               </div>
-              {/* SỬA (phản hồi thật user: "bố trí thành 2 hàng mỗi hàng 8 cột...") — tab "video" vẫn 8
-                  cột giới hạn 2 hàng + tự cuộn riêng như cũ, không đổi. */}
+              {/* SỬA (phản hồi thật user: "để thử em cứ cho khi khách chọn vào nút tỷ lệ ảnh" — test
+                  trước, chỉnh chính xác sau) — số cột giờ co giãn theo storyAspectRatio
+                  (projectGridColsCount) giống lưới tab "hình ảnh", thay vì cố định 8 cột như trước. */}
               {projectJobs.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-zinc-600 p-8 text-center text-sm text-zinc-400">
                   Dự án này chưa có nội dung nào — tạo ảnh bên dưới sẽ tự gom vào đây.
                 </div>
               ) : (
                 <div
-                  className="grid auto-rows-fr grid-cols-8 gap-3 overflow-y-auto pr-1"
-                  style={{ maxHeight: "calc(2 * (((100% - 7 * 0.75rem) / 8)) + 0.75rem)" }}
+                  className="grid auto-rows-fr gap-3 overflow-y-auto pr-1"
+                  style={{
+                    gridTemplateColumns: `repeat(${projectGridColsCount}, minmax(0, 1fr))`,
+                    maxHeight: `calc(2 * (((100% - ${projectGridColsCount - 1} * 0.75rem) / ${projectGridColsCount})) + 0.75rem)`,
+                  }}
                 >
                   {projectJobs.map((job) => renderProjectJobTile(job))}
-                  {Array.from({ length: Math.max(16, Math.ceil(projectJobs.length / 8) * 8) - projectJobs.length }).map((_, i) =>
-                    renderEmptyProjectTile(`empty-${i}`)
-                  )}
+                  {Array.from({
+                    length:
+                      Math.max(projectGridColsCount * 2, Math.ceil(projectJobs.length / projectGridColsCount) * projectGridColsCount) -
+                      projectJobs.length,
+                  }).map((_, i) => renderEmptyProjectTile(`empty-${i}`))}
                 </div>
               )}
             </div>
@@ -3619,6 +3854,7 @@ export default function VideoTuYTuongClient({
               Vì là absolute, khối này RA KHỎI LUỒNG hẳn — không chiếm chỗ, không đẩy lưới ảnh lên/xuống
               — lưới ảnh phía sau cứ trải dài hết khung, chỉ bị khối này che 1 phần cố định. */}
           <div
+            ref={promptBarWrapperRef}
             className={
               // SỬA (phản hồi thật user: "cắt bỏ phần vuông màu xám bên ngoài đường viền đi, chỉ giữ lại
               // từ viền màu xám trở vào trong" — khối NGOÀI này trước có riêng bg-zinc-700 + px-6 pb-2
@@ -3654,43 +3890,17 @@ export default function VideoTuYTuongClient({
               cần thiết ở đây nữa. */}
           <div>
           {promptMediaTab === "video" ? (
-            <div className="flex flex-col gap-2 rounded-[44px] border border-zinc-500 bg-zinc-700 p-3">
-              {/* KHỐI 1/2 — bản thiết kế có 2 khối riêng biệt (khối pill trên + khối box dưới), không
-                  phải 1 khối gộp chung như bản trước. Khối này: tab toggle RIÊNG 1 DÒNG trên cùng (sát
-                  góc trên-trái của khối), chip preset (tài liệu tham khảo/máy ảnh/bảng màu/ánh sáng/
-                  thiết lập phim tự động) ở DÒNG RIÊNG bên dưới — đúng hướng mũi tên anh vẽ nhiều lần
-                  (từ hàng chip chỉ lên khối tab, nghĩa là 2 dòng tách biệt, không chung 1 hàng). */}
-              {/* SỬA (phản hồi thật user: "đẩy dòng chữ tài liệu tham khảo lên sát viền hình ảnh/video và
-                  nâng viền dưới lên" — khoanh đỏ khoảng trống cả trên lẫn dưới hàng chip) — gap-2 ->
-                  gap-0 (sát hàng tab toggle hơn), pb-3 -> pb-1 (viền dưới khối nâng lên gần hàng chip
-                  hơn, bớt khoảng trống thừa). */}
-              <div
-                className="flex flex-col gap-0 rounded-[40px] border border-fuchsia-500/50 bg-zinc-800 pb-0 pl-1 pr-4 pt-0"
-                style={{ boxShadow: "0 0 45px -4px rgba(217,70,239,0.75), 0 0 4px rgba(217,70,239,0.95)" }}
-              >
-                {/* Viền TRÊN của tab toggle phải trùng/sát viền trên của khối lớn — không có khoảng đệm
-                    phía trên (pt-0 ở div cha), tab nằm sát ngay mép trong của viền ngoài. */}
-                <div
-                  className="flex w-fit items-center gap-1 rounded-full border border-fuchsia-500/60 bg-zinc-700 p-1"
-                  style={{ boxShadow: "0 0 10px -2px rgba(217,70,239,0.6)" }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => setPromptMediaTab("hinh-anh")}
-                    className="rounded-full px-4 py-1.5 text-sm font-medium text-zinc-300 hover:text-zinc-100"
-                  >
-                    hình ảnh
-                  </button>
-                  <button type="button" className="rounded-full bg-zinc-200 px-4 py-1.5 text-sm font-medium text-zinc-900">
-                    video
-                  </button>
-                </div>
-
-                {/* SỬA (phản hồi thật user: "dịch chuyển các dòng chữ thẳng đường kẻ màu đỏ và cho to
-                    thêm" — mũi tên đỏ chỉ ngay sau cụm nút tab toggle) — ml-[95px] -> ml-[140px] (bắt
-                    đầu đúng sau khi tab toggle kết thúc, không đè lên chữ "video" nữa), text-sm -> base
-                    + icon to hơn cho cả 5 nút chip. */}
-                <div className="ml-[140px] flex flex-wrap items-center gap-3">
+            // SỬA (phản hồi thật user: "sang tab video em cũng làm như vậy cho anh" — áp dụng ĐÚNG bố cục
+            // 2 cột + nền đen + bo góc nhẹ vừa làm cho tab "hình ảnh" sang tab "video"): outer rounded-2xl
+            // bg-black (thay rounded-[44px] bg-zinc-700), 2 cột flex-row (trái: toolbar+prompt gộp 1 khối
+            // không viền tím; phải: toggle hình-ảnh/video xếp dọc nền đen + nút Tạo/Hủy).
+            <div className="flex flex-col gap-2 rounded-2xl border border-zinc-500 bg-black p-3">
+              <div className="flex items-start gap-3">
+                {/* CỘT TRÁI — chip preset (tài liệu tham khảo/máy ảnh/bảng màu/ánh sáng/thiết lập phim tự
+                    động) + ô prompt + hàng icon dưới (upload/mention/camera/model/độ phân giải/tỉ lệ/thời
+                    gian), gộp chung 1 khối liền mạch, không viền/glow tím riêng. */}
+                <div className="flex min-w-0 flex-1 flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                 <button
                   type="button"
                   onClick={() => setPickerModal({ defaultTab: "reference", forMention: false })}
@@ -3744,12 +3954,12 @@ export default function VideoTuYTuongClient({
                   thiết lập phim tự động
                 </button>
                 </div>
-              </div>
 
-              {/* KHỐI 2/3 — ô "viết prompt" + icon toolbar — khối này KHÔNG viền tím (bình thường), đúng
-                  ảnh mẫu: chỉ có khối chip (khối 1) và khối nút "Tạo" (khối 3) mới có viền neon, khối ô
-                  prompt này chỉ là box tối thường, không glow. */}
-              <div className="flex flex-col gap-3 rounded-[28px] bg-zinc-800 p-4">
+                {/* SỬA (phản hồi thật user: "tạo 1 đường viền mờ dưới các thanh công cụ để ngăn cách với
+                    viết prompt, ở cả 2 tab") — đường kẻ mờ phân cách hàng chip công cụ khỏi phần ô prompt
+                    bên dưới. */}
+                <div className="h-px bg-zinc-800" />
+
                 {promptImages.length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {/* SỬA (phản hồi thật user: "tên ... không xuất hiện ... chỉ cần trỏ chuột và nhấp
@@ -3801,12 +4011,15 @@ export default function VideoTuYTuongClient({
                     </button>
                   </div>
                 )}
+                {/* SỬA (phản hồi thật user: "thu ngắn chiều cao khi đã chọn ảnh xuống trong tab video") —
+                    4 dòng khi chưa có ảnh nào gắn, chỉ 2 dòng khi đã có ít nhất 1 ảnh (ảnh preview đã
+                    chiếm chỗ phía trên rồi, không cần ô prompt cao như lúc trống). */}
                 <textarea
                   ref={promptTextareaRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   placeholder="viết prompt"
-                  rows={4}
+                  rows={promptImages.length > 0 ? 2 : 4}
                   className="w-full resize-none bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
                 />
 
@@ -3893,36 +4106,54 @@ export default function VideoTuYTuongClient({
                     ))}
                   </select>
                 )}
-              </div>
+                </div>
+                </div>
 
-              {/* Nút "Tạo" — NẰM TRONG khối ô prompt (không tách khối riêng), nhưng tự nó có viền tím
-                  ĐẬM (border dày, màu rõ) + nền màu tím NHẠT hơn viền (không phải đen/zinc-950 nữa). */}
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => handlePromptCreate()}
-                  disabled={storyRunning}
-                  style={{ boxShadow: "0 0 32px -3px rgba(217,70,239,0.8)" }}
-                  className="flex-1 rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 py-2 text-base font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {storyRunning ? "Đang tạo..." : "Tạo"}
-                </button>
-                {/* SỬA (phản hồi thật user: "để tránh bị kẹt khi đang tạo khiến app không xoá được" --
-                    trước đây nút "Hủy" (handleCancelStoryVideo) đã viết sẵn nhưng CHƯA TỪNG được gắn vào
-                    JSX nào -- khi request treo (mạng chậm, server không phản hồi...), khách không có
-                    cách nào thoát khỏi trạng thái "Đang tạo..." ngoài tải lại trang. Luôn hiện nút này
-                    khi storyRunning, không chỉ ẩn/disable chờ xong. */}
-                {storyRunning && (
+                {/* CỘT PHẢI — toggle hình-ảnh/video xếp dọc (nền đen) + nút Tạo/Hủy, giống hệt bố cục
+                    tab "hình ảnh". */}
+                <div className="flex w-36 shrink-0 flex-col gap-3">
+                  <div
+                    className="flex flex-col overflow-hidden rounded-2xl border border-fuchsia-500/60 bg-black"
+                    style={{ boxShadow: "0 0 10px -2px rgba(217,70,239,0.6)" }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setPromptMediaTab("hinh-anh")}
+                      className="px-4 py-2.5 text-sm font-medium text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+                    >
+                      hình ảnh
+                    </button>
+                    <div className="h-px bg-zinc-700" />
+                    <button type="button" className="bg-zinc-200 px-4 py-2.5 text-sm font-medium text-zinc-900">
+                      video
+                    </button>
+                  </div>
+
                   <button
                     type="button"
-                    onClick={() => handleCancelStoryVideo()}
-                    disabled={storyCancelling}
-                    className="rounded-full border-2 border-zinc-500 bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={() => handlePromptCreate()}
+                    disabled={storyRunning}
+                    style={{ boxShadow: "0 0 32px -3px rgba(217,70,239,0.8)" }}
+                    className="rounded-2xl border-2 border-fuchsia-500 bg-fuchsia-500/20 py-2.5 text-base font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {storyCancelling ? "Đang hủy..." : "Hủy"}
+                    {storyRunning ? "Đang tạo..." : "Tạo"}
                   </button>
-                )}
-              </div>
+                  {/* SỬA (phản hồi thật user: "để tránh bị kẹt khi đang tạo khiến app không xoá được" --
+                      trước đây nút "Hủy" (handleCancelStoryVideo) đã viết sẵn nhưng CHƯA TỪNG được gắn vào
+                      JSX nào -- khi request treo (mạng chậm, server không phản hồi...), khách không có
+                      cách nào thoát khỏi trạng thái "Đang tạo..." ngoài tải lại trang. Luôn hiện nút này
+                      khi storyRunning, không chỉ ẩn/disable chờ xong. */}
+                  {storyRunning && (
+                    <button
+                      type="button"
+                      onClick={() => handleCancelStoryVideo()}
+                      disabled={storyCancelling}
+                      className="rounded-2xl border-2 border-zinc-500 bg-zinc-700 py-2.5 text-sm font-medium text-zinc-200 hover:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {storyCancelling ? "Đang hủy..." : "Hủy"}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           ) : null}
@@ -3931,38 +4162,22 @@ export default function VideoTuYTuongClient({
             // SỬA (phản hồi thật user: "viền xám đâu" — hoá ra phạm vi đúng là NGƯỢC lại: viền xám cần
             // HIỆN khi isImageGalleryOverlay (đang mở dự án + tab hình ảnh, đã có ảnh), không phải ẩn ở
             // đó — chỉ ẩn ở tab hình ảnh lúc CHƯA mở dự án (nơi chưa từng có viền này).
-            <div className={`flex flex-col gap-2 rounded-[44px] border border-zinc-500 bg-zinc-700 p-3 ${isImageGalleryOverlay ? "mx-[60px]" : ""}`}>
-              {/* KHỐI 1/2 tab "hình ảnh" — ĐÚNG cấu trúc tab "video": tab toggle riêng 1 dòng trên cùng
-                  (sát góc trên-trái), chip cấu hình (character/camera/màu sắc) ở dòng riêng bên dưới,
-                  cả khối viền tím phát sáng. */}
-              {/* SỬA (phản hồi thật user: "đẩy dòng chữ tài liệu tham khảo lên sát viền hình ảnh/video và
-                  nâng viền dưới lên" — khoanh đỏ khoảng trống cả trên lẫn dưới hàng chip) — gap-2 ->
-                  gap-0 (sát hàng tab toggle hơn), pb-3 -> pb-1 (viền dưới khối nâng lên gần hàng chip
-                  hơn, bớt khoảng trống thừa). */}
-              <div
-                className="flex flex-col gap-0 rounded-[40px] border border-fuchsia-500/50 bg-zinc-800 pb-0 pl-1 pr-4 pt-0"
-                style={{ boxShadow: "0 0 45px -4px rgba(217,70,239,0.75), 0 0 4px rgba(217,70,239,0.95)" }}
-              >
-                <div
-                  className="flex w-fit items-center gap-1 rounded-full border border-fuchsia-500/60 bg-zinc-700 p-1"
-                  style={{ boxShadow: "0 0 10px -2px rgba(217,70,239,0.6)" }}
-                >
-                  <button
-                    type="button"
-                    className="rounded-full bg-zinc-200 px-4 py-1.5 text-sm font-medium text-zinc-900"
-                  >
-                    hình ảnh
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPromptMediaTab("video")}
-                    className="rounded-full px-4 py-1.5 text-sm font-medium text-zinc-300 hover:text-zinc-100"
-                  >
-                    video
-                  </button>
-                </div>
-
-                <div className="ml-[140px] flex flex-wrap items-center gap-3">
+            // SỬA (phản hồi thật user: "toàn bộ khối prompt thành màu đen") — bg-zinc-700 -> đen.
+            // SỬA tiếp (phản hồi thật user: "bo góc thế này đừng bo tròn quá") — rounded-[44px] -> rounded-2xl
+            // (bo nhẹ hơn hẳn, không còn cong tròn như viên thuốc).
+            <div className={`flex flex-col gap-2 rounded-2xl border border-zinc-500 bg-black p-3 ${isImageGalleryOverlay ? "mx-[60px]" : ""}`}>
+              {/* SỬA (phản hồi thật user: phác thảo lại bố cục tab "hình ảnh" thành 2 CỘT — trái gộp chung
+                  toolbar + ô prompt thành 1 khối liền mạch, phải tách riêng nút hình-ảnh/video (xếp dọc)
+                  và nút Tạo thành 2 khối nhỏ riêng biệt, bo góc đầy đủ) — thay thế hẳn bố cục cũ (2 khối
+                  xếp chồng theo chiều dọc, tab toggle nằm ngang bên trong khối 1) bằng flex-row 2 cột. */}
+              <div className="flex items-start gap-3">
+                {/* CỘT TRÁI — toolbar (character/camera/màu sắc/model...) + ảnh đã gắn + ô prompt. SỬA
+                    (phản hồi thật user: "cho thanh công cụ và prompt và các nút bên cột phải thành 1
+                    khối") — bỏ hẳn nền/bo góc RIÊNG của cột này (trước là bg-zinc-800 rounded-[32px], tạo
+                    cảm giác "khối trong khối") — giờ nằm trực tiếp trên nền zinc-700 của khối ngoài cùng,
+                    cả thanh công cụ/prompt/2 nút cột phải đọc thành ĐÚNG 1 khối duy nhất. */}
+                <div ref={promptLeftColRef} className="flex min-w-0 flex-1 flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <button
                     type="button"
                     onClick={() => setPickerModal({ defaultTab: "reference", forMention: true })}
@@ -4078,16 +4293,20 @@ export default function VideoTuYTuongClient({
                     </select>
                   </div>
                 </div>
-              </div>
 
-              {/* KHỐI 2/2 tab "hình ảnh" — ô "viết prompt", không viền tím (đúng tab video); nút "Tạo"
-                  dính liền cuối khối, có viền tím đậm + nền tím nhạt. */}
-              {/* SỬA (phản hồi thật user: "đưa khối Tạo xuống... chạm vào viền đen cạnh dưới của ô viết
-                  prompt" — bỏ hẳn đệm dưới (p-4 -> px-4 pt-4) để nút Tạo chạm sát mép dưới khối, không
-                  còn khoảng trống thừa bên dưới nút nữa. */}
-              <div className="flex flex-col gap-3 rounded-[28px] bg-zinc-800 px-4 pt-4">
+                {/* SỬA (phản hồi thật user: "tạo 1 đường viền mờ dưới các thanh công cụ để ngăn cách với
+                    viết prompt, ở cả 2 tab") — đường kẻ mờ phân cách hàng chip công cụ khỏi phần ô prompt
+                    bên dưới. */}
+                <div className="h-px bg-zinc-800" />
+
                 {promptImages.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
+                  // SỬA (phản hồi thật user: "không cần co lại, bỏ giới hạn đó đi, cứ để kích thước đúng
+                  // như bên chưa có ảnh trong ô prompt") — gắn ref vào đúng khối NÀY (hàng thumbnail ảnh
+                  // đã gắn) để trừ riêng chiều cao của nó ra khỏi công thức tính khoảng trống cho lưới
+                  // (xem promptImagesRowRef trong effect ResizeObserver) -- nhờ vậy lưới ảnh LUÔN tính
+                  // như thể khối prompt KHÔNG có hàng ảnh này, dù có gắn ảnh hay không, kích thước ô lưới
+                  // không còn co lại theo nữa.
+                  <div ref={promptImagesRowRef} className="flex flex-wrap gap-2">
                     {/* SỬA (phản hồi thật user: "tên ... không xuất hiện ... chỉ cần trỏ chuột và nhấp
                         vào là tên hiện ra ngay chỗ đang viết prompt") — nhãn @element_id hiện dưới mỗi
                         ảnh đã gắn (nếu đến từ kho tham chiếu, có elementId); bấm vào nhãn mới chèn
@@ -4146,14 +4365,35 @@ export default function VideoTuYTuongClient({
                   rows={2}
                   className="w-full resize-none bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
                 />
+                </div>
 
-                <div className="flex gap-2">
+                {/* CỘT PHẢI — 2 khối nhỏ riêng biệt, bo góc: nút hình-ảnh/video (xếp DỌC thay vì ngang)
+                    ở trên, nút Tạo/Hủy ở dưới. */}
+                <div ref={promptRightColRef} className="flex w-36 shrink-0 flex-col gap-3">
+                  {/* SỬA (phản hồi thật user: "cho màu nền khối này thành màu đen") — bg-zinc-700 -> đen. */}
+                  <div
+                    className="flex flex-col overflow-hidden rounded-2xl border border-fuchsia-500/60 bg-black"
+                    style={{ boxShadow: "0 0 10px -2px rgba(217,70,239,0.6)" }}
+                  >
+                    <button type="button" className="bg-zinc-200 px-4 py-2.5 text-sm font-medium text-zinc-900">
+                      hình ảnh
+                    </button>
+                    <div className="h-px bg-zinc-700" />
+                    <button
+                      type="button"
+                      onClick={() => setPromptMediaTab("video")}
+                      className="px-4 py-2.5 text-sm font-medium text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+                    >
+                      video
+                    </button>
+                  </div>
+
                   <button
                     type="button"
                     onClick={handlePromptImageCreate}
                     disabled={storyRunning}
                     style={{ boxShadow: "0 0 32px -3px rgba(217,70,239,0.8)" }}
-                    className="flex-1 rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 py-2 text-base font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-2xl border-2 border-fuchsia-500 bg-fuchsia-500/20 py-2.5 text-base font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {storyRunning ? "Đang tạo..." : "Tạo"}
                   </button>
@@ -4164,7 +4404,7 @@ export default function VideoTuYTuongClient({
                       type="button"
                       onClick={() => handleCancelStoryVideo()}
                       disabled={storyCancelling}
-                      className="rounded-full border-2 border-zinc-500 bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-2xl border-2 border-zinc-500 bg-zinc-700 py-2.5 text-sm font-medium text-zinc-200 hover:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {storyCancelling ? "Đang hủy..." : "Hủy"}
                     </button>
@@ -4246,14 +4486,29 @@ export default function VideoTuYTuongClient({
                   <p className="text-sm text-zinc-300">Ảnh nhân vật đã tạo xong — xem và bấm tiếp để chia cảnh.</p>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={storyCharacterSheetUrl} alt="" className="max-h-[360px] rounded-xl" />
-                  <button
-                    type="button"
-                    onClick={handleContinueToScenes}
-                    disabled={storyContinuingScenes}
-                    className="rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 px-5 py-2 text-sm font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {storyContinuingScenes ? "Đang xử lý..." : "Tiếp tục chia cảnh"}
-                  </button>
+                  {/* SỬA (phản hồi thật user: "không có nút hủy" chỉ vào đúng khối này) — mốc
+                      "character_ready" trước đây chỉ có "Tiếp tục chia cảnh", không có đường nào thoát
+                      ra nếu khách không muốn chia cảnh tiếp. Thêm nút Hủy ngay cạnh, dùng chung
+                      handleCancelStoryVideo (đã sửa để hủy được cả mốc character_ready — xem
+                      cancelStoryVideoJob trong lib/story-video.ts). */}
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={handleContinueToScenes}
+                      disabled={storyContinuingScenes || storyCancelling}
+                      className="rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 px-5 py-2 text-sm font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {storyContinuingScenes ? "Đang xử lý..." : "Tiếp tục chia cảnh"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleCancelStoryVideo()}
+                      disabled={storyContinuingScenes || storyCancelling}
+                      className="rounded-full border-2 border-zinc-500 bg-zinc-700 px-5 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {storyCancelling ? "Đang hủy..." : "Hủy"}
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -4266,26 +4521,31 @@ export default function VideoTuYTuongClient({
                     <button
                       type="button"
                       onClick={() => handleContinueToImages()}
-                      disabled={storyContinuingImages}
+                      disabled={storyContinuingImages || storyCancelling}
                       className="rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/20 px-5 py-2 text-sm font-semibold text-white hover:bg-fuchsia-500/30 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {storyContinuingImages ? "Đang xử lý..." : "Tạo ảnh"}
                     </button>
-                    {/* SỬA (phản hồi thật user: nút "Tạo ảnh" bị kẹt ở "Đang xử lý..." không thoát ra
-                        được -- thêm nút hủy cục bộ, chỉ reset lại cờ phía client vì bước này (request
-                        ban đầu gọi continue-to-images) chưa kịp tạo job con nào phía server để hủy. */}
-                    {storyContinuingImages && (
-                      <button
-                        type="button"
-                        onClick={() => {
+                    {/* SỬA (phản hồi thật user: "không có nút hủy" ở mốc tương tự character_ready) —
+                        trước đây nút Hủy chỉ hiện TRONG LÚC đang bấm "Tạo ảnh" (storyContinuingImages,
+                        chỉ reset cờ client vì lúc đó chưa có job con nào phía server) -- giờ luôn hiện,
+                        gọi thẳng handleCancelStoryVideo để hủy HẲN job đang dừng ở mốc "đã chia cảnh" này
+                        (đã sửa để hủy được cả mốc scenes_ready -- xem cancelStoryVideoJob). */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (storyContinuingImages) {
                           setStoryContinuingImages(false);
                           setStoryError("Đã hủy theo yêu cầu của bạn");
-                        }}
-                        className="rounded-full border-2 border-zinc-500 bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-600"
-                      >
-                        Hủy
-                      </button>
-                    )}
+                          return;
+                        }
+                        handleCancelStoryVideo();
+                      }}
+                      disabled={storyCancelling}
+                      className="rounded-full border-2 border-zinc-500 bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {storyCancelling ? "Đang hủy..." : "Hủy"}
+                    </button>
                   </div>
                 </div>
               )}

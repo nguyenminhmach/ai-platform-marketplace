@@ -4540,9 +4540,26 @@ export async function cancelStoryVideoJob(userId: string, jobId: number): Promis
   const { data: job } = await supabase.from("story_video_jobs").select("user_id, status").eq("id", jobId).single();
   if (!job) throw new Error("Không tìm thấy job");
   if (job.user_id !== userId) throw new Error("Không có quyền với job này");
-  // Chỉ dừng được job đang thật sự chạy dở — job đã xong/lỗi/đã dừng rồi thì bỏ qua im lặng, tránh ghi
-  // đè lên 1 trạng thái đã có ý nghĩa khác (vd job đã "done" mà lỡ bấm dừng do bấm nhầm/chậm mạng).
-  const activeStatuses = ["pending", "generating_character", "splitting_story", "generating_images", "generating_videos", "stitching"];
+  // Chỉ dừng được job đang thật sự chạy dở hoặc đang dừng ở 1 mốc chờ khách xác nhận tiếp — job đã
+  // xong/lỗi/đã dừng rồi thì bỏ qua im lặng, tránh ghi đè lên 1 trạng thái đã có ý nghĩa khác (vd job đã
+  // "done" mà lỡ bấm dừng do bấm nhầm/chậm mạng).
+  // SỬA (phản hồi thật user: "đã hủy sao còn bắt tạo tiếp") — gốc lỗi: khách bấm Hủy đúng lúc job vừa
+  // tạo xong ảnh Character xong (race: bước generating_character kết thúc ngay trước khi lệnh hủy này
+  // chạy tới) -- "character_ready"/"scenes_ready"/"images_ready" trước đây KHÔNG nằm trong activeStatuses
+  // nên bị coi như đã "xong", lệnh hủy bỏ qua im lặng, job vẫn nằm nguyên ở mốc đó chờ khách bấm "Tiếp
+  // tục" -- trông y hệt không hủy được. 3 mốc này thực chất vẫn là job CHƯA xong (chỉ đang dừng chờ
+  // khách xác nhận bước kế tiếp), nên vẫn phải hủy được bình thường như các trạng thái đang chạy khác.
+  const activeStatuses = [
+    "pending",
+    "generating_character",
+    "character_ready",
+    "splitting_story",
+    "scenes_ready",
+    "generating_images",
+    "images_ready",
+    "generating_videos",
+    "stitching",
+  ];
   if (!activeStatuses.includes(job.status)) return;
   await supabase.from("story_video_jobs").update({ status: "cancelled", error_message: "Đã dừng theo yêu cầu của bạn" }).eq("id", jobId);
 }
