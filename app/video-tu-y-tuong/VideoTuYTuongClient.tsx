@@ -3535,6 +3535,9 @@ export default function VideoTuYTuongClient({
           <Link href="/" className="block rounded-lg px-3 py-2 text-zinc-300 hover:bg-zinc-900 hover:text-white">
             trang chủ
           </Link>
+          <Link href="/3d-builder" className="block rounded-lg px-3 py-2 text-zinc-300 hover:bg-zinc-900 hover:text-white">
+            3D Builder
+          </Link>
           <span className="block rounded-lg border border-fuchsia-500/60 bg-zinc-700 px-3 py-2 font-medium text-fuchsia-400">không gian cho mọi ý tưởng</span>
           <Link href="/reference-elements" className="block rounded-lg px-3 py-2 text-zinc-300 hover:bg-zinc-900 hover:text-white">
             hình ảnh tham chiếu
